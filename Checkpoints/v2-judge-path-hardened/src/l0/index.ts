@@ -356,10 +356,30 @@ function decideInner(text: string, origin: BufferOrigin = 'agent'): L0BaseVerdic
   // so the verdict reports which detector fired but was contextually killed.
   let lastMatchedMember: L0Member | null = null;
   let lastMatchedSpan: string | null = null;
+  // V-052: the same text with quoted PROSE spans removed. A hit that does not survive this is a quotation.
+  const quoteStripped = stripQuotedProse(text);
+  let quotedSuppressed = 0;
 
   for (const member of L0_MEMBERS) {
     const matchedSpan = member.matcher(text);
     if (!matchedSpan) continue;
+
+    // V-052 / WO-2: a hit that lives ONLY inside a quotation is not the agent performing the act.
+    // (When a non-quoted hit ALSO exists, `matcher(quoteStripped)` still hits and the member proceeds —
+    // the conservative direction: speech is suppressed, never a real act.)
+    if (quoteStripped !== text && !member.matcher(quoteStripped)) {
+      quotedSuppressed += 1;
+      recordFiring({
+        rule: member.id,
+        buffer: 'quoted',
+        band: 'skip',
+        matched_span: matchedSpan,
+        verdict: 'quoted-prose hit — not the agent\u2019s own voice (V-052, WO-2)',
+        jev_called: false,
+        skip_reason: 'quoted-prose:' + member.id,
+      });
+      continue;
+    }
 
     lastMatchedMember = member;
     lastMatchedSpan = matchedSpan;
@@ -440,6 +460,19 @@ function decideInner(text: string, origin: BufferOrigin = 'agent'): L0BaseVerdic
     skip_reason: lastMatchedMember ? 'triggerCondition-false:' + lastMatchedSpan : 'no-match',
   });
 
+  // V-052: if the ONLY hits were inside quotations, say so — a quote suppression is a decision, not a
+  // clean buffer, and the operator must be able to tell them apart.
+  if (quotedSuppressed > 0 && !lastMatchedMember) {
+    return {
+      kind: 'skip',
+      rule: 'quote-exclusion',
+      matchedSpan: null,
+      reason: `quoted-prose hit suppressed (${quotedSuppressed} member(s)) — a quotation is not the agent performing the act (V-052, WO-2)`,
+      remediation: 'No action — the act, if any, must appear in the agent\u2019s own prose, outside quotes.',
+      skipReason: 'quoted-prose:suppressed-' + quotedSuppressed,
+      evidenceBound: false,
+    };
+  }
   return {
     kind: 'clear',
     rule: lastMatchedMember ? lastMatchedMember.id : 'l0-decide',
@@ -451,6 +484,30 @@ function decideInner(text: string, origin: BufferOrigin = 'agent'): L0BaseVerdic
     skipReason: lastMatchedMember ? 'triggerCondition-false:' + lastMatchedSpan : 'no-match',
     evidenceBound: false,
   };
+}
+
+// ═══ V-052: QUOTED PROSE IS NOT THE AGENT'S VOICE — WO-2 EXTENDED ═══════════════════════════════════
+// PROBED 2026-09-21 against the corpus's own B2 incident. `derailment-data-log.md` §8 records the exact
+// message the kernel fired on at 18:23:05, and it STILL FIRED in the new L0:
+//   "The real firing: verification-before-declaration fired and rendered 'You are declaring work
+//    complete', triggered [by a host envelope]"
+// The classifier's quote exclusion covered FENCED blocks and BACKTICK spans (`hasCodeFence`) but not
+// quoted PROSE — so the layer punished the report that was describing the layer, which is precisely the
+// documented harm ("the layer punishes its own audit trail").
+//
+// THE RULE (WO-2's own words): "a quoted span is never the agent performing the act in its own voice".
+// The quote OPENERS here are prose quotes ('…', "…"), matched only when delimited by whitespace or
+// punctuation — so an apostrophe in "can't"/"don't" is NOT a quotation and cannot hide a claim.
+const QUOTED_PROSE_RE: RegExp[] = [
+  /(^|[\s([{])'[^'\n]{4,}'(?=[\s.,;:!?)\]}\u201d\u2019]|$)/g,
+  /(^|[\s([{])"[^"\n]{4,}"(?=[\s.,;:!?)\]}\u201d\u2019]|$)/g,
+];
+
+/** Remove quoted PROSE spans (their content), leaving everything else intact. */
+export function stripQuotedProse(text: string): string {
+  let s = text;
+  for (const re of QUOTED_PROSE_RE) s = s.replace(re, '$1');
+  return s;
 }
 
 // ═══ ST-7: ESCALATE-AFTER-3 — the consecutive-firing state machine ═══════════════════════════════════

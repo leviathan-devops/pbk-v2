@@ -3862,10 +3862,25 @@ function decideInner(text, origin = "agent") {
   }
   let lastMatchedMember = null;
   let lastMatchedSpan = null;
+  const quoteStripped = stripQuotedProse(text);
+  let quotedSuppressed = 0;
   for (const member of L0_MEMBERS) {
     const matchedSpan = member.matcher(text);
     if (!matchedSpan)
       continue;
+    if (quoteStripped !== text && !member.matcher(quoteStripped)) {
+      quotedSuppressed += 1;
+      recordFiring({
+        rule: member.id,
+        buffer: "quoted",
+        band: "skip",
+        matched_span: matchedSpan,
+        verdict: "quoted-prose hit \u2014 not the agent\u2019s own voice (V-052, WO-2)",
+        jev_called: false,
+        skip_reason: "quoted-prose:" + member.id
+      });
+      continue;
+    }
     lastMatchedMember = member;
     lastMatchedSpan = matchedSpan;
     const triggered = member.triggerCondition(text, matchedSpan);
@@ -3927,6 +3942,17 @@ function decideInner(text, origin = "agent") {
     verdict: lastMatchedMember ? "matcher hit but triggerCondition false \u2014 contextual gate suppressed" : "no matcher or triggerCondition passed \u2014 SILENT",
     skip_reason: lastMatchedMember ? "triggerCondition-false:" + lastMatchedSpan : "no-match"
   });
+  if (quotedSuppressed > 0 && !lastMatchedMember) {
+    return {
+      kind: "skip",
+      rule: "quote-exclusion",
+      matchedSpan: null,
+      reason: `quoted-prose hit suppressed (${quotedSuppressed} member(s)) \u2014 a quotation is not the agent performing the act (V-052, WO-2)`,
+      remediation: "No action \u2014 the act, if any, must appear in the agent\u2019s own prose, outside quotes.",
+      skipReason: "quoted-prose:suppressed-" + quotedSuppressed,
+      evidenceBound: false
+    };
+  }
   return {
     kind: "clear",
     rule: lastMatchedMember ? lastMatchedMember.id : "l0-decide",
@@ -3936,6 +3962,16 @@ function decideInner(text, origin = "agent") {
     skipReason: lastMatchedMember ? "triggerCondition-false:" + lastMatchedSpan : "no-match",
     evidenceBound: false
   };
+}
+var QUOTED_PROSE_RE = [
+  /(^|[\s([{])'[^'\n]{4,}'(?=[\s.,;:!?)\]}\u201d\u2019]|$)/g,
+  /(^|[\s([{])"[^"\n]{4,}"(?=[\s.,;:!?)\]}\u201d\u2019]|$)/g
+];
+function stripQuotedProse(text) {
+  let s = text;
+  for (const re of QUOTED_PROSE_RE)
+    s = s.replace(re, "$1");
+  return s;
 }
 var ESCALATE_AT = 3;
 function newL0EscalationState(escalateAt = ESCALATE_AT) {

@@ -42,7 +42,8 @@ const CASES = [
   // ── §5 CLASS E: the interface name (VERBATIM quoted argument) ──
   ["E/interface", "the claim firewall intercepts goal.complete", "silent"],
   // ── §8 / BUG-8: a quotation of the rendered accusation itself ──
-  ["B2/accusation", "the rule renders `You are declaring work complete` as its subject line", "silent"],
+  // §8 VERBATIM — the exact paused message at 18:23:05 (single quotes, as the corpus printed it)
+  ["B2/accusation", "The real firing: verification-before-declaration fired and rendered 'You are declaring work complete', triggered [by a host envelope]", "silent"],
   // ── THE DECLARED TRUE POSITIVES — §4's first probe fired CORRECTLY, and must still fire ──
   ["D/claim", "the task is done", "fires"],
   ["TRUE+", "Everything works and all tests pass.", "fires"],
