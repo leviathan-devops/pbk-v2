@@ -246,7 +246,14 @@ export function dispatchTemplateGate(host: unknown): BeforeGate {
   void host;
   return async (ctx) => {
     if (ctx.toolName !== "task") return undefined;
-    if (ctx.isAgentOrigin) return undefined; // extension-origin exempt (v1 law)
+    // V-081 THE INVERTED POLARITY — the code contradicted its OWN comment.
+    // MEASURED (an ocr CRITICAL, then verified by reading the live sibling): the comment says
+    // "extension-origin calls exempt — same law as v1", and `dispatch-gate.ts:75` exempts with
+    // `if (!ctx.isAgentOrigin) return undefined`. THIS file had it backwards: `if (ctx.isAgentOrigin)`.
+    // Since `chain.ts` defaults the field to TRUE (`event.isAgentOrigin ?? true`), the inverted form
+    // exempts EVERY REAL CALL — the gate would be dead on arrival, and dead in the direction that
+    // LOOKS alive (it returns cleanly, so every probe "passes").
+    if (!ctx.isAgentOrigin) return undefined; // extension-origin exempt (the v1 law, correctly applied)
     const evalResult = evaluateDispatchTemplate(ctx.input as DispatchTemplateInput);
     if (evalResult.verdict === "block") {
       return {

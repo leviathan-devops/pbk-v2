@@ -22,8 +22,23 @@
 export const CLAIM_WORD_RE =
   /\b(verified|verifies|verifying|confirm[sd]?|confirming|proven|proves?|it\s+works|all\s+pass(es|ed)?|passes|passing|succeeded|succeeds|resolved|cleared|green)\b/i;
 
+/**
+ * V-083 THE NEGATION GUARD OVER-SUPPRESSED — measured, two defects in one line:
+ *
+ * (1) THE POSITIVE-LOADED TOKENS. The set carried `no\s+` and `fail(ed|ing|s)?|failing` and `yet` —
+ *     tokens that appear in POSITIVE statements. `"There are no failures, all tests pass"` matched `no `
+ *     and was discarded; `"0 failures"` matched `fail` and was discarded — **and `0 failures` /
+ *     `zero failures` are two of CLAIM_STRONG_PHRASE_RE's OWN patterns, killed by this guard: DEAD BY
+ *     CONSTRUCTION.** A failure WORD is not a negation of a pass-claim: the claim regexes never arm on
+ *     "fail" in the first place, so the token removed only ever killed true positives.
+ * (2) THE SENTENCE SCOPE. `continue` discarded the ENTIRE sentence, so a negation in one clause killed a
+ *     claim in another: `"Not verified before, but now all tests pass"` never armed.
+ *
+ * THE FIX: the negation set carries only GENUINE negations of a verification claim, and the guard is
+ * applied PER CLAUSE (the clause split lives in isCompletionClaim below).
+ */
 export const CLAIM_NEGATION_RE =
-  /(not|cannot|can't|won't|refuse[sd]?|refus(ing|ed)|decline[sd]?|never|no\s+|without|unverified|unsubstantiated|fail(ed|ing|s)?|failing|yet|pending|attempt|trying|will\s+verify|should\s+verify|needs?\s+verification|will\s+confirm|about\s+to\s+(confirm|verify|test|run)|need[s]?\s+to\s+(confirm|verify|test))/i;
+  /\b(not|cannot|can't|won't|refuse[sd]?|refus(ing|ed)|decline[sd]?|never|without|unverified|unsubstantiated|pending|attempt(ing)?|trying|will\s+verify|should\s+verify|needs?\s+verification|will\s+confirm|about\s+to\s+(confirm|verify|test|run)|need[s]?\s+to\s+(confirm|verify|test))\b/i;
 
 export const CLAIM_WORK_ENTITY_RE =
   /\b(tests?|suite|battery|build|bundle|dist|extension|plugin|hook[s]?|gate[s]?|chain|engine[s]?|tool[s]?|function[s]?|module[s]?|package[s]?|feature[s]?|component[s]?|pipeline|runner|sandbox|container|vm|integration)\b/i;
@@ -44,15 +59,35 @@ export const CLAIM_AUDIT_REMEDY_RE =
  */
 export function isCompletionClaim(text: string): boolean {
   if (!text) return false;
-  const sentences = text.split(/[.!?]+/);
-  for (const raw of sentences) {
-    const s = raw.trim();
-    if (!s) continue;
-    if (CLAIM_NEGATION_RE.test(s)) continue; // "not verified" / "needs verification"
-    if (CLAIM_STRONG_PHRASE_RE.test(s)) return true; // "tests pass"
-    if (CLAIM_WORD_RE.test(s) && CLAIM_WORK_ENTITY_RE.test(s)) {
+  for (const raw of text.split(/[.!?]+/)) {
+    // V-083: THE CLAUSE SPLIT. A negation kills only the clause it appears in — a negation in one clause
+    // must not silence a true claim in the next ("Not verified before, but now all tests pass").
+    for (const clause of raw.split(/,|;|\bbut\b|\bhowever\b|\byet\b/i)) {
+      const s = clause.trim();
+      if (!s) continue;
+      const neg = CLAIM_NEGATION_RE.exec(s);
+      /** A negation is fatal only when it PRECEDES the claim it would negate. */
+      const negates = (m: RegExpExecArray | null): boolean =>
+        Boolean(neg && m && (neg.index ?? 0) < (m.index ?? 0));
+
+      // V-090 THE AUDIT EXCLUSION WAS UNREACHABLE FOR THE STRONG-PHRASE PATH.
+      // The module's own comment states the law — "an audit is not a container test" — and the code
+      // applied it only INSIDE the word+entity branch, AFTER the strong-phrase branch had already
+      // returned true. So "the audit verified the build" armed the gate (CLAIM_STRONG_PHRASE_RE matches
+      // `verified (the )?build`), contradicting the module's stated intent. The exclusion now applies to
+      // the CLAUSE, before either branch — which is the shape the comment describes.
       if (CLAIM_AUDIT_REMEDY_RE.test(s)) continue; // an audit is not a container test
-      return true;
+
+      const strong = CLAIM_STRONG_PHRASE_RE.exec(s);
+      if (strong) {
+        if (!negates(strong)) return true; // "tests pass" / "0 failures" — the strong phrase arms it
+        continue; // "not all tests pass"
+      }
+      const word = CLAIM_WORD_RE.exec(s);
+      if (word && CLAIM_WORK_ENTITY_RE.test(s)) {
+        if (negates(word)) continue; // "not verified" / "needs verification"
+        return true; // "verified the build"
+      }
     }
   }
   return false;

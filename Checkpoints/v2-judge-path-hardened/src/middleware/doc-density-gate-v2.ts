@@ -246,6 +246,34 @@ export function computeSlop(content: string): SlopReport {
 export const DOC_COMPLETE_MARKER = "<!-- DOC-COMPLETE -->";
 export const DRAFT_MIN_LINES = 20;
 
+/**
+ * V-082 THE THREE SPINE-LEVEL DEFECTS (measured by an ocr CRITICAL, verified by reading the code):
+ *
+ *   (a) `isEdit` was `input.content.length === 0 && existing !== null` — but the wrapper passes
+ *       `content = input.content ?? input.newString`, so for an EDIT (whose params are oldString/newString)
+ *       content is the NEW STRING and for a WRITE it is the body. **`isEdit` was false for EVERY real
+ *       call**, so `postState` was never the file-after-write — it was the snippet.
+ *   (b) `postState = isEdit ? existing : content` NEVER APPLIED THE PATCH even when `isEdit` was true.
+ *       **The module's headline claim — "the gate judges the file AFTER the write/edit lands" — was false
+ *       as implemented, and chunked edits could never accumulate toward the floor.**
+ *   (c) `isFinalize` included `(!isEdit && content.length > 0)`, and with `isEdit` always false that made
+ *       **`isFinalize` ALWAYS TRUE** for any write or edit — so the DRAFT path was UNREACHABLE and the
+ *       remedy the gate's own message offers ("write the skeleton as a draft, then chunk-edit to the floor,
+ *       then finalize") was IMPOSSIBLE TO FOLLOW.
+ *
+ * THE FIX: the input carries the patch; `postState` APPLIES it to the existing file; `isFinalize` requires
+ * the marker (for an edit) or a whole-file write (for a create).
+ */
+export interface DocDensityV2Input {
+  filePath: string;
+  /** For a WRITE: the file body. For an EDIT: the `newString` (the patch's replacement). */
+  content: string;
+  /** The file as it exists on disk (an edit), or null (a create). */
+  existing?: string | null;
+  /** The edit's target text (present for an edit). */
+  oldString?: string;
+}
+
 export interface DocDensityV2Verdict {
   action: "allow" | "block";
   gate: string;
@@ -261,11 +289,7 @@ export interface DocDensityV2Verdict {
   };
 }
 
-export function evaluateDocDensityV2(input: {
-  filePath: string;
-  content: string;
-  existing?: string | null;
-}): DocDensityV2Verdict {
+export function evaluateDocDensityV2(input: DocDensityV2Input): DocDensityV2Verdict {
   if (EXEMPT_PATHS.some((e) => input.filePath.includes(e))) {
     return {
       action: "allow",
@@ -276,13 +300,24 @@ export function evaluateDocDensityV2(input: {
   const docType = classifyDocType(input.filePath);
   const floor = DOC_FLOORS[docType];
   const existing = input.existing ?? null;
-  const isEdit = input.content.length === 0 && existing !== null;
+  // V-082 (a): an EDIT is a call against an EXISTING file that carries a patch — detected by the patch's
+  // presence, never by the content being empty (it never is).
+  const isEdit = existing !== null && (input.oldString !== undefined || input.content.length > 0);
 
-  // POST-STATE reconstruction (the v4 accumulated-state rule): the gate judges
-  // the file AFTER the write/edit lands, never the single write.
-  const postState = isEdit ? existing ?? "" : input.content;
+  // V-082 (b): THE POST-STATE APPLIES THE PATCH. For an edit on an existing file the state is the file
+  // WITH the replacement applied — the accumulated state the module's headline claims. (When the edit's
+  // target is not found the patch cannot be applied and the file stands as it is; that is the honest
+  // reconstruction, and the marker check below still governs finalization.)
+  const postState = isEdit
+    ? (input.oldString !== undefined && existing !== null && existing.includes(input.oldString)
+        ? existing.replace(input.oldString, input.content)
+        : existing ?? input.content)
+    : input.content;
 
-  const isFinalize = postState.includes(DOC_COMPLETE_MARKER) || (!isEdit && input.content.length > 0);
+  // V-082 (c): FINALIZE REQUIRES THE MARKER for an edit; a whole-file WRITE (no existing) is complete by
+  // definition. Without this, `isFinalize` was always true and the DRAFT path — the remedy the gate's own
+  // message names — was unreachable.
+  const isFinalize = postState.includes(DOC_COMPLETE_MARKER) || (existing === null && input.content.trim().length > 0);
   const isDraftMarked = postState.startsWith("DRAFT") || postState.includes("<!-- DRAFT -->");
   const lines = postState.split("\n").length;
 
@@ -350,7 +385,9 @@ export function docDensityGateV2(host: EngineHost): BeforeGate {
     if (EXEMPT_PATHS.some((e) => path.includes(e))) return undefined;
     const content = String(ctx.input.content ?? ctx.input.newString ?? "");
     const existing = ctx.toolName === "edit" ? host.readFileSync(path) : null;
-    const verdict = evaluateDocDensityV2({ filePath: path, content, existing });
+    // V-082: the patch travels with the input so the post-state can APPLY it.
+    const oldString = typeof ctx.input.oldString === "string" ? ctx.input.oldString : undefined;
+    const verdict = evaluateDocDensityV2({ filePath: path, content, existing, oldString });
     if (verdict.action === "block") {
       return { action: "block", gate: verdict.gate, reason: verdict.reason ?? "[DOC DENSITY GATE v2] doc-density floor violated" };
     }

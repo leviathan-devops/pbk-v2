@@ -5,19 +5,26 @@
 import type { ExtensionAPI, OmpExtensionContext } from "./types/omp";
 import { createOmpEngineHost } from "./host-omp";
 import { MiddlewareChain, attachChain, AgentScope } from "./middleware/chain";
-import { docDensityGate } from "./middleware/doc-density-gate";
+// V-082 wired: doc-density v2 REPLACES v1 at the same chain position — a strict superset (the same
+// per-type floor for a create, plus the five slop detectors and the accumulated-state rule for edits).
+import { docDensityGateV2 } from "./middleware/doc-density-gate-v2";
 import { dispatchGate } from "./middleware/dispatch-gate";
+// V-081 wired: the template gate runs AHEAD of the legacy dispatch gate (its own module note says so).
+import { dispatchTemplateGate } from "./middleware/dispatch-template-gate";
 import { sttgfGate, armClaimFromCompletedMessage } from "./middleware/sttgf-gate";
 import { sttgfStateTracker } from "./firewalls/semantic-smoke-firewall";
 import { theatricalGate, theatricalGateAfter, TheatricalStateTracker } from "./middleware/theatrical-gate";
 import { containerGate, containerWriteGate } from "./middleware/container-gate";
 import { RecordedRunSet } from "./middleware/phantom-gate";
 import { createSessionTracking } from "./hooks/session-hook";
-import { guardianGate } from "./hooks/guardian-hook";
 import { registerCtTools } from "./tools/ct-registry";
 import { existsSync, readFileSync } from "node:fs";
 // V-084: the session attribution — the ring is scoped to THIS session's rows (the cross-session fix).
-import { setLedgerSession, getLedgerSession } from "./ledger/events-ledger";
+import { recordFiring, setLedgerSession, getLedgerSession  } from "./ledger/events-ledger";
+// V-083/V-090 wired: the completion-claim detector — a verification claim the atom parser misses still
+// demands evidence. Its two defects (the positive-loaded negation tokens and the unreachable audit
+// exclusion) are fixed and pinned.
+import { isCompletionClaim, CLAIM_STRONG_PHRASE_RE, CLAIM_WORD_RE } from "./middleware/claim-lexicon";
 import { kernelJudge } from "./ext/kernel-judge";
 import { bindAtoms, parseClaimAtoms, textMatchesAtom, judgeClaimViaTypeSafe, claimJudgeKey, type RingSpan } from "./ext/claim-bind";
 // V-048: the L0 (W3's six kernels + role filter + quote exclusion + ST-7 escalation) was imported by
@@ -66,10 +73,10 @@ export default function ctExtension(pi: ExtensionAPI): void {
     const { appendFileSync } = require("node:fs");
     appendFileSync("/tmp/ct-chain.log", `[${new Date().toISOString()}] chain built\n`);
   } catch { /* instrumentation never breaks the extension */ }
-  chain.useBefore(docDensityGate(host));
+  chain.useBefore(docDensityGateV2(host));
   chain.useBefore(containerGate());
-  chain.useBefore(guardianGate());
   chain.useBefore(containerWriteGate());
+  chain.useBefore(dispatchTemplateGate(host));
   chain.useBefore(dispatchGate());
   chain.useBefore(sttgfGate());
   chain.useBefore(theatricalGate(theatricalTracker));
@@ -203,6 +210,27 @@ const settledHandler = async (event: { messages?: unknown[]; message?: { role?: 
                   : {}),
               });
               host.log(res.verdict === "PASS" ? "INFO" : "WARN", "omp-ct", `[CT CLAIM] ${res.verdict} — ${res.reason ?? "claim bound to this turn's evidence"}`);
+            }
+
+            // ── V-083/V-090 WIRED: THE COMPLETION-CLAIM DETECTOR ────────────────────────────────────
+            // The atom parser (W5) extracts STRUCTURED atoms. The lexicon is the coarser detector: "is
+            // this completed message a VERIFICATION claim at all?" — the module's own law, "no 'tested'
+            // without sandbox evidence". A verification claim the atom parser MISSED is a coverage gap,
+            // and it is recorded as a flag with its span (the evidence law: act/flag carry a span).
+            if (atoms.length === 0 && isCompletionClaim(text)) {
+              const m = CLAIM_STRONG_PHRASE_RE.exec(text) ?? CLAIM_WORD_RE.exec(text);
+              const span = m ? m[0] : text.slice(0, 60);
+              recordFiring({
+                rule: "claim-lexicon",
+                buffer: "agent-text",
+                band: "flag",
+                matched_span: span,
+                verdict:
+                  'a VERIFICATION claim with no structured atom — the lexicon caught what the atom parser ' +
+                  'missed; the evidence demand applies (no "tested" without sandbox evidence)',
+                jev_called: false,
+              });
+              host.log("WARN", "omp-ct", `[CT CLAIM LEXICON] a verification claim with no atom — "${span.slice(0, 50)}"`);
             }
           } catch { /* the claim gate is non-fatal; the arming above still stands */ }
 

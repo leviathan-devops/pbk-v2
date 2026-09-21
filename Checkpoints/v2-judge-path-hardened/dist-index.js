@@ -419,76 +419,259 @@ function attachChain(pi, chain, scopeOf, isReady) {
   });
 }
 
-// src/middleware/doc-density-gate.ts
+// src/middleware/doc-density-gate-v2.ts
 var DOC_FLOORS = {
-  spec: 3000,
-  completion: 2000,
-  arch: 1000,
-  report: 500,
-  audit: 100,
-  log: 100,
-  readme: 300,
-  generic: 200
+  SPEC: 3000,
+  COMPLETION: 2000,
+  ARCHITECTURE: 1000,
+  REPORT: 500,
+  AUDIT: 100,
+  LOG: 100,
+  OVERVIEW: 300,
+  GENERIC: 200
 };
 var EXEMPT_PATHS = [
-  "GENERATED_ARTIFACTS",
-  "god-loop/canon",
-  ".ct/checkpoints",
-  "wave-audit",
-  "container-test-results"
+  "/generated_artifacts/",
+  "/skills/",
+  "/node_modules/",
+  "ct-tmp",
+  "/tmp/opencode",
+  ".ct/wave-"
 ];
-function classifyDocType(path) {
-  const name = path.split("/").pop() ?? path;
-  const lower = name.toLowerCase();
-  if (/spec/.test(lower) && /(l2|spec|detailed)/.test(lower))
-    return "spec";
-  if (/completion/.test(lower))
-    return "completion";
-  if (/architect/.test(lower) || /macro/.test(lower))
-    return "arch";
-  if (/report/.test(lower) || /build_report/.test(lower))
-    return "report";
-  if (/audit/.test(lower) || /zero_trust/.test(lower))
-    return "audit";
-  if (/log/.test(lower) || /changelog/.test(lower) || /debug/.test(lower))
-    return "log";
+function classifyDocType(filePath) {
+  const lower = filePath.toLowerCase();
+  if (/\/context_management\//.test(lower)) {
+    if (/spec|plan|post-compaction/.test(lower))
+      return "SPEC";
+    if (/build_report|completion/.test(lower))
+      return "COMPLETION";
+  }
+  if (/ship_packages|ship_package/.test(lower)) {
+    if (/build_report|full_build_context/.test(lower))
+      return "COMPLETION";
+    if (/debug_log/.test(lower))
+      return "LOG";
+    if (/readme|master_index|manifest/.test(lower))
+      return "OVERVIEW";
+    if (/package_audit/.test(lower))
+      return "AUDIT";
+  }
+  if (/audit|zero_trust/.test(lower))
+    return "AUDIT";
+  if (/debug_log|changelog/.test(lower))
+    return "LOG";
+  if (/spec|dpl1|plan\b/.test(lower))
+    return "SPEC";
+  if (/completion|definition_of_done/.test(lower))
+    return "COMPLETION";
+  if (/architect|overhaul|breakdown|blueprint/.test(lower))
+    return "ARCHITECTURE";
+  if (/report|review|findings/.test(lower))
+    return "REPORT";
   if (/readme|index|overview/.test(lower))
-    return "readme";
-  return "generic";
+    return "OVERVIEW";
+  return "GENERIC";
 }
-function countLines(content) {
-  if (content.length === 0)
-    return 0;
-  return content.split(`
+function detectRepeatedParagraphs(content) {
+  const paras = content.split(/\n{2,}|\n(?=[A-Z"'])/).map((p) => p.trim()).filter((p) => p.length >= 120);
+  const counts = new Map;
+  for (const p of paras)
+    counts.set(p, (counts.get(p) ?? 0) + 1);
+  const dupes = [...counts.entries()].filter(([, n]) => n > 1);
+  const worst = dupes.sort((a, b) => b[1] - a[1])[0];
+  return {
+    signature: "REPEATED_PARAGRAPH",
+    hits: dupes.reduce((acc, [, n]) => acc + (n - 1), 0),
+    evidence: worst ? `identical paragraph repeated ${worst[1]}x: "${worst[0].slice(0, 80)}\u2026"` : "none"
+  };
+}
+var FILLER_RE = /\b(seamless|seamlessly|leverage|leveraging|utilize|utilizing|cutting[- ]edge|state[- ]of[- ]the[- ]art|robust|comprehensive|holistic|synerg|paradigm|best[- ]in[- ]class|world[- ]class|enterprise[- ]grade|blazingly fast|game[- ]chang)\b/gi;
+function detectFillerDensity(content) {
+  const lines = Math.max(1, content.split(`
+`).length);
+  const fillerHits = [...content.matchAll(FILLER_RE)].length;
+  const per100 = fillerHits / lines * 100;
+  return {
+    signature: "MARKETING_FILLER",
+    hits: fillerHits,
+    evidence: `${fillerHits} filler terms across ${lines} lines (${per100.toFixed(1)}/100 lines)`
+  };
+}
+function detectAnchorlessClaims(content) {
+  const anchorRe = /[:\d]\d+\b|file:line|:[0-9]{2,}|`[a-z0-9_/-]+\.(ts|md|ya?ml|json)`|output:|verification:|SEE /i;
+  const verbRe = /\b(?:implement(?:s|ed|ing)?|handl(?:es|e|ed|ing)|writ(?:es|e|ten|ing)|read(?:s|ing)?|rout(?:es|e|ed|ing)|dispatch(?:es|ed|ing)?|enforc(?:es|e|ed|ing|ement)?|verif(?:y|ies|ied|ying|ication)|return(?:s|ed|ing)?|load(?:s|ed|ing)?|pars(?:es|e|ed|ing)|block(?:s|ed|ing)?|allow(?:s|ed|ing)?)\b/i;
+  const paragraphs = content.split(/\n{2,}|\n(?=[A-Z"'])/).map((p) => p.trim()).filter((p) => p.length > 60);
+  let anchorless = 0;
+  let total = 0;
+  let firstBad = "";
+  for (const para of paragraphs) {
+    if (/^#\s/.test(para) && !verbRe.test(para))
+      continue;
+    if (!verbRe.test(para))
+      continue;
+    total += 1;
+    if (!anchorRe.test(para)) {
+      anchorless += 1;
+      if (!firstBad)
+        firstBad = para.slice(0, 80);
+    }
+  }
+  const ratio = total > 0 ? anchorless / total : 0;
+  return {
+    signature: "ANCHORLESS_CLAIMS",
+    hits: anchorless,
+    evidence: `${anchorless}/${total} engineering paragraphs carry no file:line/anchor/receipt (${(ratio * 100).toFixed(0)}%)${firstBad ? ' \u2014 e.g. "' + firstBad + '\u2026"' : ""}`
+  };
+}
+function detectMissingHierarchy(content) {
+  const lines = content.split(`
 `).length;
+  const h1 = (content.match(/^# /gm) ?? []).length;
+  const h2 = (content.match(/^## /gm) ?? []).length;
+  const hasTree = h1 + h2 >= 2;
+  return {
+    signature: "NO_HEADING_HIERARCHY",
+    hits: hasTree ? 0 : 1,
+    evidence: hasTree ? `h1=${h1} h2=${h2}` : `${lines} lines with h1=${h1} h2=${h2} \u2014 structureless wall`
+  };
 }
-function isDraft(content) {
-  const head = content.slice(0, 200);
-  return head.startsWith("DRAFT") || head.includes("<!-- DRAFT -->");
+function detectPlaceholderDebris(content) {
+  const weaves = (content.match(/\[WEAVE: /g) ?? []).length;
+  const fills = (content.match(/\[FILL:/g) ?? []).length;
+  const todos = (content.match(/\b(TODO|TBD|FIXME|to be continued)\b/gi) ?? []).length;
+  const hits = weaves + fills + todos;
+  return {
+    signature: "PLACEHOLDER_DEBRIS",
+    hits,
+    evidence: `[WEAVE:]\xD7${weaves} [FILL:]\xD7${fills} TODO/TBD\xD7${todos}`
+  };
 }
-function docDensityGate(host) {
+function computeSlop(content) {
+  const hits = [
+    detectRepeatedParagraphs(content),
+    detectFillerDensity(content),
+    detectAnchorlessClaims(content),
+    detectMissingHierarchy(content),
+    detectPlaceholderDebris(content)
+  ];
+  let score = 0;
+  const flags = [];
+  for (const h of hits) {
+    if (h.hits === 0)
+      continue;
+    switch (h.signature) {
+      case "REPEATED_PARAGRAPH":
+        score += h.hits * 12;
+        break;
+      case "MARKETING_FILLER": {
+        const lines = Math.max(1, content.split(`
+`).length);
+        const per100 = h.hits / lines * 100;
+        if (per100 > 3)
+          score += Math.min(25, (per100 - 3) * 5);
+        break;
+      }
+      case "ANCHORLESS_CLAIMS": {
+        const m = h.evidence.match(/(\d+)\/(\d+)/);
+        if (m && Number(m[2]) >= 5) {
+          const ratio = Number(m[1]) / Number(m[2]);
+          if (ratio > 0.6)
+            score += Math.round(ratio * 30);
+        }
+        break;
+      }
+      case "NO_HEADING_HIERARCHY":
+        score += 25;
+        break;
+      case "PLACEHOLDER_DEBRIS":
+        score += h.hits * 8;
+        break;
+    }
+    flags.push(`${h.signature}: ${h.evidence}`);
+  }
+  return { hits, slopScore: Math.min(100, Math.round(score)), verdictFlags: flags };
+}
+var DOC_COMPLETE_MARKER = "<!-- DOC-COMPLETE -->";
+var DRAFT_MIN_LINES = 20;
+function evaluateDocDensityV2(input) {
+  if (EXEMPT_PATHS.some((e) => input.filePath.includes(e))) {
+    return {
+      action: "allow",
+      gate: "doc-density-v2",
+      evidence: { docType: "GENERIC", floor: 0, lines: 0, isFinalize: false, isDraft: false, slopScore: 0, slopFlags: ["exempt-path"] }
+    };
+  }
+  const docType = classifyDocType(input.filePath);
+  const floor = DOC_FLOORS[docType];
+  const existing = input.existing ?? null;
+  const isEdit = existing !== null && (input.oldString !== undefined || input.content.length > 0);
+  const postState = isEdit ? input.oldString !== undefined && existing !== null && existing.includes(input.oldString) ? existing.replace(input.oldString, input.content) : existing ?? input.content : input.content;
+  const isFinalize = postState.includes(DOC_COMPLETE_MARKER) || existing === null && input.content.trim().length > 0;
+  const isDraftMarked = postState.startsWith("DRAFT") || postState.includes("<!-- DRAFT -->");
+  const lines = postState.split(`
+`).length;
+  if (!isFinalize || isDraftMarked) {
+    if (lines < DRAFT_MIN_LINES && !isEdit) {
+      return {
+        action: "block",
+        gate: "doc-density-v2",
+        reason: `[DOC DENSITY GATE v2] ${docType} draft under-specified: ${lines} lines (min ${DRAFT_MIN_LINES} \u2014 even a DRAFT carries real content). Write the skeleton as a draft, then chunk-edit to the ${docType} floor (${floor}+), then finalize with ${DOC_COMPLETE_MARKER}.`,
+        evidence: { docType, floor, lines, isFinalize: false, isDraft: isDraftMarked, slopScore: 0, slopFlags: [] }
+      };
+    }
+    const draftSlop = computeSlop(postState);
+    if (draftSlop.slopScore >= 60) {
+      return {
+        action: "block",
+        gate: "doc-density-v2",
+        reason: `[DOC DENSITY GATE v2] DRAFT is toiletplate (slop ${draftSlop.slopScore}/100): ${draftSlop.verdictFlags.join("; ")}. Rewrite with real engineering content.`,
+        evidence: { docType, floor, lines, isFinalize: false, isDraft: true, slopScore: draftSlop.slopScore, slopFlags: draftSlop.verdictFlags }
+      };
+    }
+    return {
+      action: "allow",
+      gate: "doc-density-v2",
+      evidence: { docType, floor, lines, isFinalize: false, isDraft: isDraftMarked, slopScore: draftSlop.slopScore, slopFlags: draftSlop.verdictFlags }
+    };
+  }
+  const slop = computeSlop(postState);
+  if (lines < floor) {
+    return {
+      action: "block",
+      gate: "doc-density-v2",
+      reason: `[DOC DENSITY GATE v2] ${docType} finalize under-specified: ${lines} lines (min ${floor} \u2014 the ${docType} floor). Continue chunk-editing to the floor, then finalize with ${DOC_COMPLETE_MARKER}.`,
+      evidence: { docType, floor, lines, isFinalize: true, isDraft: false, slopScore: slop.slopScore, slopFlags: slop.verdictFlags }
+    };
+  }
+  if (slop.slopScore >= 40) {
+    return {
+      action: "block",
+      gate: "doc-density-v2",
+      reason: `[DOC DENSITY GATE v2] ${docType} meets the ${floor}-line floor but is TOILETPLATE (slop ${slop.slopScore}/100): ${slop.verdictFlags.join("; ")}. Replace filler with real engineering content (interfaces, file:line anchors, data flows, failure modes, evidence) \u2014 density is DATA, not line count.`,
+      evidence: { docType, floor, lines, isFinalize: true, isDraft: false, slopScore: slop.slopScore, slopFlags: slop.verdictFlags }
+    };
+  }
+  return {
+    action: "allow",
+    gate: "doc-density-v2",
+    evidence: { docType, floor, lines, isFinalize: true, isDraft: false, slopScore: slop.slopScore, slopFlags: slop.verdictFlags }
+  };
+}
+function docDensityGateV2(host) {
   return async (ctx) => {
-    if (!["write", "edit", "create"].includes(ctx.toolName))
+    if (!["write", "edit"].includes(ctx.toolName))
       return;
     const path = String(ctx.input.path ?? ctx.input.filePath ?? "");
-    if (!path.endsWith(".md"))
+    if (!path.toLowerCase().endsWith(".md"))
       return;
     if (EXEMPT_PATHS.some((e) => path.includes(e)))
       return;
-    const type = classifyDocType(path);
-    const floor = DOC_FLOORS[type];
-    const content = String(ctx.input.content ?? "");
-    const existing = host.readFileSync(path);
-    if (isDraft(content) || existing !== null && isDraft(existing))
-      return;
-    const finalContent = content.length > 0 ? content : existing ?? "";
-    const lines = countLines(finalContent);
-    if (lines < floor) {
-      return {
-        action: "block",
-        gate: "doc-density",
-        reason: `[CT DOC-DENSITY] ${type.toUpperCase()} requires >= ${floor} lines; got ${lines}`
-      };
+    const content = String(ctx.input.content ?? ctx.input.newString ?? "");
+    const existing = ctx.toolName === "edit" ? host.readFileSync(path) : null;
+    const oldString = typeof ctx.input.oldString === "string" ? ctx.input.oldString : undefined;
+    const verdict = evaluateDocDensityV2({ filePath: path, content, existing, oldString });
+    if (verdict.action === "block") {
+      return { action: "block", gate: verdict.gate, reason: verdict.reason ?? "[DOC DENSITY GATE v2] doc-density floor violated" };
     }
     return;
   };
@@ -580,6 +763,186 @@ function dispatchGate(host) {
         action: "block",
         gate: "dispatch",
         reason: `[CT DISPATCH GATE] missing: ${missing}`
+      };
+    }
+    return;
+  };
+}
+
+// src/middleware/dispatch-template-gate.ts
+var TEMPLATE_FINGERPRINTS = [
+  {
+    id: "E1",
+    label: "forensic-context-extraction",
+    useWhen: "CODE regions \u2014 any wave that reads .ts/.py source files",
+    opener: /EXECUTE THE FOLLOWING FORENSIC CONTEXT EXTRACTION VERBATIM/,
+    requiredSentinels: [
+      /\u2550\u2550\u2550 THE EXECUTION LAW \(this block is binding; it is identical in every task\) \u2550\u2550\u2550/,
+      /THE RETURN FORMAT:/,
+      /THE READING ORDER \(READ BEFORE ANY EXECUTION/,
+      /THE CONSTRAINTS:/,
+      /Every claim in your return carries a file:line anchor/,
+      /READ-ONLY/
+    ],
+    minLines: 100
+  },
+  {
+    id: "E2",
+    label: "deep-context-synthesis",
+    useWhen: "DOCS/state \u2014 any wave that reads .md/docs/state files",
+    opener: /EXECUTE THE FOLLOWING CONTEXT SYNTHESIS VERBATIM/,
+    requiredSentinels: [
+      /\u2550\u2550\u2550 THE EXECUTION LAW \(this block is binding; it is identical in every task\) \u2550\u2550\u2550/,
+      /THE RETURN FORMAT \(the brief sections/,
+      /THE SYNTHESIS'S POSITION IN THE BUILD/,
+      /Would a fresh reader be able to resume the work from my brief ALONE\?/,
+      /READ-ONLY/
+    ],
+    minLines: 100
+  },
+  {
+    id: "E3",
+    label: "deep-research",
+    useWhen: "external/web/hive research \u2014 landscape, library comparison, incident records",
+    opener: /EXECUTE THE FOLLOWING RESEARCH TASK VERBATIM/,
+    requiredSentinels: [
+      /\u2550\u2550\u2550 THE EXECUTION LAW \(this block is binding; it is identical in every task\) \u2550\u2550\u2550/,
+      /THE RETURN FORMAT:/,
+      /READ-ONLY/
+    ],
+    minLines: 80
+  },
+  {
+    id: "E4",
+    label: "failure-investigation",
+    useWhen: "failure evidence gathering \u2014 incidents, regressions, production surprises",
+    opener: /EXECUTE THE FOLLOWING FAILURE INVESTIGATION VERBATIM/,
+    requiredSentinels: [
+      /\u2550\u2550\u2550 THE EXECUTION LAW \(this block is binding; it is identical in every task\) \u2550\u2550\u2550/,
+      /THE RETURN FORMAT:/,
+      /READ-ONLY/
+    ],
+    minLines: 80
+  },
+  {
+    id: "B1",
+    label: "full-stack-e2e-build",
+    useWhen: "greenfield or overhaul builds \u2014 full-stack implementation from a spec",
+    opener: /EXECUTE THE FOLLOWING BUILD PLAN VERBATIM/,
+    requiredSentinels: [
+      /\u2550\u2550\u2550 THE EXECUTION LAW \(this block is binding; it is identical in every task\) \u2550\u2550\u2550/,
+      /THE RETURN FORMAT:/,
+      /ct_build/
+    ],
+    minLines: 90
+  },
+  {
+    id: "B2",
+    label: "debugging",
+    useWhen: "root-cause-fix \u2014 debugging any broken behavior, test failure, or regression",
+    opener: /EXECUTE THE FOLLOWING DEBUGGING PLAN VERBATIM/,
+    requiredSentinels: [
+      /\u2550\u2550\u2550 THE EXECUTION LAW \(this block is binding; it is identical in every task\) \u2550\u2550\u2550/,
+      /THE RETURN FORMAT:/,
+      /ct_build/
+    ],
+    minLines: 90
+  },
+  {
+    id: "B3",
+    label: "surgical-edit",
+    useWhen: "targeted changes following an existing spec \u2014 the edit hunk is already specified",
+    opener: /EXECUTE THE FOLLOWING SURGICAL EDIT PLAN VERBATIM/,
+    requiredSentinels: [
+      /\u2550\u2550\u2550 THE EXECUTION LAW \(this block is binding; it is identical in every task\) \u2550\u2550\u2550/,
+      /THE RETURN FORMAT:/,
+      /ct_build/
+    ],
+    minLines: 90
+  },
+  {
+    id: "B4",
+    label: "adversarial-test-implementation",
+    useWhen: "test writing \u2014 adversarial coverage, edge cases, regression batteries",
+    opener: /EXECUTE THE FOLLOWING TEST IMPLEMENTATION VERBATIM/,
+    requiredSentinels: [
+      /\u2550\u2550\u2550 THE EXECUTION LAW \(this block is binding; it is identical in every task\) \u2550\u2550\u2550/,
+      /THE RETURN FORMAT:/,
+      /ct_build/
+    ],
+    minLines: 90
+  },
+  {
+    id: "B5",
+    label: "build-ci-pipeline",
+    useWhen: "build scripts, dist manifest, deployment runbook, CI pipeline, packaging",
+    opener: /EXECUTE THE FOLLOWING PIPELINE BUILD VERBATIM/,
+    requiredSentinels: [
+      /\u2550\u2550\u2550 THE EXECUTION LAW \(this block is binding; it is identical in every task\) \u2550\u2550\u2550/,
+      /THE RETURN FORMAT:/,
+      /ct_build/
+    ],
+    minLines: 90
+  }
+];
+function matchTemplate(prompt) {
+  const lines = prompt.split(`
+`).length;
+  for (const fp of TEMPLATE_FINGERPRINTS) {
+    if (!fp.opener.test(prompt))
+      continue;
+    const missing = [];
+    fp.requiredSentinels.forEach((re, i) => {
+      if (!re.test(prompt))
+        missing.push(`sentinel[${i}] of ${fp.id}`);
+    });
+    if (lines < fp.minLines)
+      missing.push(`density-floor(${fp.minLines} lines, got ${lines})`);
+    return { matched: missing.length === 0, templateId: fp.id, missingSentinels: missing, lineCount: lines };
+  }
+  return { matched: false, templateId: null, missingSentinels: ["no template opener sentinel found"], lineCount: lines };
+}
+var REMEDY = "load skill dispatch-templates, copy the matching template VERBATIM " + "(E1 code-extract / E2 docs-synth / E3 research / E4 failure / B1-B5 builds), " + "fill ONLY [FILEPATHS] + [CONTEXT] (or the [WEAVE:*] slots), never rewrite the skeleton";
+function extractPrompts(input) {
+  const prompts = [];
+  if (Array.isArray(input.tasks)) {
+    input.tasks.forEach((it, i) => {
+      const text = String(it?.task ?? it?.prompt ?? "");
+      if (text.trim())
+        prompts.push({ label: `tasks[${i}]`, text });
+    });
+  } else {
+    const text = String(input.task ?? input.prompt ?? "");
+    if (text.trim())
+      prompts.push({ label: "task", text });
+  }
+  return prompts;
+}
+function evaluateDispatchTemplate(input) {
+  const prompts = extractPrompts(input);
+  if (prompts.length === 0)
+    return { verdict: "allow", reasons: [] };
+  const reasons = [];
+  for (const p of prompts) {
+    const m = matchTemplate(p.text);
+    if (!m.matched) {
+      reasons.push(`${p.label}: NO ct dispatch template fingerprint (${m.templateId ? `template ${m.templateId} incomplete \u2014 missing ${m.missingSentinels.join(", ")}` : m.missingSentinels[0]}; ${m.lineCount} lines). Remedy: ${REMEDY}.`);
+    }
+  }
+  return { verdict: reasons.length > 0 ? "block" : "allow", reasons };
+}
+function dispatchTemplateGate(host) {
+  return async (ctx) => {
+    if (ctx.toolName !== "task")
+      return;
+    if (!ctx.isAgentOrigin)
+      return;
+    const evalResult = evaluateDispatchTemplate(ctx.input);
+    if (evalResult.verdict === "block") {
+      return {
+        action: "block",
+        gate: "dispatch-template-v2",
+        reason: `[CT DISPATCH TEMPLATE GATE v2] ${evalResult.reasons.join(" || ")}`
       };
     }
     return;
@@ -2955,6 +3318,41 @@ function recordFiring(input) {
   return { row, writeError };
 }
 
+// src/middleware/claim-lexicon.ts
+var CLAIM_WORD_RE2 = /\b(verified|verifies|verifying|confirm[sd]?|confirming|proven|proves?|it\s+works|all\s+pass(es|ed)?|passes|passing|succeeded|succeeds|resolved|cleared|green)\b/i;
+var CLAIM_NEGATION_RE2 = /\b(not|cannot|can't|won't|refuse[sd]?|refus(ing|ed)|decline[sd]?|never|without|unverified|unsubstantiated|pending|attempt(ing)?|trying|will\s+verify|should\s+verify|needs?\s+verification|will\s+confirm|about\s+to\s+(confirm|verify|test|run)|need[s]?\s+to\s+(confirm|verify|test))\b/i;
+var CLAIM_WORK_ENTITY_RE2 = /\b(tests?|suite|battery|build|bundle|dist|extension|plugin|hook[s]?|gate[s]?|chain|engine[s]?|tool[s]?|function[s]?|module[s]?|package[s]?|feature[s]?|component[s]?|pipeline|runner|sandbox|container|vm|integration)\b/i;
+var CLAIM_STRONG_PHRASE_RE2 = /(all\s+(tests?|checks?|scenarios?|suites?|the\s+battery)\s+pass|tests?\s+pass|suite\s+passes|battery\s+passes|verified\s+(the\s+)?(build|bundle|dist|extension)|it\s+works|everything\s+works|all\s+green|0\s+failures?|zero\s+failures?)/i;
+var CLAIM_AUDIT_REMEDY_RE2 = /\b(audit|review|analysis|inspection|source\s+read|code\s+read|static\s+check)\b/i;
+function isCompletionClaim2(text) {
+  if (!text)
+    return false;
+  for (const raw of text.split(/[.!?]+/)) {
+    for (const clause of raw.split(/,|;|\bbut\b|\bhowever\b|\byet\b/i)) {
+      const s = clause.trim();
+      if (!s)
+        continue;
+      const neg = CLAIM_NEGATION_RE2.exec(s);
+      const negates = (m) => Boolean(neg && m && (neg.index ?? 0) < (m.index ?? 0));
+      if (CLAIM_AUDIT_REMEDY_RE2.test(s))
+        continue;
+      const strong = CLAIM_STRONG_PHRASE_RE2.exec(s);
+      if (strong) {
+        if (!negates(strong))
+          return true;
+        continue;
+      }
+      const word = CLAIM_WORD_RE2.exec(s);
+      if (word && CLAIM_WORK_ENTITY_RE2.test(s)) {
+        if (negates(word))
+          continue;
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 // src/ext/kernel-judge.ts
 import { join as joinPath } from "path";
 import { homedir as homedir2 } from "os";
@@ -3818,11 +4216,11 @@ function textMatchesAtom(atom, spanText) {
 }
 
 // src/l0/index.ts
-var CLAIM_WORD_RE2 = /\b(?:done|complete[d]?\b|fixed|verified|it\s+works|all\s+green|all\s+pass(?:ed|es)?)\b/i;
-var CLAIM_NEGATION_RE2 = /\b(?:not|cannot|can't|won't|refuse|refused|never|without|unverified|unsubstantiated|fail(?:ed|ing|s)?|pending|todo|wip|to\s+be)\b/i;
+var CLAIM_WORD_RE3 = /\b(?:done|complete[d]?\b|fixed|verified|it\s+works|all\s+green|all\s+pass(?:ed|es)?)\b/i;
+var CLAIM_NEGATION_RE3 = /\b(?:not|cannot|can't|won't|refuse|refused|never|without|unverified|unsubstantiated|fail(?:ed|ing|s)?|pending|todo|wip|to\s+be)\b/i;
 var PAST_TENSE_RE = /\b(?:completed|finished|passed|confirmed|closed|shipped|built|tested)\b/i;
 var STRONG_PHRASE_RE = /\b(?:everything\s+works|all\s+green|all\s+(?:tests|pass|checks)\s+pass|verified\s+everything|is\s+verified|confirmed\s+correct|task\s+completed|wave\s+succeeded|build\s+succeeded|audit\s+passed)\b/i;
-var CLAIM_AUDIT_REMEDY_RE2 = /\b(?:manifest\s+records|gap|what\s+is\s+not|not\s+verified|records\s+what)\b/i;
+var CLAIM_AUDIT_REMEDY_RE3 = /\b(?:manifest\s+records|gap|what\s+is\s+not|not\s+verified|records\s+what)\b/i;
 var SCOPE_SHRINK_RE = /\b(?:too\s+complex|too\s+big|simplify\s+the\s+scope|reduce\s+the\s+scope|out\s+of\s+scope|shrink(?:ing|ed)?\s+(?:scope|the\s+promise))\b/i;
 var SCOPE_GAP_RE = /\b(?:not\s+verified|what\s+is\s+not|records\s+what|gap|missing\s+(?:scope|item))\b/i;
 var THEATRICAL_RE = /\b(?:skip\s+(?:the\s+)?(?:test|battery|verification|suite)|mock|stub|fake)\b/i;
@@ -3831,19 +4229,19 @@ var DRIFT_RE = /\b(?:drift|GRAPH_GATE_DRIFT_HIGH|structural\s+edit|structural\s+
 var HAPPY_PATH_RE = /\b(?:happy\s+path|all\s+tests\s+pass|everything\s+works|pass\s+\d+|0\s+fail(?:ures)?)\b/i;
 var EVIDENCE_RE = /\b(?:\d+\s+pass(?:ed)?|\d+\s+fail(?:ed)?|exit\s+code\s+\d+|ran\s+just\s+now|container\s+test|tsc\s+exit|battery)\b/i;
 function isNegated(sentence) {
-  return CLAIM_NEGATION_RE2.test(sentence);
+  return CLAIM_NEGATION_RE3.test(sentence);
 }
 function isPastTense(sentence) {
   return PAST_TENSE_RE.test(sentence) && !STRONG_PHRASE_RE.test(sentence);
 }
 function isGapRecord(sentence) {
-  return CLAIM_AUDIT_REMEDY_RE2.test(sentence) || SCOPE_GAP_RE.test(sentence);
+  return CLAIM_AUDIT_REMEDY_RE3.test(sentence) || SCOPE_GAP_RE.test(sentence);
 }
 var VERIFICATION_BEFORE_DECLARATION = {
   id: "verification-before-declaration",
   kind: "claim",
   matcher: (text) => {
-    const m = text.match(CLAIM_WORD_RE2);
+    const m = text.match(CLAIM_WORD_RE3);
     if (!m)
       return null;
     const idx = m.index ?? 0;
@@ -3858,7 +4256,7 @@ var VERIFICATION_BEFORE_DECLARATION = {
     }
     const sentences = text.split(/[.!?]+\s+|\n+/);
     for (const s of sentences) {
-      if (!CLAIM_WORD_RE2.test(s))
+      if (!CLAIM_WORD_RE3.test(s))
         continue;
       const wordIdx = s.indexOf(matchedSpan);
       if (wordIdx > 0 && s[wordIdx - 1] === ".") {
@@ -4155,9 +4553,10 @@ function ctExtension(pi) {
     appendFileSync("/tmp/ct-chain.log", `[${new Date().toISOString()}] chain built
 `);
   } catch {}
-  chain.useBefore(docDensityGate(host));
+  chain.useBefore(docDensityGateV2(host));
   chain.useBefore(containerGate());
   chain.useBefore(containerWriteGate());
+  chain.useBefore(dispatchTemplateGate(host));
   chain.useBefore(dispatchGate());
   chain.useBefore(sttgfGate());
   chain.useBefore(theatricalGate(theatricalTracker));
@@ -4230,6 +4629,19 @@ function ctExtension(pi) {
                 ...pre.size > 0 ? { judge: (atom, span) => pre.get(claimJudgeKey(atom, span)) ?? null } : {}
               });
               host.log(res.verdict === "PASS" ? "INFO" : "WARN", "omp-ct", `[CT CLAIM] ${res.verdict} \u2014 ${res.reason ?? "claim bound to this turn's evidence"}`);
+            }
+            if (atoms.length === 0 && isCompletionClaim2(text)) {
+              const m = CLAIM_STRONG_PHRASE_RE2.exec(text) ?? CLAIM_WORD_RE2.exec(text);
+              const span = m ? m[0] : text.slice(0, 60);
+              recordFiring({
+                rule: "claim-lexicon",
+                buffer: "agent-text",
+                band: "flag",
+                matched_span: span,
+                verdict: "a VERIFICATION claim with no structured atom \u2014 the lexicon caught what the atom parser " + 'missed; the evidence demand applies (no "tested" without sandbox evidence)',
+                jev_called: false
+              });
+              host.log("WARN", "omp-ct", `[CT CLAIM LEXICON] a verification claim with no atom \u2014 "${span.slice(0, 50)}"`);
             }
           } catch {}
           try {

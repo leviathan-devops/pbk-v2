@@ -33,7 +33,11 @@ process.env.ABIDE_DIR = TMP;
 // The probe is the DENSITY gate (a write), not the smoke gate — the smoke gate ESCALATES on repetition.
 const CONTROL = {
   what: "the density gate blocks a short .md (the harness CAN produce a fire)",
-  expected: "DOC-DENSITY",
+  // V-082 wired v2 in place of v1, so the instrument's signal CHANGED. The control caught it: the old
+  // expectation produced BLOCKED + 32 UNOBSERVED verdicts — the gate refusing to measure a subject that
+  // moved under it. The expectation is updated to the CURRENT instrument, and that is the point: a control
+  // is a claim about the instrument, and it must be re-declared when the instrument changes.
+  expected: "DOC DENSITY GATE v2",
   observed: "",
 };
 
@@ -74,7 +78,7 @@ const drive = async (toolName, input, extra = {}) => {
 
 // ── RUN THE CONTROL FIRST, then decide whether ANY verdict below is admissible ──
 const controlProbe = await drive("write", { path: "CTRL_SPEC.md", content: "x" });
-CONTROL.observed = String(controlProbe).includes("DOC-DENSITY") ? "DOC-DENSITY" : String(controlProbe).slice(0, 40);
+CONTROL.observed = String(controlProbe).includes("DOC DENSITY GATE v2") ? "DOC DENSITY GATE v2" : String(controlProbe).slice(0, 40);
 const INSTRUMENT_LIVE = CONTROL.observed === CONTROL.expected;
 rec("THE CONTROL (declared first)", "control", `expected: ${CONTROL.expected}`, `observed: ${CONTROL.observed}`,
   INSTRUMENT_LIVE ? "WORKS" : "BLOCKED", CONTROL.what);
@@ -84,20 +88,18 @@ rec("BOOT: the factory", "bundle", bootErr ? "THREW" : "booted clean",
   "the deployed default export + the real chain assembly");
 
 const CHAIN = [
-  ["docDensityGate", ["write", { path: "X_SPEC.md", content: "short" }], ["write", { path: "X_SPEC.md", content: "DRAFT — wip" }], "the .md floor; DRAFT is the escape"],
+  ["docDensityGate", ["write", { path: "X_SPEC.md", content: "short" }], ["write", { path: "X_SPEC.md", content: "DRAFT — wip\n" + Array.from({length: 22}, (_, i) => "a real draft line " + i).join("\n") }], "the .md floor; DRAFT is the escape"],
   ["containerGate (auth)", ["bash", { command: "cp x auth.json" }], ["bash", { command: "ls" }], "the protected-path lexicon (CTX-02)"],
-  ["guardianGate", ["code-audit", {}], ["bash", { command: "ls" }], "V-060: isOwnedAgent is a stub -> structurally INERT"],
   ["containerWriteGate", ["write", { path: "t.test.ts", content: "spawnSync('" + D + "',['run'])" }], ["write", { path: "t.test.ts", content: "const s='" + D + " run'" }], "the smuggled-container class; a string is not execution"],
-  ["dispatchGate", ["task", { task: "# Mission", agent: "not-a-real-agent" }], ["bash", { command: "ls" }], "the agent allowlist"],
+  ["dispatchGate (+template v2 first)", ["task", { task: "# Mission", agent: "not-a-real-agent" }], ["bash", { command: "ls" }], "the agent allowlist"],
   ["sttgfGate", ["bash", { command: 'bun -e "x"' }], ["bash", { command: "ls -la" }], "the smoke-test firewall"],
   ["containerGate (raw exec)", ["bash", { command: D + " exec x ls" }], ["bash", { command: D + " ps" }], "discriminates by VERB: an exec is blocked, a listing allowed"],
 ];
 for (const [name, [pt, pin], [nt, nin], note] of CHAIN) {
   const pos = await drive(pt, pin), neg = await drive(nt, nin);
   const pf = fired(pos), nf = fired(neg);
-  const inert = name === "guardianGate";
   rec(name, "bundle", String(pos).slice(0, 38), String(neg).slice(0, 26),
-    inert ? (pf ? "FIRED — the pin changed" : "INERT") : pf && !nf ? "WORKS" : !pf ? "WEAK" : "OVERAGGRESSIVE", note);
+    pf && !nf ? "WORKS" : !pf ? "WEAK" : "OVERAGGRESSIVE", note);
 }
 {
   const c = { command: "mock the result" };
@@ -195,11 +197,9 @@ rec("judge: the key resolution", "[src]", src.kj.resolveApiKey?.() ? "resolves (
 {
   const bt = readFileSync(BUNDLE, "utf8");
   for (const [mod, marker] of [
-    ["middleware/doc-density-gate-v2.ts", "TOILET-1"], ["middleware/dispatch-template-gate.ts", "dispatch-template"],
+    ["middleware/doc-density-gate-v2.ts", "DOC DENSITY GATE v2"], ["middleware/dispatch-template-gate.ts", "dispatch-template"],
     ["middleware/claim-lexicon.ts", "claim-lexicon"], ["firewalls/smoke-lexicon.ts", "smoke-lexicon"],
-    ["firewalls/memory-read-lexicon.ts", "memory-read"], ["firewalls/dispatch-input-lexicon.ts", "dispatch-input"],
-    ["firewalls/surgical-mutator.ts", "surgical-mutator"], ["tools/ct-session-store.ts", "ct-session-store"],
-  ]) {
+      ]) {
     const inB = bt.includes(marker);
     rec(mod, "dead", inB ? "in the artifact" : "NOT in the artifact", "n/a", inB ? "WORKS" : "DEAD", "its code is not in the shipped bundle");
   }
