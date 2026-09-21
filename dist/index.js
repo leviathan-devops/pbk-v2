@@ -2899,6 +2899,44 @@ var warnedSentinelDir = false;
 function ledgerPath() {
   return join6(ledgerDir(), "events.jsonl");
 }
+var MCP_TOOL_PREFIXES = ["xd://", "mcp__"];
+function hasSystemTags(text) {
+  return /<system-notice[ >]|<system-reminder[ >]|<task-result/i.test(text);
+}
+function hasCodeFence(text) {
+  if (/^```/m.test(text) || /^~~~/m.test(text))
+    return true;
+  const ticks = (text.match(/`/g) || []).length;
+  return ticks >= 2;
+}
+function isMcpEnvelope(origin, text) {
+  if (hasSystemTags(text))
+    return false;
+  return MCP_TOOL_PREFIXES.some((p) => text.startsWith(p));
+}
+function classifyBuffer(text, origin = "agent") {
+  const trimmed = text ?? "";
+  if (hasSystemTags(trimmed)) {
+    return { kind: "host-envelope", reason: "system-tag-envelope" };
+  }
+  if (isMcpEnvelope(origin, trimmed)) {
+    return { kind: "host-envelope", reason: "mcp-envelope" };
+  }
+  if (hasCodeFence(trimmed)) {
+    return { kind: "quoted", reason: "code-fence-or-inline-code" };
+  }
+  switch (origin) {
+    case "thinking":
+      return { kind: "agent-thinking", reason: "origin-thinking" };
+    case "tool":
+      return { kind: "tool-result", reason: "origin-tool" };
+    case "host":
+      return { kind: "host-envelope", reason: "origin-host" };
+    case "agent":
+    default:
+      return { kind: "agent-text", reason: "origin-agent" };
+  }
+}
 function recordFiring(input) {
   if ((input.band === "act" || input.band === "flag") && input.matched_span == null) {
     throw new Error(`matched_span is required for band '${input.band}' (rule='${input.rule}'): ` + `a null span on an enforcement action is the EVIDENCE-DESTRUCTION regression`);
@@ -3640,6 +3678,284 @@ function textMatchesAtom(atom, spanText) {
   }
 }
 
+// src/l0/index.ts
+var CLAIM_WORD_RE2 = /\b(?:done|complete[d]?\b|fixed|verified|it\s+works|all\s+green|all\s+pass(?:ed|es)?)\b/i;
+var CLAIM_NEGATION_RE2 = /\b(?:not|cannot|can't|won't|refuse|refused|never|without|unverified|unsubstantiated|fail(?:ed|ing|s)?|pending|todo|wip|to\s+be)\b/i;
+var PAST_TENSE_RE = /\b(?:completed|finished|passed|confirmed|closed|shipped|built|tested)\b/i;
+var STRONG_PHRASE_RE = /\b(?:everything\s+works|all\s+green|all\s+(?:tests|pass|checks)\s+pass|verified\s+everything|is\s+verified|confirmed\s+correct|task\s+completed|wave\s+succeeded|build\s+succeeded|audit\s+passed)\b/i;
+var CLAIM_AUDIT_REMEDY_RE2 = /\b(?:manifest\s+records|gap|what\s+is\s+not|not\s+verified|records\s+what)\b/i;
+var SCOPE_SHRINK_RE = /\b(?:too\s+complex|too\s+big|simplify\s+the\s+scope|reduce\s+the\s+scope|out\s+of\s+scope|shrink(?:ing|ed)?\s+(?:scope|the\s+promise))\b/i;
+var SCOPE_GAP_RE = /\b(?:not\s+verified|what\s+is\s+not|records\s+what|gap|missing\s+(?:scope|item))\b/i;
+var THEATRICAL_RE = /\b(?:skip\s+(?:the\s+)?(?:test|battery|verification|suite)|mock|stub|fake)\b/i;
+var GUESS_RE = /\b(?:i(?:'ll| will)\s+just\s+assume|let\s+me\s+guess|probably\s+calls|maybe\s+imports|might\s+be|i\s+think|could\s+be)\b/i;
+var DRIFT_RE = /\b(?:drift|GRAPH_GATE_DRIFT_HIGH|structural\s+edit|structural\s+code|reimplement|reimplemented)\b/i;
+var HAPPY_PATH_RE = /\b(?:happy\s+path|all\s+tests\s+pass|everything\s+works|pass\s+\d+|0\s+fail(?:ures)?)\b/i;
+var EVIDENCE_RE = /\b(?:\d+\s+pass(?:ed)?|\d+\s+fail(?:ed)?|exit\s+code\s+\d+|ran\s+just\s+now|container\s+test|tsc\s+exit|battery)\b/i;
+function isNegated(sentence) {
+  return CLAIM_NEGATION_RE2.test(sentence);
+}
+function isPastTense(sentence) {
+  return PAST_TENSE_RE.test(sentence) && !STRONG_PHRASE_RE.test(sentence);
+}
+function isGapRecord(sentence) {
+  return CLAIM_AUDIT_REMEDY_RE2.test(sentence) || SCOPE_GAP_RE.test(sentence);
+}
+var VERIFICATION_BEFORE_DECLARATION = {
+  id: "verification-before-declaration",
+  kind: "claim",
+  matcher: (text) => {
+    const m = text.match(CLAIM_WORD_RE2);
+    if (!m)
+      return null;
+    const idx = m.index ?? 0;
+    if (idx > 0 && text[idx - 1] === ".")
+      return null;
+    return m[0];
+  },
+  triggerCondition: (text, matchedSpan) => {
+    const spanIdx = text.indexOf(matchedSpan);
+    if (spanIdx > 0 && text[spanIdx - 1] === ".") {
+      return false;
+    }
+    const sentences = text.split(/[.!?]+\s+|\n+/);
+    for (const s of sentences) {
+      if (!CLAIM_WORD_RE2.test(s))
+        continue;
+      const wordIdx = s.indexOf(matchedSpan);
+      if (wordIdx > 0 && s[wordIdx - 1] === ".") {
+        return false;
+      }
+      if (isNegated(s))
+        continue;
+      if (isPastTense(s))
+        continue;
+      if (isGapRecord(s))
+        continue;
+      return true;
+    }
+    return false;
+  },
+  severity: "act",
+  messageTemplate: 'You are declaring work complete. State the PASTED test output or build exit code that proves it. A "done" without a run is FALSE. Run the verification now.',
+  remediationHook: "RUN the test or the build before saying it works. If you cannot run it, state BLOCKED with the reason."
+};
+var ANTI_SCOPE_SHRINK = {
+  id: "anti-scope-shrink",
+  kind: "scope-shrink",
+  matcher: (text) => {
+    const m = text.match(SCOPE_SHRINK_RE);
+    return m ? m[0] : null;
+  },
+  triggerCondition: (text, _matchedSpan) => {
+    if (isGapRecord(text))
+      return false;
+    return true;
+  },
+  severity: "act",
+  messageTemplate: "You are about to shrink the scope. Decompose + first wave instead. NEVER reduce the promise. The scope is the contract.",
+  remediationHook: "Expand the decomposition into more tasks. Do NOT trim the promise \u2014 surface the open item as operator-gated, not as a shrink."
+};
+var ANTI_THEATRICAL = {
+  id: "anti-theatrical",
+  kind: "theatrical",
+  matcher: (text) => {
+    const m = text.match(THEATRICAL_RE);
+    return m ? m[0] : null;
+  },
+  triggerCondition: (_text, _matchedSpan) => {
+    return true;
+  },
+  severity: "act",
+  messageTemplate: "You are about to make a theatrical claim without mechanical evidence. RUN the test or the build before saying it works.",
+  remediationHook: 'Run the battery. "just mock the result" -> replace with a real container test. Theatrical claims are FALSE.'
+};
+var BASIC_LOGIC_CHECK = {
+  id: "basic-logic-check",
+  kind: "logic-guess",
+  matcher: (text) => {
+    const m = text.match(GUESS_RE);
+    return m ? m[0] : null;
+  },
+  triggerCondition: (_text, _matchedSpan) => {
+    return true;
+  },
+  severity: "flag",
+  messageTemplate: "You are guessing a dependency. QUERY the graph instead: ripwire verb=callers or graph-query verb=who-calls. Never guess what you can measure.",
+  remediationHook: "ripwire verb=callers target=<symbol> before making structural assumptions."
+};
+var GRAPH_BEFORE_STRUCTURAL_EDIT = {
+  id: "graph-before-structural-edit",
+  kind: "structural-edit",
+  matcher: (text) => {
+    const m = text.match(DRIFT_RE);
+    return m ? m[0] : null;
+  },
+  triggerCondition: (text, _matchedSpan) => {
+    const structuralIntent = /\b(?:edit|editing|rewrite|rewrite|modify|refactor|change|structural)\b/i.test(text);
+    return structuralIntent || /GRAPH_GATE_DRIFT_HIGH/.test(text);
+  },
+  severity: "flag",
+  messageTemplate: "You are editing structural code (exports, imports, types) with high session drift. QUERY the graph first: ripwire verb=callers or graph-query verb=who-calls.",
+  remediationHook: "ripwire verb=callers target=<symbol> or graph-query verb=who-calls on the symbol before editing structural code."
+};
+var RED_TEAM_DEFAULT = {
+  id: "red-team-default",
+  kind: "verification",
+  matcher: (text) => {
+    const m = text.match(HAPPY_PATH_RE);
+    return m ? m[0] : null;
+  },
+  triggerCondition: (text, _matchedSpan) => {
+    return !EVIDENCE_RE.test(text);
+  },
+  severity: "act",
+  messageTemplate: "Happy-path-only testing is theater. The adversarial cases run FIRST.",
+  remediationHook: "Run the adversarial/failure cases first. Then the happy path. Cite the full test output."
+};
+var L0_MEMBERS = [
+  VERIFICATION_BEFORE_DECLARATION,
+  ANTI_SCOPE_SHRINK,
+  RED_TEAM_DEFAULT,
+  ANTI_THEATRICAL,
+  BASIC_LOGIC_CHECK,
+  GRAPH_BEFORE_STRUCTURAL_EDIT
+];
+function decideInner(text, origin = "agent") {
+  const classified = classifyBuffer(text, origin);
+  if (classified.kind === "host-envelope") {
+    recordFiring({
+      rule: "role-skip",
+      buffer: "host-envelope",
+      band: "skip",
+      matched_span: null,
+      verdict: "host buffer \u2014 rule not applicable (WO-1)",
+      skip_reason: "role:" + classified.reason
+    });
+    return {
+      kind: "skip",
+      rule: "role-filter",
+      matchedSpan: null,
+      reason: "host-envelope buffer \u2014 detectors skipped (WO-1: FIRE-ON-HOST-TEXT)",
+      remediation: "No action \u2014 host-authored text is structurally exempt.",
+      skipReason: "host-envelope:" + classified.reason,
+      evidenceBound: false
+    };
+  }
+  if (classified.kind === "quoted") {
+    recordFiring({
+      rule: "quote-exclusion",
+      buffer: "quoted",
+      band: "skip",
+      matched_span: null,
+      verdict: "quoted region \u2014 not the agent performing the act (WO-2)",
+      skip_reason: "quoted:" + classified.reason
+    });
+    return {
+      kind: "skip",
+      rule: "quote-exclusion",
+      matchedSpan: null,
+      reason: "quoted buffer \u2014 detectors skipped (WO-2: USE/MENTION blindness)",
+      remediation: "No action \u2014 quoted regions are not the agent performing the act.",
+      skipReason: "quoted:" + classified.reason,
+      evidenceBound: false
+    };
+  }
+  let lastMatchedMember = null;
+  let lastMatchedSpan = null;
+  for (const member of L0_MEMBERS) {
+    const matchedSpan = member.matcher(text);
+    if (!matchedSpan)
+      continue;
+    lastMatchedMember = member;
+    lastMatchedSpan = matchedSpan;
+    const triggered = member.triggerCondition(text, matchedSpan);
+    if (triggered) {
+      recordFiring({
+        rule: member.id,
+        buffer: classified.kind,
+        band: member.severity,
+        matched_span: matchedSpan,
+        verdict: member.messageTemplate,
+        jev_called: true
+      });
+      if (member.severity === "act") {
+        return {
+          kind: "act",
+          rule: member.id,
+          matchedSpan,
+          reason: member.messageTemplate,
+          remediation: member.remediationHook,
+          skipReason: null,
+          evidenceBound: false
+        };
+      }
+      return {
+        kind: "flag",
+        rule: member.id,
+        matchedSpan,
+        reason: member.messageTemplate,
+        remediation: member.remediationHook,
+        skipReason: null,
+        evidenceBound: false
+      };
+    }
+    recordFiring({
+      rule: member.id,
+      buffer: classified.kind,
+      band: "clear",
+      matched_span: null,
+      verdict: "matcher hit but triggerCondition false \u2014 contextual gate suppressed",
+      skip_reason: "triggerCondition-false:" + matchedSpan
+    });
+    if (member.id === "red-team-default") {
+      return {
+        kind: "clear",
+        rule: member.id,
+        matchedSpan,
+        reason: "claim bound to real evidence \u2014 NOT a theatrical claim (T7: PASSES)",
+        remediation: "No action \u2014 the claim has supporting evidence.",
+        skipReason: "evidence-bound:" + matchedSpan,
+        evidenceBound: true
+      };
+    }
+  }
+  recordFiring({
+    rule: lastMatchedMember ? lastMatchedMember.id : "l0-decide",
+    buffer: classified.kind,
+    band: "clear",
+    matched_span: lastMatchedSpan,
+    verdict: lastMatchedMember ? "matcher hit but triggerCondition false \u2014 contextual gate suppressed" : "no matcher or triggerCondition passed \u2014 SILENT",
+    skip_reason: lastMatchedMember ? "triggerCondition-false:" + lastMatchedSpan : "no-match"
+  });
+  return {
+    kind: "clear",
+    rule: lastMatchedMember ? lastMatchedMember.id : "l0-decide",
+    matchedSpan: lastMatchedSpan,
+    reason: lastMatchedMember ? "matcher hit but triggerCondition suppressed \u2014 SILENT" : "No L0 member fired \u2014 the buffer is clean (SILENT).",
+    remediation: "No action required.",
+    skipReason: lastMatchedMember ? "triggerCondition-false:" + lastMatchedSpan : "no-match",
+    evidenceBound: false
+  };
+}
+var ESCALATE_AT = 3;
+function newL0EscalationState(escalateAt = ESCALATE_AT) {
+  return { counts: new Map, escalateAt };
+}
+var escalationState = newL0EscalationState();
+function withEscalation(v, st) {
+  if (v.kind === "act" || v.kind === "flag") {
+    const n = (st.counts.get(v.rule) ?? 0) + 1;
+    st.counts.clear();
+    st.counts.set(v.rule, n);
+    return { ...v, consecutive: n, escalate: n >= st.escalateAt };
+  }
+  st.counts.clear();
+  return { ...v, consecutive: 0, escalate: false };
+}
+function decide2(text, origin = "agent", state = escalationState) {
+  return withEscalation(decideInner(text, origin), state);
+}
+
 // src/index.ts
 var LOAD_MARKER = "__OMP_CT_LOADED__";
 function ctExtension(pi) {
@@ -3725,6 +4041,13 @@ function ctExtension(pi) {
               const ring = ringFromLedger();
               const res = bindAtoms(atoms, ring, { currentTurn: ring.length > 0 ? ring[ring.length - 1].ts : undefined });
               host.log(res.verdict === "PASS" ? "INFO" : "WARN", "omp-ct", `[CT CLAIM] ${res.verdict} \u2014 ${res.reason ?? "claim bound to this turn's evidence"}`);
+            }
+          } catch {}
+          try {
+            const v = decide2(text);
+            if (v.kind === "act" || v.kind === "flag") {
+              const span = (v.matchedSpan ?? "").slice(0, 70);
+              host.log(v.kind === "act" ? "WARN" : "INFO", "omp-ct", `[CT L0] ${v.rule} ${v.kind.toUpperCase()}` + (v.escalate ? ` \u2014 ESCALATE (${v.consecutive} consecutive firings)` : "") + ` \u2014 "${span}"`);
             }
           } catch {}
         }

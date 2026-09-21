@@ -293,7 +293,14 @@ export const L0_MEMBERS: L0Member[] = [
  *   T7 ("32 pass 0 fail ran just now") -> PASSES (red-team matcher hits but
  *       triggerCondition sees evidence -> evidenceBound=true, kind=clear)
  */
-export function decide(text: string, origin: BufferOrigin = 'agent'): L0Verdict {
+/**
+ * The base verdict: everything decideInner computes. The ST-7 streak fields are added by the `decide`
+ * wrapper, so they are OMITTED here — the type system then forces every return site to stay exactly as
+ * it was, and there is ONE place where a streak is counted.
+ */
+type L0BaseVerdict = Omit<L0Verdict, 'consecutive' | 'escalate'>;
+
+function decideInner(text: string, origin: BufferOrigin = 'agent'): L0BaseVerdict {
   const classified = classifyBuffer(text, origin);
 
   // ── WO-1: host envelopes never reach a detector ──
@@ -444,6 +451,58 @@ export function decide(text: string, origin: BufferOrigin = 'agent'): L0Verdict 
     skipReason: lastMatchedMember ? 'triggerCondition-false:' + lastMatchedSpan : 'no-match',
     evidenceBound: false,
   };
+}
+
+// ═══ ST-7: ESCALATE-AFTER-3 — the consecutive-firing state machine ═══════════════════════════════════
+// W-1's S3, closed as an L0 RULE. The measured reason the STTGF-path escalation never fired: it needed
+// 3 CONSECUTIVE blocks, but any compliance call cleared the claim by design, so ESCALATE was
+// UNREACHABLE for a well-behaved model ("a gate that cannot fire is not a layer"). Moved here, the
+// streak is counted by the L0 itself — deterministic, independent of what the consumer does next.
+//
+// THE SEMANTICS, stated once:
+//   - a firing by member M increments M's streak and CLEARS every other member's streak;
+//   - a clean buffer (clear/skip) clears EVERY streak — compliance resets the state, by design;
+//   - at ESCALATE_AT consecutive firings the verdict carries escalate=true.
+// The L0 DETECTS and DECIDES the band; a consumer performs the notification.
+export const ESCALATE_AT = 3;
+
+export interface L0EscalationState {
+  counts: Map<string, number>;
+  escalateAt: number;
+}
+
+export function newL0EscalationState(escalateAt: number = ESCALATE_AT): L0EscalationState {
+  return { counts: new Map(), escalateAt };
+}
+
+let escalationState: L0EscalationState = newL0EscalationState();
+
+/** Clear the streaks (a fresh session, or test isolation). */
+export function resetL0State(): void {
+  escalationState = newL0EscalationState(escalationState.escalateAt);
+}
+
+function withEscalation(v: L0BaseVerdict, st: L0EscalationState): L0Verdict {
+  if (v.kind === 'act' || v.kind === 'flag') {
+    const n = (st.counts.get(v.rule) ?? 0) + 1;
+    st.counts.clear(); // one member firing breaks every OTHER member's streak
+    st.counts.set(v.rule, n);
+    return { ...v, consecutive: n, escalate: n >= st.escalateAt };
+  }
+  st.counts.clear(); // a clean buffer breaks every streak
+  return { ...v, consecutive: 0, escalate: false };
+}
+
+/**
+ * decide() — the L0 state machine. The verdict fields are IDENTICAL to decideInner's; the wrapper adds
+ * only the ST-7 streak fields, so no existing consumer changes behaviour.
+ */
+export function decide(
+  text: string,
+  origin: BufferOrigin = 'agent',
+  state: L0EscalationState = escalationState,
+): L0Verdict {
+  return withEscalation(decideInner(text, origin), state);
 }
 
 // ── Re-exports for consumers ────────────────────────────────────────────────

@@ -39,6 +39,17 @@ export interface L0Verdict {
   skipReason: string | null;
   /** True when the claim was bound to real evidence (T7: "32 pass 0 fail ran just now") */
   evidenceBound: boolean;
+  /**
+   * ST-7 (escalate-after-3): how many CONSECUTIVE decide() calls this rule has fired. A clean buffer
+   * resets every streak — compliance clears the claim by design (measured: S3, 2026-09-21).
+   */
+  consecutive: number;
+  /**
+   * ST-7: true when the streak reached the escalate threshold. The L0 DECIDES this deterministically;
+   * a consumer must treat it as the operator-notification signal. Additive: no existing field changes,
+   * so the 14 call sites keep their behaviour.
+   */
+  escalate: boolean;
 }
 
 // ── THE TYPED MEMBER RECORD (the ISE law §5.1) ──────────────────────────────

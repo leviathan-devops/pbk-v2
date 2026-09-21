@@ -18,6 +18,12 @@ import { registerCtTools } from "./tools/ct-registry";
 import { existsSync, readFileSync } from "node:fs";
 import { kernelJudge } from "./ext/kernel-judge";
 import { bindAtoms, parseClaimAtoms, type RingSpan } from "./ext/claim-bind";
+// V-048: the L0 (W3's six kernels + role filter + quote exclusion + ST-7 escalation) was imported by
+// NOTHING outside its own directory — three test files were its only consumers, so it never ran in the
+// deployed extension. "A gate that cannot fire is not a layer." It is wired here, at the settled
+// boundary: the same seam the claim firewall uses, judging the AGENT's text (not host envelopes, not
+// quoted regions — the role classifier inside decide() enforces that).
+import { decide as l0Decide } from "./l0/index";
 
 const LOAD_MARKER = "__OMP_CT_LOADED__";
 
@@ -132,6 +138,25 @@ export default function ctExtension(pi: ExtensionAPI): void {
               host.log(res.verdict === "PASS" ? "INFO" : "WARN", "omp-ct", `[CT CLAIM] ${res.verdict} — ${res.reason ?? "claim bound to this turn's evidence"}`);
             }
           } catch { /* the claim gate is non-fatal; the arming above still stands */ }
+
+          // ── V-048: THE L0 LAYER (W3) — the six kernels, live.
+          // decide() runs the role classifier FIRST (host envelopes and quoted regions never reach a
+          // detector), then the typed members in priority order, and records its OWN ledger row with
+          // the matched span whenever a member fires (the evidence law). This call is what makes the
+          // L0 a LAYER rather than a library: it now observes every settled agent turn.
+          try {
+            const v = l0Decide(text);
+            if (v.kind === 'act' || v.kind === 'flag') {
+              const span = (v.matchedSpan ?? '').slice(0, 70);
+              host.log(
+                v.kind === 'act' ? 'WARN' : 'INFO',
+                'omp-ct',
+                `[CT L0] ${v.rule} ${v.kind.toUpperCase()}` +
+                  (v.escalate ? ` — ESCALATE (${v.consecutive} consecutive firings)` : '') +
+                  ` — "${span}"`,
+              );
+            }
+          } catch { /* the L0 is non-fatal: it observes, it never breaks the turn */ }
         }
       }
     } catch { /* non-fatal */ }
