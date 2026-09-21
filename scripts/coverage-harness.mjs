@@ -25,6 +25,18 @@ const D = "dock" + "er";
 const TMP = mkdtempSync(join(tmpdir(), "cov3-"));
 process.env.ABIDE_DIR = TMP;
 
+// ── THE CONTROL — DECLARED BEFORE IT IS TAKEN (the instrument-validity gate) ──
+// THE EXACT FAILURE THIS PREVENTS: an earlier version of this harness booted a factory that THREW (a
+// missing method), registered NO handler, and recorded 8 verdicts of OVERAGGRESSIVE against a harness that
+// could not produce a single observation. THE ABSENCE OF A SIGNAL WAS READ AS A SIGNAL.
+// The control asserts the one fact every verdict below DEPENDS on: THE HARNESS CAN PRODUCE A FIRE.
+// The probe is the DENSITY gate (a write), not the smoke gate — the smoke gate ESCALATES on repetition.
+const CONTROL = {
+  what: "the density gate blocks a short .md (the harness CAN produce a fire)",
+  expected: "DOC-DENSITY",
+  observed: "",
+};
+
 const R = [];
 const rec = (point, rung, pos, neg, verdict, note) => R.push({ point, rung, pos, neg, verdict, note });
 const fired = (s) => !/^allow$/i.test(String(s));
@@ -59,6 +71,13 @@ const drive = async (toolName, input, extra = {}) => {
     return r === undefined ? "allow" : JSON.stringify(r).slice(0, 76);
   } catch (e) { return String(e.message ?? e).slice(0, 92); }
 };
+
+// ── RUN THE CONTROL FIRST, then decide whether ANY verdict below is admissible ──
+const controlProbe = await drive("write", { path: "CTRL_SPEC.md", content: "x" });
+CONTROL.observed = String(controlProbe).includes("DOC-DENSITY") ? "DOC-DENSITY" : String(controlProbe).slice(0, 40);
+const INSTRUMENT_LIVE = CONTROL.observed === CONTROL.expected;
+rec("THE CONTROL (declared first)", "control", `expected: ${CONTROL.expected}`, `observed: ${CONTROL.observed}`,
+  INSTRUMENT_LIVE ? "WORKS" : "BLOCKED", CONTROL.what);
 
 rec("BOOT: the factory", "bundle", bootErr ? "THREW" : "booted clean",
   handlers["tool_call"] ? "handler registered" : "NO HANDLER", !bootErr && handlers["tool_call"] ? "WORKS" : "WEAK",
@@ -186,7 +205,15 @@ rec("judge: the key resolution", "[src]", src.kj.resolveApiKey?.() ? "resolves (
   }
 }
 
-const V = {}; for (const r of R) V[r.verdict] = (V[r.verdict] || 0) + 1;
+// ── THE ADJUDICATION: a broken instrument cannot yield findings ──
+const V = {};
+if (!INSTRUMENT_LIVE) {
+  console.log("\n*** RUN BLOCKED - THE INSTRUMENT IS NOT PROVEN ***");
+  console.log(`  the control declared "${CONTROL.expected}" and observed "${CONTROL.observed}"`);
+  console.log("  EVERY verdict below is UNOBSERVED - the absence of a signal is not a signal.\n");
+  for (const r of R) { if (r.rung !== "control") r.verdict = "UNOBSERVED"; }
+}
+for (const r of R) V[r.verdict] = (V[r.verdict] || 0) + 1;
 console.log(`\n═══ ENFORCEMENT COVERAGE — the deployed bundle ${sha} ═══\n`);
 console.log("point".padEnd(32) + "rung".padEnd(9) + "POSITIVE".padEnd(32) + "NEGATIVE".padEnd(26) + "VERDICT");
 console.log("─".repeat(124));
