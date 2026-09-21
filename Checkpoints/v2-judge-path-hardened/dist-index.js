@@ -3438,6 +3438,20 @@ function toApiPrimitive(t) {
       return "noul";
   }
 }
+function fileKindOf(file) {
+  const f = (file ?? "").toLowerCase();
+  if (/\.(ts|tsx|js|jsx|mjs|cjs|py|rs|go|rb|java|c|cpp|h)$/.test(f))
+    return "source";
+  if (/\.(md|markdown|txt|rst)$/.test(f))
+    return "document";
+  if (/\.(json|ya?ml|toml|ini|env)$/.test(f))
+    return "config";
+  if (/\.(sql|db|sqlite)$/.test(f))
+    return "data";
+  if (/\.(html|css|scss|vue|svelte)$/.test(f))
+    return "ui";
+  return "other";
+}
 async function defaultJudge(rules, state, apiKey) {
   const key = apiKey ?? resolveApiKey();
   if (!key) {
@@ -3450,15 +3464,17 @@ async function defaultJudge(rules, state, apiKey) {
     const q = rule.check?.question;
     if (!q)
       continue;
+    const SCOPING = " SCOPE: the state names the file and its kind. If this question\u2019s subject plainly does not " + "apply to a file of that kind (for example a document-DENSITY question asked about a source or " + "config file), answer false \u2014 the rule does not apply to this subject.";
     questions[rule.id] = {
       type: toApiPrimitive(q.type),
-      ...q.instructions ? { instructions: q.instructions } : {},
+      ...q.instructions ? { instructions: q.instructions + SCOPING } : {},
       ...q.criteria ? { criteria: q.criteria } : {}
     };
   }
   const body = JSON.stringify({
     state: {
       file: state.file,
+      fileKind: fileKindOf(state.file),
       phase: state.phase,
       diff: state.diff,
       ...state.task ? { task: state.task } : {}

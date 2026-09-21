@@ -283,6 +283,19 @@ export function toApiPrimitive(t: string | undefined): string {
   }
 }
 
+/**
+ * V-092: the file's KIND, derived from its path — the subject class the scoping clause needs.
+ */
+export function fileKindOf(file: string): string {
+  const f = (file ?? '').toLowerCase();
+  if (/\.(ts|tsx|js|jsx|mjs|cjs|py|rs|go|rb|java|c|cpp|h)$/.test(f)) return 'source';
+  if (/\.(md|markdown|txt|rst)$/.test(f)) return 'document';
+  if (/\.(json|ya?ml|toml|ini|env)$/.test(f)) return 'config';
+  if (/\.(sql|db|sqlite)$/.test(f)) return 'data';
+  if (/\.(html|css|scss|vue|svelte)$/.test(f)) return 'ui';
+  return 'other';
+}
+
 export async function defaultJudge(
   rules: RubricRule[],
   state: JudgeState,
@@ -309,9 +322,20 @@ export async function defaultJudge(
     // while `type: "noul"` -> 200 with the answer. The rubric's own vocabulary says `boolean` (it is the
     // upstream schema's word); the WIRE needs the primitive. This is the mapping, and it exists because the
     // stub could never have found it: a stub answers whatever shape you ask it.
+    // V-092 THE SCOPING CLAUSE. The measured defect: the judge answered every rule's question on every
+    // file kind, because the question never said WHICH SUBJECTS it applies to. The clause is the §6.20
+    // observation form — a checkable condition, not a vibe:
+    //   "the state names the file and its kind; if this question's subject plainly does not apply to a
+    //    file of that kind, answer false."
+    // A `.md`-density question on a `.json` therefore answers FALSE — which is the honest answer, and it
+    // is what turns a flat near-constant into a discriminating signal.
+    const SCOPING =
+      ' SCOPE: the state names the file and its kind. If this question\u2019s subject plainly does not ' +
+      'apply to a file of that kind (for example a document-DENSITY question asked about a source or ' +
+      'config file), answer false — the rule does not apply to this subject.';
     questions[rule.id] = {
       type: toApiPrimitive(q.type),
-      ...(q.instructions ? { instructions: q.instructions } : {}),
+      ...(q.instructions ? { instructions: q.instructions + SCOPING } : {}),
       ...(q.criteria ? { criteria: q.criteria } : {}),
     };
   }
@@ -319,6 +343,13 @@ export async function defaultJudge(
   const body = JSON.stringify({
     state: {
       file: state.file,
+      // V-092 THE CALIBRATION FIX: THE FILE'S KIND. MEASURED (the six-rule × four-kind matrix): with the
+      // path alone, five of the six edit rules scored FLAT across unrelated file kinds — and
+      // `w7-doc-density`, whose own text is about `.md` files, scored HIGHEST on a `.json` config (0.64)
+      // and 0.57 on a TypeScript source. Spread 0.09: **the rule did not know what a `.md` file is.** A
+      // near-constant is not a judgment, and it costs a question on every edit. The kind travels in the
+      // state so the question can SCOPE ITSELF (see the scoping clause below).
+      fileKind: fileKindOf(state.file),
       phase: state.phase,
       diff: state.diff,
       ...(state.task ? { task: state.task } : {}),
