@@ -41,6 +41,16 @@ export function trackSessionEvent(
     (ctx as unknown as { agent?: string } | undefined)?.agent ||
     "";
   if (!agent) return false; // the default-key guard: no agent → no write
+  // ── V-060: THIS GUARD IS WHY THE F1 ISOLATION GATE CANNOT FIRE ──────────────────────────────
+  // `isOwnedAgent` is a STUB that returns false for every name ("none after the CT-only debrand"),
+  // so this branch is taken for EVERY agent: no session is ever tracked, `getCurrentAgent` always
+  // returns undefined, and `guardianGate`'s first guard (`if (!sessionAgent) return undefined`) always
+  // returns early. The gate's LOGIC is correct — proved by forcing `setCurrentAgent` directly — but the
+  // live path can never reach it. Pinned by tests/f1-isolation-wiring.test.ts, which fails loudly if
+  // `isOwnedAgent` ever starts returning true (that would re-arm the gate).
+  //
+  // The consequence is stated here because the POLICY was documented and the CONSEQUENCE was not: a
+  // security gate believed active and structurally inert is worse than no gate at all (V-050's lesson).
   if (!isOwnedAgent(agent)) {
     clearSpecificSessionOnly(sessionId || undefined);
     return false;

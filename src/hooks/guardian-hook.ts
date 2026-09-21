@@ -61,6 +61,11 @@ export function checkGuardian(
 
 /** The OMP chain adapter: F1 isolation on the before chain (spec item 11). */
 export function guardianGate(): BeforeGate {
+  // V-060: INERT IN PRODUCTION, and that is now stated rather than implied. `getCurrentAgent` can only
+  // return a value if `trackSessionEvent` set one — and that function refuses every agent because
+  // `isOwnedAgent` is a stub returning false. So this guard always returns early and the F1 isolation
+  // never blocks anything live. The LOGIC below is correct (a forced tracking blocks `code-audit` for
+  // agent `build`); the WIRING is what is dead. Pinned by tests/f1-isolation-wiring.test.ts.
   return async (ctx) => {
     const sessionAgent = getCurrentAgent(ctx.sessionId);
     // A session with NO tracked agent is the v6 'main' default — the F1
