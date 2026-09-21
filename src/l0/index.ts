@@ -327,29 +327,12 @@ function decideInner(text: string, origin: BufferOrigin = 'agent'): L0BaseVerdic
     };
   }
 
-  // ── WO-2: quoted regions are not the agent's voice ──
-  // INCIDENT CLASS B (derailment-data-log.md §2): the kernel fired on the
-  // agent's own vocabulary, quoted. classifyBuffer returns 'quoted' for fenced
-  // code blocks + inline code spans BEFORE any detector sees the text.
-  if (classified.kind === 'quoted') {
-    recordFiring({
-      rule: 'quote-exclusion',
-      buffer: 'quoted',
-      band: 'skip',
-      matched_span: null,
-      verdict: 'quoted region — not the agent performing the act (WO-2)',
-      skip_reason: 'quoted:' + classified.reason,
-    });
-    return {
-      kind: 'skip',
-      rule: 'quote-exclusion',
-      matchedSpan: null,
-      reason: 'quoted buffer — detectors skipped (WO-2: USE/MENTION blindness)',
-      remediation: 'No action — quoted regions are not the agent performing the act.',
-      skipReason: 'quoted:' + classified.reason,
-      evidenceBound: false,
-    };
-  }
+  // ── WO-2 (V-053): quoted regions are not the agent's voice — decided at SPAN level, not buffer level ──
+  // The old form returned early whenever the buffer merely CONTAINED a fence or two backticks, which
+  // silenced real claims (measured: "The `parse` function is done and the `write` path works" -> skip).
+  // The detection now runs on the buffer MINUS its quoted spans; a hit that exists only inside a
+  // quotation is suppressed and RECORDED below, in the member loop.
+  const detectionText = stripQuotedSpans(text);
 
   // ── Run members in priority order ──
   // Track the last matcher hit (even if suppressed by triggerCondition)
@@ -357,33 +340,32 @@ function decideInner(text: string, origin: BufferOrigin = 'agent'): L0BaseVerdic
   let lastMatchedMember: L0Member | null = null;
   let lastMatchedSpan: string | null = null;
   // V-052: the same text with quoted PROSE spans removed. A hit that does not survive this is a quotation.
-  const quoteStripped = stripQuotedProse(text);
   let quotedSuppressed = 0;
 
   for (const member of L0_MEMBERS) {
-    const matchedSpan = member.matcher(text);
-    if (!matchedSpan) continue;
-
-    // V-052 / WO-2: a hit that lives ONLY inside a quotation is not the agent performing the act.
-    // (When a non-quoted hit ALSO exists, `matcher(quoteStripped)` still hits and the member proceeds —
-    // the conservative direction: speech is suppressed, never a real act.)
-    if (quoteStripped !== text && !member.matcher(quoteStripped)) {
-      quotedSuppressed += 1;
-      recordFiring({
-        rule: member.id,
-        buffer: 'quoted',
-        band: 'skip',
-        matched_span: matchedSpan,
-        verdict: 'quoted-prose hit — not the agent\u2019s own voice (V-052, WO-2)',
-        jev_called: false,
-        skip_reason: 'quoted-prose:' + member.id,
-      });
+    // V-053: detection runs on the buffer WITHOUT its quoted spans. A hit that exists only in the
+    // quotation is the agent QUOTING the act, not performing it — suppressed, and RECORDED (never silent).
+    const matchedSpan = member.matcher(detectionText);
+    if (!matchedSpan) {
+      const quotedHit = member.matcher(text);
+      if (quotedHit) {
+        quotedSuppressed += 1;
+        recordFiring({
+          rule: member.id,
+          buffer: 'quoted',
+          band: 'skip',
+          matched_span: quotedHit,
+          verdict: 'quoted-span hit — not the agent\u2019s own voice (WO-2, V-052/V-053)',
+          jev_called: false,
+          skip_reason: 'quoted:' + member.id,
+        });
+      }
       continue;
     }
 
     lastMatchedMember = member;
     lastMatchedSpan = matchedSpan;
-    const triggered = member.triggerCondition(text, matchedSpan);
+    const triggered = member.triggerCondition(detectionText, matchedSpan);
 
     if (triggered) {
       // The matcher DETECTED + the triggerCondition DECIDED -> the act is real.
@@ -467,9 +449,9 @@ function decideInner(text: string, origin: BufferOrigin = 'agent'): L0BaseVerdic
       kind: 'skip',
       rule: 'quote-exclusion',
       matchedSpan: null,
-      reason: `quoted-prose hit suppressed (${quotedSuppressed} member(s)) — a quotation is not the agent performing the act (V-052, WO-2)`,
+      reason: `quoted-span hit suppressed (${quotedSuppressed} member(s)) — a quotation is not the agent performing the act (WO-2, V-052/V-053)`,
       remediation: 'No action — the act, if any, must appear in the agent\u2019s own prose, outside quotes.',
-      skipReason: 'quoted-prose:suppressed-' + quotedSuppressed,
+      skipReason: 'quoted:suppressed-' + quotedSuppressed,
       evidenceBound: false,
     };
   }
@@ -502,6 +484,28 @@ const QUOTED_PROSE_RE: RegExp[] = [
   /(^|[\s([{])'[^'\n]{4,}'(?=[\s.,;:!?)\]}\u201d\u2019]|$)/g,
   /(^|[\s([{])"[^"\n]{4,}"(?=[\s.,;:!?)\]}\u201d\u2019]|$)/g,
 ];
+
+/**
+ * Remove QUOTED-CODE spans: fenced blocks (``` / ~~~ … to their close) and inline code spans (`…`).
+ * V-053: the fence test used to be whole-BUFFER (`hasCodeFence`), so a message that merely CONTAINED two
+ * backticks was classed as quoted and every detector skipped it — a real claim beside `an identifier` was
+ * silenced. Span-level removal is the precise form of the same rule.
+ */
+export function stripQuotedCode(text: string): string {
+  let s = text;
+  // fenced blocks: an opening fence line through the next fence line of the same kind
+  s = s.replace(/^[ \t]*(```|~~~)[^\n]*\n[\s\S]*?^[ \t]*\1[^\n]*$/gm, ' ');
+  // an unclosed fence swallows the rest (a quotation that never closes is still not the agent's voice)
+  s = s.replace(/^[ \t]*(```|~~~)[\s\S]*$/m, ' ');
+  // inline code spans: paired backticks with a non-empty body
+  s = s.replace(/`[^`\n]+`/g, ' ');
+  return s;
+}
+
+/** V-053: everything quoted — code AND prose — removed in one pass. This is the DETECTION text. */
+export function stripQuotedSpans(text: string): string {
+  return stripQuotedProse(stripQuotedCode(text));
+}
 
 /** Remove quoted PROSE spans (their content), leaving everything else intact. */
 export function stripQuotedProse(text: string): string {

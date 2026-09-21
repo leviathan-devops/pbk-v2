@@ -32,7 +32,8 @@ describe("V-052 quoted prose is not the agent's voice", () => {
     expect(v.kind).not.toBe("act");
     expect(v.kind).not.toBe("flag");
     expect(v.rule).toBe("quote-exclusion");
-    expect(v.skipReason ?? "").toContain("quoted-prose");
+    // V-053 generalised the suppression to every quote kind, so the token is now `quoted:…`
+    expect(v.skipReason ?? "").toContain("quoted");
   });
 
   test("ADVERSARIAL: an apostrophe is NOT a quotation — it cannot hide a claim", () => {
@@ -71,6 +72,7 @@ describe("V-052 quoted prose is not the agent's voice", () => {
   test("a quote suppression is a DECISION, not a clean buffer (no silent skips)", () => {
     const v = decide(B2_VERBATIM);
     expect(v.skipReason).toBeTruthy();
-    expect(v.reason).toContain("quoted-prose");
+    expect(v.reason).toContain("quoted-span hit suppressed"); // V-053's wording (all quote kinds)
+    expect(v.reason).toContain("WO-2");                        // it names its work order
   });
 });

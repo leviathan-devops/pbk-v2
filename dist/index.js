@@ -3841,49 +3841,31 @@ function decideInner(text, origin = "agent") {
       evidenceBound: false
     };
   }
-  if (classified.kind === "quoted") {
-    recordFiring({
-      rule: "quote-exclusion",
-      buffer: "quoted",
-      band: "skip",
-      matched_span: null,
-      verdict: "quoted region \u2014 not the agent performing the act (WO-2)",
-      skip_reason: "quoted:" + classified.reason
-    });
-    return {
-      kind: "skip",
-      rule: "quote-exclusion",
-      matchedSpan: null,
-      reason: "quoted buffer \u2014 detectors skipped (WO-2: USE/MENTION blindness)",
-      remediation: "No action \u2014 quoted regions are not the agent performing the act.",
-      skipReason: "quoted:" + classified.reason,
-      evidenceBound: false
-    };
-  }
+  const detectionText = stripQuotedSpans(text);
   let lastMatchedMember = null;
   let lastMatchedSpan = null;
-  const quoteStripped = stripQuotedProse(text);
   let quotedSuppressed = 0;
   for (const member of L0_MEMBERS) {
-    const matchedSpan = member.matcher(text);
-    if (!matchedSpan)
-      continue;
-    if (quoteStripped !== text && !member.matcher(quoteStripped)) {
-      quotedSuppressed += 1;
-      recordFiring({
-        rule: member.id,
-        buffer: "quoted",
-        band: "skip",
-        matched_span: matchedSpan,
-        verdict: "quoted-prose hit \u2014 not the agent\u2019s own voice (V-052, WO-2)",
-        jev_called: false,
-        skip_reason: "quoted-prose:" + member.id
-      });
+    const matchedSpan = member.matcher(detectionText);
+    if (!matchedSpan) {
+      const quotedHit = member.matcher(text);
+      if (quotedHit) {
+        quotedSuppressed += 1;
+        recordFiring({
+          rule: member.id,
+          buffer: "quoted",
+          band: "skip",
+          matched_span: quotedHit,
+          verdict: "quoted-span hit \u2014 not the agent\u2019s own voice (WO-2, V-052/V-053)",
+          jev_called: false,
+          skip_reason: "quoted:" + member.id
+        });
+      }
       continue;
     }
     lastMatchedMember = member;
     lastMatchedSpan = matchedSpan;
-    const triggered = member.triggerCondition(text, matchedSpan);
+    const triggered = member.triggerCondition(detectionText, matchedSpan);
     if (triggered) {
       recordFiring({
         rule: member.id,
@@ -3947,9 +3929,9 @@ function decideInner(text, origin = "agent") {
       kind: "skip",
       rule: "quote-exclusion",
       matchedSpan: null,
-      reason: `quoted-prose hit suppressed (${quotedSuppressed} member(s)) \u2014 a quotation is not the agent performing the act (V-052, WO-2)`,
+      reason: `quoted-span hit suppressed (${quotedSuppressed} member(s)) \u2014 a quotation is not the agent performing the act (WO-2, V-052/V-053)`,
       remediation: "No action \u2014 the act, if any, must appear in the agent\u2019s own prose, outside quotes.",
-      skipReason: "quoted-prose:suppressed-" + quotedSuppressed,
+      skipReason: "quoted:suppressed-" + quotedSuppressed,
       evidenceBound: false
     };
   }
@@ -3967,6 +3949,16 @@ var QUOTED_PROSE_RE = [
   /(^|[\s([{])'[^'\n]{4,}'(?=[\s.,;:!?)\]}\u201d\u2019]|$)/g,
   /(^|[\s([{])"[^"\n]{4,}"(?=[\s.,;:!?)\]}\u201d\u2019]|$)/g
 ];
+function stripQuotedCode(text) {
+  let s = text;
+  s = s.replace(/^[ \t]*(```|~~~)[^\n]*\n[\s\S]*?^[ \t]*\1[^\n]*$/gm, " ");
+  s = s.replace(/^[ \t]*(```|~~~)[\s\S]*$/m, " ");
+  s = s.replace(/`[^`\n]+`/g, " ");
+  return s;
+}
+function stripQuotedSpans(text) {
+  return stripQuotedProse(stripQuotedCode(text));
+}
 function stripQuotedProse(text) {
   let s = text;
   for (const re of QUOTED_PROSE_RE)
