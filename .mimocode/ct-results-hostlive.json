@@ -1,0 +1,57 @@
+{
+  "harness": "hostlive-sttgf",
+  "dist": "/home/leviathan/.omp/agent/extensions/omp-ct/dist.js",
+  "rows": [
+    {
+      "id": "HL-INLINE",
+      "pass": true,
+      "detail": "[STTGF BLOCK] INLINE_EXEC\n\nInline exec is smoke test. Use container.\n\nSmoke tests are FORBIDDEN. Use container-testing."
+    },
+    {
+      "id": "HL-HEADLESS",
+      "pass": true,
+      "detail": "[STTGF BLOCK] HEADLESS\n\nHeadless exec forbidden. Use TUI.\n\nSmoke tests are FORBIDDEN. Use container-testing."
+    },
+    {
+      "id": "HL-ESCALATE",
+      "pass": true,
+      "detail": "[STTGF ESCALATE] INLINE_EXEC — repeated smoke attempts. Running container test is MANDATORY."
+    },
+    {
+      "id": "HL-MISFIRE",
+      "pass": true,
+      "detail": "ls /tmp -> allowed; cat package.json -> allowed"
+    }
+  ],
+  "fired": [
+    {
+      "id": "hl-1",
+      "verdict": "blocked",
+      "returned": "[STTGF BLOCK] INLINE_EXEC\n\nInline exec is smoke test. Use container.\n\nSmoke tests are FORBIDDEN. Use container-testing."
+    },
+    {
+      "id": "hl-2",
+      "verdict": "blocked",
+      "returned": "[STTGF BLOCK] HEADLESS\n\nHeadless exec forbidden. Use TUI.\n\nSmoke tests are FORBIDDEN. Use container-testing."
+    },
+    {
+      "id": "hl-3",
+      "verdict": "blocked",
+      "returned": "[STTGF ESCALATE] INLINE_EXEC — repeated smoke attempts. Running container test is MANDATORY."
+    },
+    {
+      "id": "hl-4",
+      "verdict": "allow",
+      "returned": "undefined"
+    },
+    {
+      "id": "hl-5",
+      "verdict": "allow",
+      "returned": "undefined"
+    }
+  ],
+  "tools": [
+    "container-testing"
+  ],
+  "execCalls": 0
+}

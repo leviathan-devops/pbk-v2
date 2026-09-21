@@ -1,0 +1,11 @@
+# TASK_QUEUE
+1. [BLOCKED-OPERATOR] Kill janitor process (wipes GI node_modules + OMP_WORKSPACE symlinks)
+2. [BLOCKED-OPERATOR] Commit OMP/trident-omp to git (currently untracked)
+3. [BLOCKED-#1] Fix build (GI xstate reinstall)
+4. [READY] Reconcile 2 chain test failures (chain.ts as truth)
+5. [BLOCKED-OPERATOR] Kill-switch decision (flip or hold)
+6. [BLOCKED-#5] W1: Port 7 v6 firewall files (items 1-6)
+7. [BLOCKED-#6] W2: Wire exec/cp/bash/headless gates (items 7-9)
+8. [BLOCKED-#7] W3: Port session/store/guardian (items 10-12)
+9. [BLOCKED-#8] W4: Battery + container proof + cleanup (items 15-18)
+10. [BLOCKED-OPERATOR] Restart OMP (loads fixed dist)

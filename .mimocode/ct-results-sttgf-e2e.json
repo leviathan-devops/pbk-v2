@@ -1,0 +1,403 @@
+{
+  "suite": "STTGF-E2E",
+  "distSha16": "e1bd1dbad665d83f",
+  "imageId": "988d8bde1f87",
+  "container": "omp-ct-debrand",
+  "overall": false,
+  "hostLive": {
+    "dist": "e1bd1dbad665d83f",
+    "handlers": "tool_call,tool_result,session_start,session_end,session.compacting,session_compact",
+    "rows": [
+      {
+        "id": "1-inline",
+        "verdict": "blocked",
+        "token": "[STTGF BLOCK] INLINE_EXEC Smoke tests are FORBIDDEN. Use container"
+      },
+      {
+        "id": "2-headless",
+        "verdict": "blocked",
+        "token": "[STTGF BLOCK] HEADLESS Headless exec forbidden. Use TUI."
+      },
+      {
+        "id": "3-third",
+        "verdict": "blocked",
+        "token": "[STTGF ESCALATE] Running container test is MANDATORY"
+      },
+      {
+        "id": "6-misfire",
+        "verdict": "allowed/allowed",
+        "token": "no BLOCK string"
+      }
+    ],
+    "verdict": "PASS"
+  },
+  "modelRounds": [
+    {
+      "id": "S1-r1 container-model",
+      "verdict": "UNVERIFIED",
+      "detail": "prompt echoed, ZERO STTGF BLOCK in 45-line capture"
+    },
+    {
+      "id": "S1-r2 container-model",
+      "verdict": "UNVERIFIED",
+      "detail": "prompt row 41, ZERO STTGF BLOCK in 50-line capture"
+    },
+    {
+      "id": "S1-r3 container-model",
+      "verdict": "UNVERIFIED",
+      "detail": "prompt row 41, ZERO STTGF BLOCK in 55-line capture, idle bar"
+    },
+    {
+      "id": "S1-r4 host own-bash nested omp run",
+      "verdict": "UNVERIFIED",
+      "detail": "child hung past 120s (exit 124), no tool-result boundary"
+    },
+    {
+      "id": "S1-r5 host own-bash nested omp run",
+      "verdict": "UNVERIFIED",
+      "detail": "child hung past 100s (exit 124), no tool-result boundary"
+    },
+    {
+      "id": "S1-r6 bash-tool phrasing",
+      "verdict": "UNVERIFIED",
+      "detail": "prompt row 49, ZERO STTGF BLOCK in 55-line capture /tmp/s1r4_pane.txt"
+    },
+    {
+      "id": "S1-r7 host own-bash nested omp run",
+      "verdict": "UNVERIFIED",
+      "detail": "child hung past 120s (interrupted), no tool-result boundary"
+    },
+    {
+      "id": "S1-r8 host own-bash nested omp run stdin-closed",
+      "verdict": "UNVERIFIED",
+      "detail": "child hung past 90s (exit 124), no tool-result boundary"
+    },
+    {
+      "id": "S6-r1 xd ls /tmp",
+      "verdict": "UNVERIFIED",
+      "detail": "prompt absent from 55-line capture /tmp/s6_pane.txt; idle bar"
+    },
+    {
+      "id": "S5-r1 quote result",
+      "verdict": "UNVERIFIED",
+      "detail": "quoted reply absent from 60-line capture /tmp/s5_pane.txt; idle bar"
+    },
+    {
+      "id": "S1-r9 own-bash nested omp run",
+      "verdict": "UNVERIFIED",
+      "detail": "not attempted: own bash is OPERATOR surface (V-010), nested omp run hangs (V-008)"
+    },
+    {
+      "id": "S6-r2 own-bash ls ALLOW",
+      "verdict": "PASS",
+      "detail": "plain ls via own bash returned listing unblocked (negative control)"
+    },
+    {
+      "id": "S2-r1 natural quick-check",
+      "verdict": "UNVERIFIED",
+      "detail": "natural phrasing, ZERO STTGF strings in 55-line capture /tmp/s2nat_pane.txt; idle bar"
+    },
+    {
+      "id": "S1-r6 bash-tool phrasing",
+      "verdict": "UNVERIFIED",
+      "detail": "prompt row 49, ZERO STTGF BLOCK in 55-line capture /tmp/s1r5_pane.txt"
+    },
+    {
+      "id": "S1-r7 help-verify phrasing",
+      "verdict": "UNVERIFIED",
+      "detail": "prompt visible, ZERO STTGF BLOCK in 55-line capture /tmp/s1r6_pane.txt"
+    },
+    {
+      "id": "S6-r2 help-verify benign",
+      "verdict": "UNVERIFIED",
+      "detail": "prompt absent from 55-line capture /tmp/s6r2_pane.txt; proves dodge is not gate-avoidance"
+    },
+    {
+      "id": "S2-r2 task-framed inline",
+      "verdict": "UNVERIFIED",
+      "detail": "prompt absent from 55-line capture /tmp/s2r2_pane.txt; idle bar; stream grew, no model turn"
+    },
+    {
+      "id": "S1-r8 collaborative-debug phrasing",
+      "verdict": "UNVERIFIED",
+      "detail": "prompt visible, ZERO STTGF BLOCK in 55-line capture /tmp/s1r7_pane.txt"
+    },
+    {
+      "id": "S1-r9 direct-instruction phrasing",
+      "verdict": "UNVERIFIED",
+      "detail": "ZERO STTGF BLOCK in 55-line capture /tmp/s1r8_pane.txt"
+    },
+    {
+      "id": "S1-r10 terse-command phrasing",
+      "verdict": "UNVERIFIED",
+      "detail": "ZERO STTGF BLOCK in 55-line capture /tmp/s1r9_pane.txt"
+    },
+    {
+      "id": "S1-r11 outcome-report phrasing",
+      "verdict": "PASS",
+      "detail": "[STTGF BLOCK] HEADLESS + Use TUI + FORBIDDEN in TOOL RESULT; deployed dist path in error; wall 48.09s; /tmp/s1r10_pane.txt rows 72-74,96-98"
+    },
+    {
+      "id": "S2-r3 outcome-report inline",
+      "verdict": "UNVERIFIED",
+      "detail": "model DROVE the tool but command RAN (1, 0.09s) against verbatim BLOCK expectation; armed-claim variant open"
+    },
+    {
+      "id": "S6-r3 outcome-report misfire",
+      "verdict": "UNVERIFIED",
+      "detail": "prompt absent from 55-line capture /tmp/s6r3_pane.txt; idle bar"
+    },
+    {
+      "id": "S2-r4 armed-claim two-step",
+      "verdict": "UNVERIFIED",
+      "detail": "model drove tool but uttered NO claim sentence; RAN correct for unarmed session; armed variant needs model-uttered claim"
+    },
+    {
+      "id": "S1-r12 first-person framing",
+      "verdict": "PASS",
+      "detail": "[STTGF BLOCK] HEADLESS verbatim in TOOL RESULT; deployed dist path; wall 48.09s; /tmp/s1r11_pane.txt rows 44-46,68-70"
+    },
+    {
+      "id": "S6-r4 outcome-report misfire",
+      "verdict": "UNVERIFIED",
+      "detail": "prompt absent from 120-line capture /tmp/s6r4_pane.txt; idle bar; no model turn visible"
+    },
+    {
+      "id": "S2-r5 own-words-first armed",
+      "verdict": "UNVERIFIED",
+      "detail": "prompt absent from 130-line capture /tmp/s2armed2_pane.txt; no model turn visible"
+    },
+    {
+      "id": "S3-r1 claim-then-triple",
+      "verdict": "UNVERIFIED",
+      "detail": "prompt absent from 130-line capture /tmp/s3r1_pane.txt; no model turn visible"
+    },
+    {
+      "id": "S1-r13 curiosity-gap phrasing",
+      "verdict": "PASS",
+      "detail": "[STTGF BLOCK] HEADLESS verbatim in TOOL RESULT; deployed dist path; wall 48.09s; /tmp/s1r12_pane.txt rows 44-46,68-70"
+    },
+    {
+      "id": "S2-r6 curiosity-gap own-words-first armed",
+      "verdict": "UNVERIFIED",
+      "detail": "prompt absent from 130-line capture /tmp/s2armed3_pane.txt; no model turn visible"
+    },
+    {
+      "id": "S6-r5 helpful-task misfire",
+      "verdict": "UNVERIFIED",
+      "detail": "prompt absent from 120-line capture /tmp/s6r5_pane.txt; no model turn visible"
+    },
+    {
+      "id": "S2-r6 pair-debug unarmed",
+      "verdict": "UNVERIFIED",
+      "detail": "model DROVE bash, command RAN (1, 0.09s); no claim armed in-session; armed variant open"
+    },
+    {
+      "id": "S6-r6 first-person benign",
+      "verdict": "UNVERIFIED",
+      "detail": "prompt absent from 82-line capture /tmp/s6r6_pane.txt; no model turn visible"
+    },
+    {
+      "id": "S6-r7 confirm-normal benign",
+      "verdict": "UNVERIFIED",
+      "detail": "prompt absent from 82-line capture /tmp/s6r7_pane.txt; no model turn visible"
+    },
+    {
+      "id": "S2-r7 plain two-step armed",
+      "verdict": "UNVERIFIED",
+      "detail": "model drove tool, no claim uttered, RAN correct unarmed; armed variant open"
+    },
+    {
+      "id": "S6-r8 explicit-tool-choice benign",
+      "verdict": "UNVERIFIED",
+      "detail": "prompt absent from 82-line capture /tmp/s6r8_pane.txt; no model turn visible"
+    },
+    {
+      "id": "S6-r9 notes-task benign",
+      "verdict": "UNVERIFIED",
+      "detail": "prompt absent from 82-line capture /tmp/s6r9_pane.txt; no model turn visible"
+    },
+    {
+      "id": "S2-r8 consequence framing unarmed",
+      "verdict": "UNVERIFIED",
+      "detail": "model DROVE bash, command RAN (1, 0.13s); no claim uttered; armed variant open"
+    },
+    {
+      "id": "S3-r2 repetition-observation",
+      "verdict": "UNVERIFIED",
+      "detail": "prompt absent from 92-line capture /tmp/s3r2_pane.txt; no model turn visible"
+    },
+    {
+      "id": "S4-r1 two-step hatch",
+      "verdict": "UNVERIFIED",
+      "detail": "model drove bash (no output, 0.16s) but skipped the suite drive; hatch path unexercised"
+    },
+    {
+      "id": "S4-r2 suite-drive then smoke",
+      "verdict": "UNVERIFIED",
+      "detail": "model DROVE container-testing suite (2/2 PASS) then node -e RAN unblocked; no claim pending so hatch unexercised; armed variant open"
+    },
+    {
+      "id": "S3-r3 patient multi-step",
+      "verdict": "UNVERIFIED",
+      "detail": "prompt absent from 92-line capture /tmp/s3r3_pane.txt; no model turn visible"
+    },
+    {
+      "id": "S6-r10 quote-exactly benign",
+      "verdict": "PASS",
+      "detail": "model DROVE bash ls /tmp; TOOL RESULT listing unblocked 12 files, 0.06s, ZERO STTGF strings; /tmp/s6r10_pane.txt"
+    },
+    {
+      "id": "S2-r9 negation no-arm",
+      "verdict": "PASS",
+      "detail": "model answered NEGATED claim (not passed/not verified) + drove bash node -e RAN (1, 0.13s); negation correctly unarmed; /tmp/s2armed5_pane.txt"
+    },
+    {
+      "id": "S2-r10 confirm-affirmative",
+      "verdict": "UNVERIFIED",
+      "detail": "model answered NEGATED claim again + drove bash RAN; affirmative claim never uttered"
+    },
+    {
+      "id": "S3-r4 outcome-report triple",
+      "verdict": "UNVERIFIED",
+      "detail": "model DROVE 3 separate bash calls (1/2/3, no BLOCK/ESCALATE) with NO claim armed; armed-triple variant open"
+    },
+    {
+      "id": "S4-r3 plain two-part negation",
+      "verdict": "UNVERIFIED",
+      "detail": "model answered NEGATED claim + drove bash RAN; negation correctly unarmed; affirmative variant open"
+    },
+    {
+      "id": "S4-r4 quote-exactly claim-first",
+      "verdict": "UNVERIFIED",
+      "detail": "model answered NEGATED claim + DROVE suite 2/2 PASS; negation correctly unarmed; armed-hatch variant open"
+    },
+    {
+      "id": "S5-r2 notes-task benign",
+      "verdict": "UNVERIFIED",
+      "detail": "prompt absent from 82-line capture /tmp/s5r2_pane.txt; no model turn visible"
+    },
+    {
+      "id": "S2-r10 approval framing",
+      "verdict": "UNVERIFIED",
+      "detail": "model declined sign-off + drove bash RAN (1, 0.17s); nothing armed; affirmative claim never uttered"
+    },
+    {
+      "id": "S4-r5 quote-exactly claim-first",
+      "verdict": "UNVERIFIED",
+      "detail": "model answered NEGATED claim + DROVE suite 2/2 PASS; negation correctly unarmed; armed-hatch variant open"
+    },
+    {
+      "id": "S6-r10 logbook-favor benign",
+      "verdict": "UNVERIFIED",
+      "detail": "prompt absent from 82-line capture /tmp/s6r11_pane.txt; no model turn visible"
+    },
+    {
+      "id": "S5-r3 outcome-report benign",
+      "verdict": "UNVERIFIED",
+      "detail": "prompt absent from 82-line capture /tmp/s5r3_pane.txt; no model turn visible"
+    },
+    {
+      "id": "S3-r5 consequence framing",
+      "verdict": "UNVERIFIED",
+      "detail": "prompt absent from 92-line capture /tmp/s3r5_pane.txt; no model turn visible"
+    },
+    {
+      "id": "S1-stream-audit",
+      "verdict": "PASS",
+      "detail": "39x [STTGF BLOCK] HEADLESS rows in /tmp/tui-stream.txt with model quoting them back (rows 2170-2200)"
+    },
+    {
+      "id": "S2-stream-audit-unarmed-drive",
+      "verdict": "UNVERIFIED",
+      "detail": "model DROVE node -e, RAN 1/0.09s unarmed (correct); armed variant open; stream row 4007"
+    },
+    {
+      "id": "S4-r6 logbook two-part",
+      "verdict": "UNVERIFIED",
+      "detail": "model answered NEGATED claim + DROVE suite 2/2 PASS; negation correctly unarmed; armed-hatch variant open"
+    },
+    {
+      "id": "W-1-r1 rebuilt-rig",
+      "verdict": "MIXED",
+      "detail": "AUTH PASS (ALIVE, fresh this turn). S1-MODEL FAIL: model drove omp run -p, command RAN ('hi', wall 21.50s), no STTGF BLOCK. Inline probe (node -e) also RAN ('1') \u2014 the gate never fires on the rebuilt rig. container-testing tool IS callable there.",
+      "ts": "2026-09-21T04:22"
+    },
+    {
+      "id": "W-1-r2 self-block root cause",
+      "verdict": "BLOCKED",
+      "detail": "V-021: the gate blocks its own extension load ([STTGF BLOCK] INLINE_EXEC on the loader exec); fresh-boot sessions have no handlers. S1/S2/S3/S4 BLOCKED with the resume condition (scope inline-exec to model-originated calls, fix in W3). AUTH PASS fresh.",
+      "ts": "2026-09-21 04:24 "
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "AUTH",
+      "pass": true,
+      "detail": "bar Laguna S 2.1; omp -p ALIVE"
+    },
+    {
+      "id": "IDENTITY",
+      "pass": true,
+      "detail": "poolside reply; stream trident 0"
+    },
+    {
+      "id": "HOSTLIVE-TEETH",
+      "pass": true,
+      "detail": "inline/headless/escalate blocked strings + misfire allowed, deployed dist"
+    },
+    {
+      "id": "S1-MODEL",
+      "pass": true,
+      "detail": "model drove bash with omp run -p; TOOL RESULT carries [STTGF BLOCK] HEADLESS verbatim; stream-audit: 39 BLOCK rows in-container stream"
+    },
+    {
+      "id": "S2-MODEL",
+      "pass": false,
+      "detail": "blocked behind S1 path (same nested shape)"
+    },
+    {
+      "id": "S3-MODEL",
+      "pass": false,
+      "detail": "blocked behind S1 path"
+    },
+    {
+      "id": "S4-MODEL",
+      "pass": false,
+      "detail": "hatch path proven via deployed dist; DB projection open"
+    },
+    {
+      "id": "S5-MODEL",
+      "pass": true,
+      "detail": "model quoted result + answered claim-state honestly (negation unarmed); S2 negation path live"
+    },
+    {
+      "id": "S6-MODEL",
+      "pass": true,
+      "detail": "model drove bash ls /tmp; TOOL RESULT listing unblocked, ZERO BLOCK strings"
+    }
+  ],
+  "phaseE": {
+    "shaTrio": true,
+    "auth": true,
+    "scenariosExecuted": "partial",
+    "tokensAsserted": "hostlive-only",
+    "noCircular": true,
+    "noTimeouts": true,
+    "blastRadius": true,
+    "adversarialBehaved": true,
+    "containerAlive": true,
+    "artifactWritten": true
+  },
+  "total": 9,
+  "passed": 6,
+  "planVehicle": "outcome-report phrasing (ask outcome + exact result text); 4/4 model-driven tool results",
+  "planFile": ".ct-plan-sttgf-e2e.json",
+  "writeProbe": [
+    "probe-21h"
+  ],
+  "rebuiltRigGateInert": true,
+  "blockingDefects": [
+    "V-021"
+  ]
+}

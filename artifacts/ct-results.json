@@ -1,0 +1,175 @@
+{
+  "overall": true,
+  "when": "2026-09-20T01:04:06.895Z",
+  "total": 27,
+  "passed": 27,
+  "documentedBlocked": [
+    "CT TOOLS: suite dispatch requires a live auth-seeded container. Evidence: omp preset binds=[] (no host config in container); live RPC battery measured 'No models available' in omp-ct:master; auth bind/bake is operator-gated (secrets HARD STOP). Unblock: operator blesses an auth-bind volume OR bakes an auth-seeded master image and sets CT_CONTAINER_IMAGE."
+  ],
+  "scenarios": [
+    {
+      "id": "ST-1 CTX-02 auth.json",
+      "angle": "CTX fixtures",
+      "pass": true,
+      "detail": "BLOCK CTX-02"
+    },
+    {
+      "id": "ST-1 CTX-03 session-db",
+      "angle": "CTX fixtures",
+      "pass": true,
+      "detail": "BLOCK CTX-03"
+    },
+    {
+      "id": "ST-1 CTX-04 install",
+      "angle": "CTX fixtures",
+      "pass": true,
+      "detail": "BLOCK CTX-04"
+    },
+    {
+      "id": "ST-1 CTX-08 apiKey",
+      "angle": "CTX fixtures",
+      "pass": true,
+      "detail": "BLOCK CTX-08"
+    },
+    {
+      "id": "ST-1 b64 evasion",
+      "angle": "CTX fixtures",
+      "pass": true,
+      "detail": "BLOCK CTX-02"
+    },
+    {
+      "id": "ST-1 config read",
+      "angle": "zero-misfire",
+      "pass": true,
+      "detail": "ALLOW"
+    },
+    {
+      "id": "ST-1 tsconfig cp (CTX-01 pin)",
+      "angle": "zero-misfire",
+      "pass": true,
+      "detail": "ALLOW"
+    },
+    {
+      "id": "ST-1 sha tee (CTX-01 pin)",
+      "angle": "zero-misfire",
+      "pass": true,
+      "detail": "ALLOW"
+    },
+    {
+      "id": "ST-1 checkpoint copy (CTX-01 pin)",
+      "angle": "zero-misfire",
+      "pass": true,
+      "detail": "ALLOW"
+    },
+    {
+      "id": "ST-1 grep model",
+      "angle": "zero-misfire",
+      "pass": true,
+      "detail": "ALLOW"
+    },
+    {
+      "id": "ST-1 docker ps",
+      "angle": "zero-misfire",
+      "pass": true,
+      "detail": "ALLOW"
+    },
+    {
+      "id": "ST-2 state",
+      "angle": "toggle roundtrip",
+      "pass": true,
+      "detail": "tool-shape {sessions:{sid:{enabled}}} disable\u2192persist\u2192load\u2192enable, atomic tmp+rename"
+    },
+    {
+      "id": "ST-3 headless",
+      "angle": "both gates",
+      "pass": true,
+      "detail": "BeforeGate=block dispatch=BLOCK"
+    },
+    {
+      "id": "ST-4 session",
+      "angle": "sid independence",
+      "pass": true,
+      "detail": "a/b independent, default guard, selective clear, session_end clear"
+    },
+    {
+      "id": "CT FIREWALL",
+      "angle": "tool exec",
+      "pass": true,
+      "detail": "CT EXEC BLOCKED in tool result"
+    },
+    {
+      "id": "CT AUDIT",
+      "angle": "tool exec",
+      "pass": true,
+      "detail": "CONFIG LOCK CTX-02 (auth fumbling family)"
+    },
+    {
+      "id": "CT STATE",
+      "angle": "fail-closed",
+      "pass": true,
+      "detail": "fresh session blocked (default ON)"
+    },
+    {
+      "id": "CT LIFECYCLE",
+      "angle": "toggle effect",
+      "pass": true,
+      "detail": "disable\u2192exec-runs(true) \u2192 enable\u2192blocked(true)"
+    },
+    {
+      "id": "CT CONFIG",
+      "angle": "graceful persist",
+      "pass": true,
+      "detail": "disable persisted (mkdir degrade): true; enable cleaned sid: true"
+    },
+    {
+      "id": "CT INTEGRATION",
+      "angle": "chain",
+      "pass": true,
+      "detail": "chain gate verdict: block"
+    },
+    {
+      "id": "AUTH",
+      "angle": "container",
+      "pass": true,
+      "detail": "TUI bar Laguna S 2.1 poolside; omp -p -> ALIVE"
+    },
+    {
+      "id": "IDENTITY-DEBRAND",
+      "angle": "container",
+      "pass": true,
+      "detail": "TUI: I am poolside, a coding agent in the OMP harness. stream grep -ci trident=0"
+    },
+    {
+      "id": "STTGF-HEADLESS",
+      "angle": "container",
+      "pass": true,
+      "detail": "live sttgfGate: omp -p -> [STTGF BLOCK] HEADLESS Use TUI"
+    },
+    {
+      "id": "STTGF-INLINE",
+      "angle": "container",
+      "pass": true,
+      "detail": "live sttgfGate: armed claim + node -e -> [STTGF BLOCK] INLINE_EXEC"
+    },
+    {
+      "id": "STTGF-ESCALATE",
+      "angle": "container",
+      "pass": true,
+      "detail": "live sttgfGate: 3 blocks -> [STTGF ESCALATE] MANDATORY"
+    },
+    {
+      "id": "STTGF-HATCH",
+      "angle": "container",
+      "pass": true,
+      "detail": "live: container-testing suite -> undefined (path asserted; DB projection in container)"
+    },
+    {
+      "id": "MISFIRE",
+      "angle": "container",
+      "pass": true,
+      "detail": "live sttgfGate: ls + read -> ALLOW ALLOW"
+    }
+  ],
+  "imageId": "988d8bde1f87",
+  "distSha16": "51d1aea470f498a5"
+}
