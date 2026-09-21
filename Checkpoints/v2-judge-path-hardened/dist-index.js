@@ -2209,8 +2209,13 @@ var PLAN_SECTIONS = [
   "EVIDENCE",
   "PASS CRITERIA"
 ];
+var PLAN_PATH_RE = /^\s*[\w.@-]*\/[\w./@-]*\.(md|markdown|txt|json|ya?ml)\s*$/;
 function planShortfalls(plan) {
   const missing = [];
+  if (PLAN_PATH_RE.test(plan)) {
+    missing.push(`testPlan looks like a PATH ("${plan}", ${plan.length} chars) \u2014 this gate reads the plan TEXT, not a file. ` + `Pass the plan's CONTENTS (paste the text), not a path to it.`);
+    return missing;
+  }
   if (plan.length < 2000)
     missing.push(`length ${plan.length} < 2000`);
   const upper = plan.toUpperCase();

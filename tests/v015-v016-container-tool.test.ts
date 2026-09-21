@@ -189,3 +189,31 @@ describe("V-054 a dead stream is named, and the live pane is read", () => {
     expect(r.text).not.toContain("LIVE PANE");
   });
 });
+
+// ═══ V-055 — A PATH PASSED AS A PLAN IS NAMED AS SUCH ══════════════════════════════════════════════
+// Found by RUNNING the container round: a model wrote its plan to /workspace/test-plan.md and passed the
+// PATH as `testPlan`. The gate measured the path's length (23 chars) and answered `length 23 < 2000` —
+// correct to refuse, but the message never named the mistake, and the model then spent minutes hunting the
+// source for a format it could not produce. A gate that fails without naming the fix manufactures the loop.
+describe("V-055 a path passed as testPlan is named, not merely measured", () => {
+  test("ADVERSARIAL: a path is refused WITH the mistake named (the measured case: /workspace/test-plan.md)", async () => {
+    const r = await runWith(scriptedHost([]), "setup", { testPlan: "/workspace/test-plan.md" });
+    expect(r.isError).toBe(true);
+    expect(r.text).toContain("CT SETUP FAILED (plan gate)");
+    expect(r.text).toContain("looks like a PATH");
+    expect(r.text).toContain("reads the plan TEXT");
+    expect(r.text).toContain("Pass the plan's CONTENTS");
+  });
+
+  test("a bare filename with an extension is also named", async () => {
+    const r = await runWith(scriptedHost([]), "setup", { testPlan: "plans/test-plan.md" });
+    expect(r.text).toContain("looks like a PATH");
+  });
+
+  test("CONTROL: real plan TEXT is still judged by the normal rules (never mistaken for a path)", async () => {
+    const r = await runWith(scriptedHost([]), "setup", { testPlan: "OBJECTIVE: verify the setup path.\n" });
+    expect(r.text).toContain("CT SETUP FAILED (plan gate)");
+    expect(r.text).not.toContain("looks like a PATH");
+    expect(r.text).toContain("length");   // the ordinary shortfall message
+  });
+});

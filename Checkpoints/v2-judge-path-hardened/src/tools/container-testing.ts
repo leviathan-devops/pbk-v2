@@ -208,8 +208,22 @@ const PLAN_SECTIONS = [
   "OBJECTIVE", "TOOLS UNDER TEST", "TEST SCENARIOS", "ADVERSARIAL", "EVIDENCE", "PASS CRITERIA",
 ];
 
+/** V-055: a value that is a PATH, not a plan. Detected so the failure can NAME the mistake. */
+const PLAN_PATH_RE = /^\s*[\w.@-]*\/[\w./@-]*\.(md|markdown|txt|json|ya?ml)\s*$/;
+
 function planShortfalls(plan: string): string[] {
   const missing: string[] = [];
+  // V-055: MEASURED in the container round — a model wrote its plan to /workspace/test-plan.md and passed
+  // the PATH as `testPlan`. The gate measured the path's LENGTH (23) and said `length 23 < 2000`: correct
+  // to refuse, but the message never named the mistake, and the model spent minutes hunting the source for
+  // a format it could not produce. The gate reads the plan TEXT; when the value is obviously a path, SAY SO.
+  if (PLAN_PATH_RE.test(plan)) {
+    missing.push(
+      `testPlan looks like a PATH ("${plan}", ${plan.length} chars) — this gate reads the plan TEXT, not a file. ` +
+        `Pass the plan's CONTENTS (paste the text), not a path to it.`,
+    );
+    return missing;
+  }
   if (plan.length < 2000) missing.push(`length ${plan.length} < 2000`);
   const upper = plan.toUpperCase();
   for (const s of PLAN_SECTIONS) if (!upper.includes(s)) missing.push(`missing section: ${s}`);
