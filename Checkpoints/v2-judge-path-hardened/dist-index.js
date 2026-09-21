@@ -2329,7 +2329,14 @@ function buildContainerTestingTool(pi, deps) {
         return { text: `CONTAINER-TESTING FAILED: unknown action "${action}" \u2014 use ${CT_ACTIONS2.join("|")}`, isError: true };
       }
       const sid = sidOf(ctx);
-      const name = String(params.containerName ?? "omp-ct");
+      const rawName = String(params.containerName ?? "omp-ct");
+      if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$/.test(rawName)) {
+        return {
+          text: `CONTAINER-TESTING FAILED: containerName ${JSON.stringify(rawName)} is not a valid docker name. ` + "REFUSED \u2014 the name is interpolated into host docker commands, so an unvalidated value is a " + "shell-injection vector (V-080). Use letters/digits/underscore/dot/hyphen, start with alnum.",
+          isError: true
+        };
+      }
+      const name = rawName;
       const image = String(params.image ?? CT_IMAGE);
       const session = String(params.tmuxSessionName ?? params.sessionName ?? DEFAULT_TMUX_SESSION);
       const dockerExec = (cmd, timeoutMs = 20000) => host.execSync(`docker exec ${name} sh -c ${shq(cmd)}`, { timeoutMs });

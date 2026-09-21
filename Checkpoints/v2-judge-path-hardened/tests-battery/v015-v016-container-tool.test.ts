@@ -217,3 +217,32 @@ describe("V-055 a path passed as testPlan is named, not merely measured", () => 
     expect(r.text).toContain("length");   // the ordinary shortfall message
   });
 });
+
+// ═══ V-080 — THE CONTAINER NAME IS A SHELL-INJECTION VECTOR (found by an ocr CRITICAL) ══════════════
+// `params.containerName` is MODEL-CONTROLLED and was interpolated UNQUOTED into ten host docker commands
+// while only the inner command used shq(). A model that set the name to `x; <anything>` executed that
+// anything on the HOST — the subject of enforcement escaping the tool's own firewall. The name is now
+// validated against docker's grammar BEFORE any interpolation.
+describe("V-080 the container name is validated (a live CRITICAL, closed)", () => {
+  const hostile = ['x; touch /tmp/PWNED', 'x$(id)', 'a`whoami`b', 'a|b', 'a&b', 'a\nb', '', 'a b'];
+  for (const n of hostile) {
+    test(`ADVERSARIAL: ${JSON.stringify(n).slice(0, 30)} is REFUSED with no host call`, async () => {
+      const calls: string[] = [];
+      const r = await runWith(scriptedHost([], calls), "alive", { containerName: n });
+      expect(r.isError).toBe(true);
+      expect(r.text).toContain("not a valid docker name");
+      expect(calls.length).toBe(0);   // NOTHING reached the host — the whole point
+    });
+  }
+  test("CONTROL: a legitimate docker name passes through", async () => {
+    const calls: string[] = [];
+    const r = await runWith(scriptedHost([], calls), "alive", { containerName: "omp-ct-debrand" });
+    expect(r.isError).toBeFalsy();
+    expect(calls.length).toBeGreaterThan(0);
+  });
+  test("CONTROL: the dotted/underscored forms docker itself allows are accepted", async () => {
+    const calls: string[] = [];
+    const r = await runWith(scriptedHost([], calls), "alive", { containerName: "my_ct.v2-1" });
+    expect(r.isError).toBeFalsy();
+  });
+});

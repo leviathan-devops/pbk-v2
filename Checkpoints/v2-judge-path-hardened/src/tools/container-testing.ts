@@ -317,7 +317,26 @@ export function buildContainerTestingTool(pi: ExtensionAPI, deps: CtDeps): OmpTo
         return { text: `CONTAINER-TESTING FAILED: unknown action "${action}" — use ${CT_ACTIONS.join("|")}`, isError: true };
       }
       const sid = sidOf(ctx);
-      const name = String(params.containerName ?? "omp-ct");
+      // ── V-080 (ocr CRITICAL): THE CONTAINER NAME IS A SHELL-INJECTION VECTOR ────────────────────────
+      // MEASURED (an `ocr scan` over the enforcement core found this, the only live CRITICAL of 6):
+      // `params.containerName` is MODEL-CONTROLLED and was interpolated UNQUOTED into ten host docker
+      // commands (`docker exec ${name}`, `docker rm -f ${name}`, `docker ps --filter … ${name}`, …) while
+      // only the inner command used `shq()`. A model that set `containerName` to `x; <anything>` executed
+      // that anything on the HOST — i.e. **the subject of enforcement could escape the tool's own
+      // firewall**, which is precisely the class this extension exists to prevent.
+      // FIX: validate the name BEFORE any interpolation (docker's own grammar is
+      // `[a-zA-Z0-9][a-zA-Z0-9_.-]*`). One guard covers every site.
+      const rawName = String(params.containerName ?? "omp-ct");
+      if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$/.test(rawName)) {
+        return {
+          text:
+            `CONTAINER-TESTING FAILED: containerName ${JSON.stringify(rawName)} is not a valid docker name. ` +
+            'REFUSED — the name is interpolated into host docker commands, so an unvalidated value is a ' +
+            'shell-injection vector (V-080). Use letters/digits/underscore/dot/hyphen, start with alnum.',
+          isError: true,
+        };
+      }
+      const name = rawName;
       const image = String(params.image ?? CT_IMAGE);
       const session = String(params.tmuxSessionName ?? params.sessionName ?? DEFAULT_TMUX_SESSION);
       const dockerExec = (cmd: string, timeoutMs = 20000): ExecResult =>
