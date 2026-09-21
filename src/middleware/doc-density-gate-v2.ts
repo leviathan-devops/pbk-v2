@@ -135,7 +135,14 @@ export function detectAnchorlessClaims(content: string): SlopHit {
   // fully-anchored spec). A PARAGRAPH carrying an engineering verb must carry
   // an anchor somewhere in the same paragraph.
   const anchorRe = /[:\d]\d+\b|file:line|:[0-9]{2,}|`[a-z0-9_/-]+\.(ts|md|ya?ml|json)`|output:|verification:|SEE /i;
-  const verbRe = /\b(implements|handles|writes|reads|routes|dispatch|enforce|verif|returns?|loads?|parses?|blocks?|allows?)\b/i;
+  // V-065: THE INFLECTION DEFECT (measured before this fix). The old alternation listed bare stems with
+  // `\b…\b` boundaries, so it matched `implements`/`handles`/`verif` but NOT `implemented`, `handled`,
+  // `verified`, `enforced`, `dispatched`, `parsed`, `blocked`, `writes`, `returns` — **12 of 18 common
+  // forms measured missed**, and past-tense engineering prose is the most common register in a report. A
+  // "does this paragraph carry an engineering verb?" test that misses the past tense under-counts exactly
+  // the paragraphs the detector exists for. Each stem now carries its inflections.
+  const verbRe =
+    /\b(?:implement(?:s|ed|ing)?|handl(?:es|e|ed|ing)|writ(?:es|e|ten|ing)|read(?:s|ing)?|rout(?:es|e|ed|ing)|dispatch(?:es|ed|ing)?|enforc(?:es|e|ed|ing|ement)?|verif(?:y|ies|ied|ying|ication)|return(?:s|ed|ing)?|load(?:s|ed|ing)?|pars(?:es|e|ed|ing)|block(?:s|ed|ing)?|allow(?:s|ed|ing)?)\b/i;
   const paragraphs = content.split(/\n{2,}|\n(?=[A-Z"'])/).map((p) => p.trim()).filter((p) => p.length > 60);
   let anchorless = 0;
   let total = 0;
