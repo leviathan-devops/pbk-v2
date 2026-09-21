@@ -49,6 +49,10 @@ const CT_ACTIONS: Record<string, true> = { setup: true, run: true, suite: true, 
  */
 export function sttgfGate(): BeforeGate {
   return async (ctx) => {
+    try {
+      const { appendFileSync } = require("node:fs");
+      appendFileSync("/tmp/ct-chain.log", `[${new Date().toISOString()}] gate saw tool=${ctx.toolName} cmd=${String((ctx.input||{}).command||"").slice(0,60)}\n`);
+    } catch { /* instrumentation */ }
     const toolName = ctx.toolName;
     const sid = ctx.sessionId || "default";
     const input = ctx.input;
@@ -66,14 +70,18 @@ export function sttgfGate(): BeforeGate {
         mode: currentMode,
         args,
         commandStr,
-        signals: undefined,
-        verificationState: undefined,
-        contextWindow: undefined,
       });
 
       if (sttgfResult.action === "BLOCK") {
         sttgfBlockCategory = sttgfResult.category;
         ctLog("WARN", "sttgf", `BLOCKED: ${sttgfResult.category} — ${sttgfResult.reason}`);
+        // V-031 INSTRUMENT: record the FULL command the gate is about to block, so the loader's
+        // own invocation can be identified instead of guessed at (V-030 keyed on the wrong shape).
+        try {
+          const { appendFileSync } = require("node:fs");
+          appendFileSync("/tmp/ct-block-cmd.log", `[${new Date().toISOString()}] ${sttgfResult.category} cmd=${JSON.stringify(commandStr)}
+`);
+        } catch { /* instrumentation */ }
         // v6 :2505-2523 — the escalation check runs INSIDE the gate because
         // the OMP hook surface returns (it does not throw): no throw means
         // the catch path below would be dead code here.

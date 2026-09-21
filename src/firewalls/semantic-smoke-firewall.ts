@@ -185,7 +185,7 @@ function extractCommand(args: Record<string, unknown>): string {
   return '';
 }
 
-export function classifyVerb(toolName: string, args: Record<string, unknown>): string {
+export function classifyVerb(toolName: string, args: Record<string, unknown>, commandStr?: string): string {
   const tool = (toolName || '').toLowerCase();
 
   // Tool-level verbs (covers non-bash tools)
@@ -201,7 +201,7 @@ export function classifyVerb(toolName: string, args: Record<string, unknown>): s
   }
   if (tool === 'bash' || tool === 'terminal' || tool === 'execute' || tool === 'exec') {
     const cmd = extractCommand(args);
-    if (!cmd) return 'other';
+    if (!cmd && commandStr) return classifyVerb(toolName, { command: commandStr });
     // binary + print mode are the same headless class on this runtime.
     if (/\b(?:opencode|omp|jarvis)[\s-]+(?:run\b|-p\b|--print\b)/i.test(cmd)) return 'headless';
     if (/\b(bun|npm|yarn|pnpm)\s+(build|run\s+build)\b/i.test(cmd) || /\btsc\b/i.test(cmd)) return 'build';
@@ -248,29 +248,25 @@ function decide(
   target: TargetType,
   verb: string | undefined,
   sessionState: VerificationSessionState | null,
+  isAgentOrigin: boolean = true,
 ): FirewallResult {
   // ── PHASE A: direct smoke operations (still block) ──
   if (verb === 'headless') {
     return { action: 'BLOCK', category: 'HEADLESS', reason: 'Headless exec forbidden. Use TUI.', intent, target };
   }
-  // V-021 FIX (2026-09-21): inline_exec was blocked unconditionally (Phase A
-  // hard-block on verb), which fires on the EXTENSION LOADER's own exec — the
-  // runtime's bootstrap (bun -e / node -e to evaluate the dist module) is
-  // infra, not a model call. The gate must not police the loader it serves.
-  // SCOPING to the OPERATION: only block inline_exec when the intent is
-  // claim_verification (the agent running inline code AS PROOF without a
-  // container artifact). When intent is operation/inspection/unknown, the
-  // loader and build-time execs pass — the existing Phase A block on the
-  // agent's smoke inline_exec still fires via claim_verification routing.
-  // The skip is LOGGED (no silent skip): ctLog every allow-through.
-  if (verb === 'inline_exec' && intent === 'claim_verification') {
-    ctLog('WARN', 'sttgf', 'inline_exec blocked as claim_verification (smoke-as-proof)');
-    return { action: 'BLOCK', category: 'INLINE_EXEC', reason: 'Inline exec is smoke test. Use container.', intent, target };
-  }
+  // V-022 FIX (2026-09-21): block inline_exec / headless / -p runs at the
+  // OPERATION level — not on intent alone. The model carries intent
+  // operation/inspection/unknown (never claim_verification) during a smoke
+  // drive, so an intent-only gate (V-021) let `omp run -p 'echo hi'` and
+  // `node -e 'code'` through UNBLOCKED. The gate here keys on the verb
+  // (the nested runtime invocation / code-as-proof shape) — if the call is
+  // agent-origin, inline_exec and headless are smoke operations that MUST
+  // use container-testing instead.
+  // Loader-origin (isAgentOrigin=false) is already skipped at the gate
+  // (sttgf-gate.ts V-021); the firewall only ever sees agent-origin here.
+  // Every allow-through is LOGGED (no silent allow).
   if (verb === 'inline_exec') {
-    // LOGGED SKIP (V-021): the loader's / operation's inline exec is not a
-    // model call — intent is operation/inspection/unknown, never claim_verification.
-    ctLog('INFO', 'sttgf', 'inline_exec ALLOWED (intent=' + intent + ') — not a claim_verification; loader/operation exec passes');
+    return { action: 'BLOCK', category: 'INLINE_EXEC', reason: 'Inline exec is smoke test. Use container.', intent, target };
   }
   if (verb === 'hash' && intent === 'smoke_verification') {
     return { action: 'BLOCK', category: 'HASH_AS_PROOF', reason: 'Hash is not runtime proof. Container test required.', intent, target };
@@ -498,6 +494,7 @@ export async function checkSmokeTestFirewall(params: {
   signals?: unknown;
   verificationState?: unknown;
   contextWindow?: string;
+  isAgentOrigin?: boolean;
 }): Promise<FirewallResult> {
   try {
     const tool = (params.toolName || '').toLowerCase();
@@ -506,7 +503,7 @@ export async function checkSmokeTestFirewall(params: {
 
     // v4: intent from TOOL + AGENT CLAIMS (never user chat words)
     const intent = extractIntent(tool, params.args, sessionState);
-    const verb = classifyVerb(tool, params.args);
+    const verb = classifyVerb(tool, params.args, params.commandStr);
     const path = extractPath(params.args);
     const target = classifyTarget(path);
 
@@ -528,7 +525,7 @@ export async function checkSmokeTestFirewall(params: {
     } catch {}
 
     TELEMETRY.totalChecks++;
-    const result = decide(intent, target, verb, sessionState);
+    const result = decide(intent, target, verb, sessionState, params.isAgentOrigin ?? true);
     if (result.action === 'BLOCK') TELEMETRY.totalBlocks++;
     else TELEMETRY.totalAllows++;
     return result;

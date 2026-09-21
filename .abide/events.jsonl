@@ -1,0 +1,3 @@
+{"ts":"2026-09-21T03:40:51.708Z","rule":"kernel-judge","buffer":"tool-result","band":"skip","probability":null,"verdict":"judge error: HTTP 401: Unauthorized","jev_called":false,"ms":719,"matched_span":null,"skip_reason":"judge-error"}
+{"ts":"2026-09-21T03:42:53.067Z","rule":"kernel-judge","buffer":"tool-result","band":"skip","probability":null,"verdict":"judge skipped: no API key","jev_called":false,"ms":0,"matched_span":null,"skip_reason":"no-key"}
+{"ts":"2026-09-21T03:43:10.498Z","rule":"kernel-judge","buffer":"tool-result","band":"skip","probability":null,"verdict":"judge error: HTTP 401: Unauthorized","jev_called":false,"ms":706,"matched_span":null,"skip_reason":"judge-error"}

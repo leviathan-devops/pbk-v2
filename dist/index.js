@@ -10,6 +10,7 @@ var __esm = (fn, res, err) => () => {
     throw err[0];
   return res;
 };
+var __require = import.meta.require;
 
 // src/evidence/merkle-chain.ts
 import { createHash as createHash2 } from "crypto";
@@ -682,24 +683,9 @@ var g = globalThis;
 if (!g.__ctAgentBySession)
   g.__ctAgentBySession = new Map;
 var agentBySession = g.__ctAgentBySession;
-function setCurrentAgent(agent, sessionId) {
-  const sid = sessionId || "default";
-  const current = agentBySession.get(sid);
-  agentBySession.set(sid, {
-    agent,
-    timestamp: Date.now(),
-    sessionId: sid,
-    toolsCalledThisTurn: current?.toolsCalledThisTurn || 0,
-    lastModelMessage: current?.lastModelMessage || null
-  });
-}
 function getCurrentAgent(sessionId) {
   const sid = sessionId || "default";
   return agentBySession.get(sid)?.agent;
-}
-function clearCurrentAgent(sessionId) {
-  const sid = sessionId || "default";
-  agentBySession.delete(sid);
 }
 var containerSkillSessions = new Set;
 var poseidonIntentBySession = new Map;
@@ -1099,7 +1085,7 @@ function extractCommand(args) {
     return a.text;
   return "";
 }
-function classifyVerb(toolName, args) {
+function classifyVerb(toolName, args, commandStr) {
   const tool = (toolName || "").toLowerCase();
   if (tool === "grep" || tool === "rg" || tool === "ag" || tool === "ack") {
     const path = extractPath(args);
@@ -1113,8 +1099,8 @@ function classifyVerb(toolName, args) {
   }
   if (tool === "bash" || tool === "terminal" || tool === "execute" || tool === "exec") {
     const cmd = extractCommand(args);
-    if (!cmd)
-      return "other";
+    if (!cmd && commandStr)
+      return classifyVerb(toolName, { command: commandStr });
     if (/\b(?:opencode|omp|jarvis)[\s-]+(?:run\b|-p\b|--print\b)/i.test(cmd))
       return "headless";
     if (/\b(bun|npm|yarn|pnpm)\s+(build|run\s+build)\b/i.test(cmd) || /\btsc\b/i.test(cmd))
@@ -1148,7 +1134,7 @@ function classifyTarget(p) {
     return "source";
   return "other";
 }
-function decide(intent, target, verb, sessionState) {
+function decide(intent, target, verb, sessionState, isAgentOrigin = true) {
   if (verb === "headless") {
     return { action: "BLOCK", category: "HEADLESS", reason: "Headless exec forbidden. Use TUI.", intent, target };
   }
@@ -1283,7 +1269,7 @@ async function checkSmokeTestFirewall(params) {
     const sid = params.sessionId || "default";
     const sessionState = sstfStateTracker.getState(sid);
     const intent = extractIntent(tool, params.args, sessionState);
-    const verb = classifyVerb(tool, params.args);
+    const verb = classifyVerb(tool, params.args, params.commandStr);
     const path = extractPath(params.args);
     const target = classifyTarget(path);
     try {
@@ -1300,7 +1286,7 @@ async function checkSmokeTestFirewall(params) {
       }
     } catch {}
     TELEMETRY.totalChecks++;
-    const result = decide(intent, target, verb, sessionState);
+    const result = decide(intent, target, verb, sessionState, params.isAgentOrigin ?? true);
     if (result.action === "BLOCK")
       TELEMETRY.totalBlocks++;
     else
@@ -1337,6 +1323,11 @@ var CT_TOOL = "container-testing";
 var CT_ACTIONS = { setup: true, run: true, suite: true, deploy: true };
 function sttgfGate() {
   return async (ctx) => {
+    try {
+      const { appendFileSync } = __require("fs");
+      appendFileSync("/tmp/ct-chain.log", `[${new Date().toISOString()}] gate saw tool=${ctx.toolName} cmd=${String((ctx.input || {}).command || "").slice(0, 60)}
+`);
+    } catch {}
     const toolName = ctx.toolName;
     const sid = ctx.sessionId || "default";
     const input = ctx.input;
@@ -1352,14 +1343,16 @@ function sttgfGate() {
         agentName: sessionAgent,
         mode: currentMode,
         args,
-        commandStr,
-        signals: undefined,
-        verificationState: undefined,
-        contextWindow: undefined
+        commandStr
       });
       if (sttgfResult.action === "BLOCK") {
         sttgfBlockCategory = sttgfResult.category;
         ctLog("WARN", "sttgf", `BLOCKED: ${sttgfResult.category} \u2014 ${sttgfResult.reason}`);
+        try {
+          const { appendFileSync } = __require("fs");
+          appendFileSync("/tmp/ct-block-cmd.log", `[${new Date().toISOString()}] ${sttgfResult.category} cmd=${JSON.stringify(commandStr)}
+`);
+        } catch {}
         try {
           sttgfStateTracker.incrementBlockCount(sid);
           sttgfStateTracker.setLastBlockedCategory(sid, sttgfBlockCategory);
@@ -1793,40 +1786,6 @@ function isOwnedAgent(agentName) {
   if (!agentName)
     return false;
   return false;
-}
-
-// src/hooks/session-hook.ts
-function clearSpecificSessionOnly(sessionId) {
-  if (sessionId && sessionId !== "default") {
-    clearCurrentAgent(sessionId);
-  }
-}
-function trackSessionEvent(event, ctx) {
-  if (!event)
-    return false;
-  const sessionId = event.sessionId || ctx?.sessionManager?.getSessionFile?.() || "";
-  const agent = event.agent || event?.agent || ctx?.agent || "";
-  if (!agent)
-    return false;
-  if (!isOwnedAgent(agent)) {
-    clearSpecificSessionOnly(sessionId || undefined);
-    return false;
-  }
-  setCurrentAgent(agent, sessionId || "default");
-  return true;
-}
-function createSessionTracking(pi) {
-  pi.on("session_start", (rawEvent, ctx) => {
-    const event = rawEvent ?? {};
-    trackSessionEvent({ type: "session.created", ...event }, ctx);
-  });
-  pi.on("session_end", (rawEvent) => {
-    const event = rawEvent ?? {};
-    handleSessionEnded(event?.sessionId);
-  });
-}
-function handleSessionEnded(sessionId) {
-  clearSpecificSessionOnly(sessionId);
 }
 
 // src/shared/firewall-audit.ts
@@ -2913,8 +2872,725 @@ function registerCtTools(pi, deps) {
 }
 
 // src/index.ts
+import { existsSync as existsSync6, readFileSync as readFileSync5 } from "fs";
+
+// src/ext/kernel-judge.ts
+import { join as joinPath } from "path";
+import { readFileSync as readFileSync4, existsSync as existsSync5 } from "fs";
+
+// src/ledger/events-ledger.ts
+import { appendFileSync as appendFileSync5, readFileSync as readFileSync3, mkdirSync as mkdirSync4, existsSync as existsSync4 } from "fs";
+import { join as join6 } from "path";
+function ledgerDir() {
+  return process.env.ABIDE_DIR ?? ".abide";
+}
+function ledgerPath() {
+  return join6(ledgerDir(), "events.jsonl");
+}
+function recordFiring(input) {
+  if ((input.band === "act" || input.band === "flag") && input.matched_span == null) {
+    throw new Error(`matched_span is required for band '${input.band}' (rule='${input.rule}'): ` + `a null span on an enforcement action is the EVIDENCE-DESTRUCTION regression`);
+  }
+  const row = {
+    ts: input.ts ?? new Date().toISOString(),
+    rule: input.rule,
+    buffer: input.buffer,
+    band: input.band,
+    probability: input.probability ?? null,
+    verdict: input.verdict,
+    jev_called: input.jev_called ?? false,
+    ms: input.ms ?? 0,
+    matched_span: input.matched_span,
+    skip_reason: input.skip_reason ?? null
+  };
+  const dir = ledgerDir();
+  const file = ledgerPath();
+  if (!existsSync4(dir)) {
+    mkdirSync4(dir, { recursive: true });
+  }
+  const line = JSON.stringify(row) + `
+`;
+  appendFileSync5(file, line, "utf8");
+  return { row };
+}
+
+// src/ext/kernel-judge.ts
+var EDIT_CHECK_TIMEOUT_MS = 8000;
+var MAX_ACT_APPENDS_PER_RULE_PER_TURN = 2;
+var ACT_THRESHOLD = 0.8;
+var FLAG_THRESHOLD = 0.5;
+var MAX_STATE_CHARS = 24000;
+var MAX_DIFF_INPUT_CHARS = 1e6;
+var DEFAULT_RUBRIC = (() => {
+  const workspace = joinPath(process.cwd(), ".abide", "rubric.json");
+  if (existsSync5(workspace))
+    return workspace;
+  return joinPath(import.meta.dirname, "..", ".abide", "rubric.json");
+})();
+function loadRubric(rubricPath) {
+  const path = rubricPath ?? DEFAULT_RUBRIC;
+  if (!existsSync5(path))
+    return [];
+  try {
+    const raw = readFileSync4(path, "utf8");
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed.rules) ? parsed.rules : [];
+  } catch {
+    return [];
+  }
+}
+function selectEditModelRules(rules) {
+  return rules.filter((r) => r.status === "active" && r.check?.type === "model" && r.when === "edit");
+}
+function computeBand(probability) {
+  if (probability >= ACT_THRESHOLD)
+    return "act";
+  if (probability >= FLAG_THRESHOLD)
+    return "flag";
+  return "clear";
+}
+function countActsInRing(ring, ruleId) {
+  return ring.entries.filter((e) => e.ruleId === ruleId && e.band === "act").length;
+}
+function repairText(rule, probability) {
+  const where = rule.source?.line !== undefined ? `${rule.source.path ?? "unknown"} line ${rule.source.line}` : rule.source?.path ?? "unknown";
+  const trimmed = rule.text.trim().replace(/\s+/g, " ");
+  const quoted = trimmed.length > 220 ? `${trimmed.slice(0, 217)}...` : trimmed;
+  const pct = (probability * 100).toFixed(0);
+  return `Abide: this edit appears to break rule "${rule.id}" from ${where}: ` + `"${quoted}" Judged: ${pct}%. Repair the edit now.`;
+}
+function flagNoticeText(rule, probability) {
+  const pct = probability.toFixed(2);
+  return `Abide: uncertain about "${rule.id}" ${pct} on this edit. Not blocking. Details in .abide/events.jsonl.`;
+}
+async function defaultJudge(rules, state, apiKey) {
+  const key = apiKey ?? process.env.TYPESAFE_AI_API_KEY;
+  if (!key) {
+    const err = new Error("no-key");
+    err.code = "NO_API_KEY";
+    throw err;
+  }
+  const questions = {};
+  for (const rule of rules) {
+    const q = rule.check?.question;
+    if (!q)
+      continue;
+    questions[rule.id] = {
+      type: q.type,
+      ...q.instructions ? { instructions: q.instructions } : {},
+      ...q.criteria ? { criteria: q.criteria } : {}
+    };
+  }
+  const body = JSON.stringify({
+    state: {
+      file: state.file,
+      phase: state.phase,
+      diff: state.diff,
+      ...state.task ? { task: state.task } : {}
+    },
+    model: "jev-latest",
+    questions
+  });
+  const controller = new AbortController;
+  const timeoutId = setTimeout(() => controller.abort(), EDIT_CHECK_TIMEOUT_MS);
+  try {
+    const resp = await fetch("https://api.typesafe.ai/v1/systemone", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${key}`
+      },
+      body,
+      signal: controller.signal
+    });
+    if (!resp.ok) {
+      const err = new Error(`HTTP ${resp.status}: ${resp.statusText}`);
+      err.code = "HTTP_ERROR";
+      throw err;
+    }
+    const result = await resp.json();
+    const scores = {};
+    for (const rule of rules) {
+      const answer = result.answers?.[rule.id];
+      if (answer && typeof answer.probability === "number") {
+        scores[rule.id] = Math.min(1, Math.max(0, answer.probability));
+      } else {
+        scores[rule.id] = 0;
+      }
+    }
+    return scores;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+function excerptDiff(event) {
+  const input = event.input;
+  const toolName = event.toolName;
+  const filePath = typeof input.file_path === "string" ? input.file_path : "unknown";
+  if (toolName === "edit") {
+    const oldStr = typeof input.old_string === "string" ? input.old_string : "";
+    const newStr = typeof input.new_string === "string" ? input.new_string : "";
+    return synthesizeDiff(oldStr, newStr, filePath);
+  }
+  if (toolName === "write") {
+    const content = typeof input.content === "string" ? input.content : "";
+    if (content.length > MAX_STATE_CHARS) {
+      return content.slice(0, MAX_STATE_CHARS) + `
+...[truncated]`;
+    }
+    return content;
+  }
+  return "";
+}
+function synthesizeDiff(oldStr, newStr, file) {
+  const combined = oldStr + newStr;
+  if (combined.length > MAX_DIFF_INPUT_CHARS) {
+    const oldSlice = oldStr.slice(0, Math.floor(MAX_STATE_CHARS / 2));
+    const newSlice = newStr.slice(0, Math.floor(MAX_STATE_CHARS / 2));
+    return `--- a/${file}
++++ b/${file}
+${oldSlice}
+${newSlice}
+...[truncated]`;
+  }
+  return `--- a/${file}
++++ b/${file}
+${oldStr}
+${newStr}`;
+}
+async function judgeWithBands(event, opts, ringAccessor) {
+  const originalContent = event.content;
+  const diff = excerptDiff(event);
+  const file = typeof event.input.file_path === "string" ? event.input.file_path : "unknown";
+  const sessionId = opts.sessionId ?? "default";
+  const turnId = opts.turnId ?? "turn";
+  const ring = ringAccessor(sessionId, turnId);
+  const diffTs = new Date().toISOString();
+  ring.entries.push({
+    ruleId: "__diff__",
+    probability: 0,
+    band: "clear",
+    ts: diffTs,
+    verdict: `diff excerpted: ${diff.length} chars`,
+    matchedSpan: null,
+    repairText: null
+  });
+  const allRules = loadRubric(opts.rubricPath);
+  const rules = selectEditModelRules(allRules);
+  if (rules.length === 0) {
+    recordFiring({
+      rule: "kernel-judge",
+      buffer: "tool-result",
+      band: "skip",
+      probability: null,
+      verdict: "no edit+model rules found in rubric",
+      jev_called: false,
+      ms: 0,
+      matched_span: null,
+      skip_reason: "no-model-rules"
+    });
+    return {
+      content: originalContent,
+      notices: [],
+      checked: false,
+      actAppends: 0,
+      flagNotices: 0
+    };
+  }
+  const started = performance.now();
+  const judgeState = {
+    diff,
+    ...opts.task ? { task: opts.task } : {},
+    file,
+    phase: "edit",
+    sessionId,
+    turnId
+  };
+  let scores;
+  let ms = 0;
+  try {
+    const judgeFn = opts.judge ?? ((rs, st) => defaultJudge(rs, st, opts.apiKey));
+    scores = await judgeFn(rules, judgeState);
+    ms = Math.round(performance.now() - started);
+  } catch (e) {
+    const err = e;
+    const isNoKey = err?.code === "NO_API_KEY" || err?.message === "no-key";
+    const isTimeout = err?.name === "AbortError" || err?.message?.includes("aborted") || err instanceof Error && err.name === "TimeoutError";
+    if (isNoKey) {
+      recordFiring({
+        rule: "kernel-judge",
+        buffer: "tool-result",
+        band: "skip",
+        probability: null,
+        verdict: "judge skipped: no API key",
+        jev_called: false,
+        ms: Math.round(performance.now() - started),
+        matched_span: null,
+        skip_reason: "no-key"
+      });
+      return {
+        content: originalContent,
+        notices: [],
+        checked: false,
+        actAppends: 0,
+        flagNotices: 0
+      };
+    }
+    if (isTimeout) {
+      recordFiring({
+        rule: "kernel-judge",
+        buffer: "tool-result",
+        band: "skip",
+        probability: null,
+        verdict: `judge timed out after ${EDIT_CHECK_TIMEOUT_MS}ms`,
+        jev_called: false,
+        ms: Math.round(performance.now() - started),
+        matched_span: null,
+        skip_reason: "timeout"
+      });
+      return {
+        content: originalContent,
+        notices: [],
+        checked: false,
+        actAppends: 0,
+        flagNotices: 0
+      };
+    }
+    recordFiring({
+      rule: "kernel-judge",
+      buffer: "tool-result",
+      band: "skip",
+      probability: null,
+      verdict: `judge error: ${err instanceof Error ? err.message : String(err)}`,
+      jev_called: false,
+      ms: Math.round(performance.now() - started),
+      matched_span: null,
+      skip_reason: "judge-error"
+    });
+    return {
+      content: originalContent,
+      notices: [],
+      checked: false,
+      actAppends: 0,
+      flagNotices: 0
+    };
+  }
+  let content = originalContent;
+  const notices = [];
+  let actAppends = 0;
+  let flagNotices = 0;
+  const matchedSpan = diff.slice(0, 200);
+  for (const rule of rules) {
+    const prob = scores[rule.id] ?? 0;
+    const band = computeBand(prob);
+    const ts = new Date().toISOString();
+    const verdict = rule.text.trim().replace(/\s+/g, " ").slice(0, 220);
+    let repairTextVal = null;
+    switch (band) {
+      case "act": {
+        const actsSoFar = countActsInRing(ring, rule.id);
+        if (actsSoFar < MAX_ACT_APPENDS_PER_RULE_PER_TURN) {
+          repairTextVal = repairText(rule, prob);
+          const repairBlock = { type: "text", text: repairTextVal };
+          content = [...content, repairBlock];
+          actAppends++;
+          recordFiring({
+            rule: rule.id,
+            buffer: "tool-result",
+            band: "act",
+            probability: prob,
+            verdict,
+            jev_called: true,
+            ms,
+            matched_span: matchedSpan,
+            skip_reason: null
+          });
+        } else {
+          const notice = flagNoticeText(rule, prob);
+          notices.push(notice);
+          flagNotices++;
+          recordFiring({
+            rule: rule.id,
+            buffer: "tool-result",
+            band: "flag",
+            probability: prob,
+            verdict: `act downgraded to flag (cap ${MAX_ACT_APPENDS_PER_RULE_PER_TURN} reached): ${verdict}`,
+            jev_called: true,
+            ms,
+            matched_span: matchedSpan,
+            skip_reason: `act-cap-exceeded:${actsSoFar}`
+          });
+        }
+        break;
+      }
+      case "flag": {
+        const notice = flagNoticeText(rule, prob);
+        notices.push(notice);
+        flagNotices++;
+        recordFiring({
+          rule: rule.id,
+          buffer: "tool-result",
+          band: "flag",
+          probability: prob,
+          verdict,
+          jev_called: true,
+          ms,
+          matched_span: matchedSpan,
+          skip_reason: null
+        });
+        break;
+      }
+      case "clear": {
+        recordFiring({
+          rule: rule.id,
+          buffer: "tool-result",
+          band: "clear",
+          probability: prob,
+          verdict,
+          jev_called: true,
+          ms,
+          matched_span: matchedSpan,
+          skip_reason: null
+        });
+        break;
+      }
+      case "skip": {
+        recordFiring({
+          rule: rule.id,
+          buffer: "tool-result",
+          band: "skip",
+          probability: prob,
+          verdict,
+          jev_called: true,
+          ms,
+          matched_span: matchedSpan,
+          skip_reason: "unexpected-skip"
+        });
+        break;
+      }
+    }
+    ring.entries.push({
+      ruleId: rule.id,
+      probability: prob,
+      band,
+      ts,
+      verdict,
+      matchedSpan,
+      repairText: repairTextVal
+    });
+  }
+  if (ring.entries.length > 200) {
+    ring.entries.splice(0, ring.entries.length - 100);
+  }
+  return {
+    content,
+    notices,
+    checked: true,
+    actAppends,
+    flagNotices
+  };
+}
+function kernelJudge(opts = {}) {
+  const rings = new Map;
+  const ringAccessor = (sessionId, turnId) => {
+    const key = `${sessionId ?? "default"}::${turnId ?? "turn"}`;
+    let ring = rings.get(key);
+    if (!ring) {
+      ring = { sessionId: sessionId ?? "default", turnId: turnId ?? "default", entries: [] };
+      rings.set(key, ring);
+    }
+    return ring;
+  };
+  const judge = async (event) => {
+    return judgeWithBands(event, opts, ringAccessor);
+  };
+  const reset = (sessionId, turnId) => {
+    const key = `${sessionId ?? opts.sessionId ?? "default"}::${turnId ?? opts.turnId ?? "turn"}`;
+    rings.delete(key);
+  };
+  function register(pi) {
+    pi.on("tool_result", async (event, _ctx) => {
+      if (!event || typeof event !== "object")
+        return;
+      const toolName = "toolName" in event ? String(event.toolName) : "";
+      if (toolName !== "write" && toolName !== "edit")
+        return;
+      try {
+        const result = await judgeWithBands(event, opts, ringAccessor);
+        const hasMutation = JSON.stringify(result.content) !== JSON.stringify(event) || result.notices.length > 0;
+        if (hasMutation) {
+          return {
+            content: result.content,
+            details: "details" in event ? event.details : undefined
+          };
+        }
+        return;
+      } catch (e) {
+        recordFiring({
+          rule: "kernel-judge",
+          buffer: "tool-result",
+          band: "skip",
+          probability: null,
+          verdict: `judge handler error: ${e instanceof Error ? e.message : String(e)}`,
+          jev_called: false,
+          ms: 0,
+          matched_span: null,
+          skip_reason: "handler-error"
+        });
+        return;
+      }
+    });
+  }
+  return { register, judge, reset };
+}
+
+// src/ext/claim-bind.ts
+function parseClaimAtoms(text) {
+  if (!text || !text.trim())
+    return [];
+  const atoms = [];
+  const statusRe = /\b(?:the\s+)?(\w+(?:\s+\w+)*)\s+is\s+(running|working|live|complete|done|verified|pass(?:es|ed)?|green|all\s+green)\b/gi;
+  let m;
+  while ((m = statusRe.exec(text)) !== null) {
+    atoms.push({ kind: "status", text: m[0] });
+  }
+  const countRe = /\b(\d+)\s+(pass(?:es|d)?|fail(?:ures?)?|tests?|checks?|errors?)\b/gi;
+  while ((m = countRe.exec(text)) !== null) {
+    atoms.push({ kind: "count", text: m[0] });
+  }
+  const fileRe = /\b([A-Za-z0-9_./-]+\.(?:ts|js|json|md|jsonl|sha256))\b/g;
+  while ((m = fileRe.exec(text)) !== null) {
+    atoms.push({ kind: "file", text: m[0] });
+  }
+  return atoms;
+}
+function bindAtoms(atoms, ring, opts = {}) {
+  const currentTurn = opts.currentTurn ?? new Date().toISOString();
+  const judge = opts.judge;
+  if (ring.length === 0) {
+    const missingAtoms = atoms.length > 0 ? atoms : [{ kind: "status", text: "" }];
+    const spanText = atoms.length > 0 ? atoms[0].text : "";
+    recordFiring({
+      rule: "claim-bind",
+      buffer: "agent-text",
+      band: "act",
+      probability: null,
+      verdict: "FABRICATED",
+      jev_called: false,
+      ms: 0,
+      matched_span: spanText,
+      skip_reason: `claim made with ${atoms.length} atoms but ring is empty \u2014 no same-turn evidence`
+    });
+    return {
+      verdict: "FABRICATED",
+      jev_called: false,
+      boundSpan: null,
+      missingAtoms,
+      reason: `claim with ${atoms.length} atom(s) has no ring evidence at all`
+    };
+  }
+  if (atoms.length === 0) {
+    recordFiring({
+      rule: "claim-bind",
+      buffer: "agent-text",
+      band: "skip",
+      probability: null,
+      verdict: "REJECT",
+      jev_called: false,
+      ms: 0,
+      matched_span: "",
+      skip_reason: "close-shaped claim detected but no structured atoms could be parsed"
+    });
+    return {
+      verdict: "REJECT",
+      jev_called: false,
+      boundSpan: null,
+      missingAtoms: [],
+      reason: "close-shaped claim message but no claim atoms extracted"
+    };
+  }
+  const missingAtoms = [];
+  let boundSpan = null;
+  let jevCalled = false;
+  for (const atom of atoms) {
+    let bound = false;
+    let wrongSpan = false;
+    for (const span of ring) {
+      if (span.ts !== currentTurn && textMatchesAtom(atom, span.text)) {
+        recordFiring({
+          rule: "claim-bind",
+          buffer: "agent-text",
+          band: "skip",
+          probability: null,
+          verdict: "WRONG_SPAN",
+          jev_called: false,
+          ms: 0,
+          matched_span: atom.text,
+          skip_reason: `atom "${atom.text}" matched only a previous-turn span (ts mismatch)`
+        });
+        wrongSpan = true;
+        break;
+      }
+      if (span.ts === currentTurn && textMatchesAtom(atom, span.text)) {
+        if (judge) {
+          let jr = null;
+          try {
+            jr = judge(atom, span);
+          } catch (err) {
+            recordFiring({
+              rule: "claim-bind",
+              buffer: "agent-text",
+              band: "skip",
+              probability: null,
+              verdict: "FAIL_CLOSED",
+              jev_called: true,
+              ms: 0,
+              matched_span: atom.text,
+              skip_reason: `judge threw: ${err instanceof Error ? err.message : String(err)}`
+            });
+            jr = null;
+          }
+          jevCalled = true;
+          if (jr) {
+            if (jr.verdict === "support") {
+              if (!boundSpan)
+                boundSpan = atom.text;
+              bound = true;
+              break;
+            } else {
+              recordFiring({
+                rule: "claim-bind",
+                buffer: "agent-text",
+                band: "flag",
+                probability: jr.probability ?? null,
+                verdict: "REJECT",
+                jev_called: true,
+                ms: jr.ms ?? 0,
+                matched_span: atom.text,
+                skip_reason: `judge rejected atom "${atom.text}" despite ring match`
+              });
+              return {
+                verdict: "REJECT",
+                jev_called: true,
+                boundSpan: null,
+                missingAtoms: [],
+                reason: `judge rejected atom "${atom.text}"`
+              };
+            }
+          }
+        } else {
+          break;
+        }
+      }
+    }
+    if (wrongSpan) {
+      return {
+        verdict: "WRONG_SPAN",
+        jev_called: false,
+        boundSpan: null,
+        missingAtoms: [],
+        reason: `atom "${atom.text}" only matched a previous-turn span`
+      };
+    }
+    if (!bound) {
+      missingAtoms.push(atom);
+    }
+  }
+  if (missingAtoms.length === 0) {
+    recordFiring({
+      rule: "claim-bind",
+      buffer: "agent-text",
+      band: "clear",
+      probability: null,
+      verdict: "PASS",
+      jev_called: jevCalled,
+      ms: 0,
+      matched_span: boundSpan,
+      skip_reason: null
+    });
+    return {
+      verdict: "PASS",
+      jev_called: jevCalled,
+      boundSpan,
+      missingAtoms: [],
+      reason: `all ${atoms.length} atom(s) bound to same-turn evidence`
+    };
+  }
+  const evidenceSpan = boundSpan ?? atoms[0].text;
+  recordFiring({
+    rule: "claim-bind",
+    buffer: "agent-text",
+    band: "act",
+    probability: null,
+    verdict: "FAIL_CLOSED",
+    jev_called: jevCalled,
+    ms: 0,
+    matched_span: evidenceSpan,
+    skip_reason: `${missingAtoms.length} of ${atoms.length} atom(s) had no same-turn supporting span`
+  });
+  return {
+    verdict: "FAIL_CLOSED",
+    jev_called: jevCalled,
+    boundSpan,
+    missingAtoms,
+    reason: `${missingAtoms.length} of ${atoms.length} atom(s) unbound \u2014 fail-closed without judge`
+  };
+}
+function textMatchesAtom(atom, spanText) {
+  if (!spanText || !atom.text)
+    return false;
+  const span = spanText.toLowerCase();
+  const text = atom.text.toLowerCase();
+  switch (atom.kind) {
+    case "count":
+      return span.includes(text);
+    case "file": {
+      const parts = atom.text.split(/[/\\]/);
+      const basename = parts[parts.length - 1].toLowerCase();
+      if (basename && span.includes(basename))
+        return true;
+      return span.includes(atom.text.toLowerCase());
+    }
+    case "status": {
+      const statusVerbs = [
+        "running",
+        "working",
+        "live",
+        "complete",
+        "done",
+        "verified",
+        "pass",
+        "passes",
+        "passed",
+        "green",
+        "all green",
+        "works"
+      ];
+      for (const v of statusVerbs) {
+        if (span.includes(v)) {
+          const subjectMatch = text.match(/(?:the\s+)?(\w+(?:\s+\w+)*)\s+is\s+/i);
+          if (subjectMatch) {
+            const subjWords = subjectMatch[1].toLowerCase().split(/\s+/);
+            if (subjWords.every((w) => span.includes(w)))
+              return true;
+          } else {
+            return true;
+          }
+        }
+      }
+      return false;
+    }
+  }
+}
+
+// src/index.ts
 var LOAD_MARKER = "__OMP_CT_LOADED__";
 function ctExtension(pi) {
+  try {
+    const { appendFileSync } = __require("fs");
+    appendFileSync("/tmp/ct-init.log", `[${new Date().toISOString()}] ctExtension() entered marker=${String(globalThis[LOAD_MARKER] ?? "unset")}
+`);
+  } catch {}
   const g = globalThis;
   if (g[LOAD_MARKER])
     return;
@@ -2925,11 +3601,20 @@ function ctExtension(pi) {
   const host = createOmpEngineHost(pi, ctx);
   const theatricalTracker = new TheatricalStateTracker;
   const recordedRuns = new RecordedRunSet;
-  const isReady = () => true;
+  let ready = false;
+  const markReady = () => {
+    ready = true;
+  };
+  const isReady = () => ready;
   const scopeOf = (_sessionKey, _c) => {
     return "main";
   };
   const chain = new MiddlewareChain;
+  try {
+    const { appendFileSync } = __require("fs");
+    appendFileSync("/tmp/ct-chain.log", `[${new Date().toISOString()}] chain built
+`);
+  } catch {}
   chain.useBefore(docDensityGate(host));
   chain.useBefore(containerGate());
   chain.useBefore(guardianGate());
@@ -2938,8 +3623,9 @@ function ctExtension(pi) {
   chain.useBefore(sttgfGate());
   chain.useBefore(theatricalGate(theatricalTracker));
   chain.useAfter(theatricalGateAfter(theatricalTracker, () => recordedRuns.hasAfter(sttgfStateTracker.getState("default").containerTestTimestamp ?? 0, "ct-sandbox-test")));
+  markReady();
   attachChain(pi, chain, scopeOf, isReady);
-  createSessionTracking(pi);
+  host.log("INFO", "omp-ct", "chain ATTACHED (V-027) \u2014 the gates are now consulted on tool_call");
   pi.on("session.compacting", (_event, c) => {
     currentCtx = c;
     return {
@@ -2955,37 +3641,66 @@ function ctExtension(pi) {
     pi.appendEntry("com.ct.state", { loaded: true, version: "2.0.0", ts: host.now() });
     host.log("INFO", "omp-ct", "extension loaded \u2014 container-testing first-class");
   });
-  const armFromMessages = (messages, c, via) => {
+  const settledHandler = (event, c) => {
     currentCtx = c;
-    let armed = 0;
-    const arms = Array.isArray(messages) ? messages.filter((m) => m?.role === "assistant").flatMap((m) => {
-      if (typeof m.text === "string")
-        return [m.text];
-      const parts = Array.isArray(m.content) ? m.content : [];
-      const out = [];
-      for (const p of parts) {
-        if (p?.type === "text" && typeof p.text === "string")
-          out.push(p.text);
+    try {
+      const msgs = Array.isArray(event?.messages) ? event.messages : [];
+      for (const m of msgs) {
+        if (m?.role !== "assistant")
+          continue;
+        const parts = Array.isArray(m.content) ? m.content : [{ type: "text", text: typeof m.content === "string" ? m.content : "" }];
+        let text = "";
+        for (const p of parts) {
+          if (p?.type === "text" && typeof p.text === "string")
+            text += p.text + " ";
+        }
+        if (text) {
+          const sid = String(c.sessionID ?? "default");
+          armClaimFromCompletedMessage(sid, text);
+          try {
+            const atoms = parseClaimAtoms(text);
+            if (atoms.length > 0) {
+              const ring = ringFromLedger();
+              const res = bindAtoms(atoms, ring, { currentTurn: ring.length > 0 ? ring[ring.length - 1].ts : undefined });
+              host.log(res.verdict === "PASS" ? "INFO" : "WARN", "omp-ct", `[CT CLAIM] ${res.verdict} \u2014 ${res.reason ?? "claim bound to this turn's evidence"}`);
+            }
+          } catch {}
+        }
       }
-      return out;
-    }) : [];
-    for (const text of arms) {
-      if (!text.trim())
-        continue;
-      const sid = String(c.sessionID ?? "default");
-      const before = sttgfStateTracker.getState(sid).verificationClaimed;
-      armClaimFromCompletedMessage(sid, text);
-      const after = sttgfStateTracker.getState(sid).verificationClaimed;
-      if (after && !before)
-        armed++;
-    }
-    if (armed > 0)
-      ctLog("INFO", "sttgf", `claim armed via ${via}: ${armed} message(s)`);
-    return armed;
+    } catch {}
   };
-  pi.on("tool_result", (event, c) => {
-    armFromMessages(event?.messages, c, "tool_result");
-  });
+  const stubProb = process.env.CT_JUDGE_STUB;
+  const judge = stubProb !== undefined ? kernelJudge({
+    judge: async (rules) => {
+      host.log("WARN", "omp-ct", `[CT JUDGE] STUB ACTIVE (CT_JUDGE_STUB=${stubProb}) \u2014 plumbing proof, NOT a real verdict`);
+      return Object.fromEntries(rules.map((r) => [r.id, Number(stubProb)]));
+    }
+  }) : kernelJudge();
+  if (stubProb !== undefined)
+    host.log("WARN", "omp-ct", `[CT JUDGE] stub judge mode (${stubProb}) \u2014 labelled plumbing proof`);
+  judge.register(pi);
+  host.log("INFO", "omp-ct", "kernel-judge registered (L1 per-edit, ledger-backed)");
+  const ringFromLedger = (limit = 40) => {
+    try {
+      const p = ".abide/events.jsonl";
+      if (!existsSync6(p))
+        return [];
+      const rows = readFileSync5(p, "utf8").split(`
+`).filter((l) => l.trim()).map((l) => {
+        try {
+          return JSON.parse(l);
+        } catch {
+          return null;
+        }
+      }).filter(Boolean);
+      return rows.filter((r) => typeof r.matched_span === "string" && r.matched_span).slice(-limit).map((r) => ({ text: String(r.matched_span), ts: String(r.ts), source: String(r.rule) }));
+    } catch {
+      return [];
+    }
+  };
+  pi.on("agent_end", settledHandler);
+  pi.on("message_end", settledHandler);
+  pi.on("agent-end", settledHandler);
   registerCtTools(pi, { host, recordedRuns });
 }
 var IDENTITY_HEADER = ``;

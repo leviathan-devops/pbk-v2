@@ -92,7 +92,8 @@
             "false": "expanding reasoning to fit the scope and dispatching the first wave"
           }
         }
-      }
+      },
+      "status": "active"
     },
     {
       "id": "w2-execution-law",
@@ -112,7 +113,8 @@
             "false": "producing the artifact or dispatching in the same turn"
           }
         }
-      }
+      },
+      "status": "active"
     },
     {
       "id": "w3-engineering-standards",
@@ -132,7 +134,8 @@
             "false": "pasting the actual test/build/container output before the claim"
           }
         }
-      }
+      },
+      "status": "active"
     },
     {
       "id": "w4-self-conditioning",
@@ -152,7 +155,8 @@
             "false": "reasoning expands to fit the scope, no shrink thoughts"
           }
         }
-      }
+      },
+      "status": "active"
     },
     {
       "id": "w6-rate-limit-switch",
@@ -172,7 +176,8 @@
             "false": "switching the model immediately without asking"
           }
         }
-      }
+      },
+      "status": "active"
     },
     {
       "id": "w7-doc-density",
@@ -192,7 +197,8 @@
             "false": "at or above the per-type floor"
           }
         }
-      }
+      },
+      "status": "active"
     },
     {
       "id": "w8-runtime-grade-test",
@@ -212,7 +218,8 @@
             "false": "results artifact exists and passToken appeared in tool-result context"
           }
         }
-      }
+      },
+      "status": "active"
     },
     {
       "id": "w9-intelligent-systems",
@@ -232,7 +239,8 @@
             "false": "PatternFamily typed members + state machine + MPSE evidence triplets"
           }
         }
-      }
+      },
+      "status": "active"
     },
     {
       "id": "w10-loud-fail",
@@ -252,7 +260,8 @@
             "false": "the fallback produces the same artifact type, just cheaper"
           }
         }
-      }
+      },
+      "status": "active"
     },
     {
       "id": "w11-async-parallel",
@@ -272,7 +281,8 @@
             "false": "Promise.allSettled with per-unit failure capture + result reconciliation"
           }
         }
-      }
+      },
+      "status": "active"
     },
     {
       "id": "w12-density-dispatch",
@@ -292,7 +302,8 @@
             "false": "the dispatch prompt carries full paths, acceptance criteria, and expected outputs"
           }
         }
-      }
+      },
+      "status": "active"
     },
     {
       "id": "w13-verification-before-declaration",
@@ -312,7 +323,8 @@
             "false": "verification was run and output shown before the claim"
           }
         }
-      }
+      },
+      "status": "active"
     },
     {
       "id": "w14-proven-path",
@@ -332,7 +344,8 @@
             "false": "checking input args against documented values and retrying the proven path"
           }
         }
-      }
+      },
+      "status": "active"
     },
     {
       "id": "w15-dont-be-a-cuck",
@@ -352,7 +365,8 @@
             "false": "expanding execution to match the stated scope"
           }
         }
-      }
+      },
+      "status": "active"
     },
     {
       "id": "w16-wave-dispatch",
@@ -372,7 +386,8 @@
             "false": "all agents dispatched as ONE batch with promptFile paths and manifest SHAs verified"
           }
         }
-      }
+      },
+      "status": "active"
     },
     {
       "id": "w17-host-pipeline",
@@ -392,7 +407,8 @@
             "false": "using action=host-pipeline and keeping containers isolated from the real host"
           }
         }
-      }
+      },
+      "status": "active"
     },
     {
       "id": "parked-verification-before-declaration",
@@ -412,7 +428,8 @@
             "false": "the agent did not perform the act"
           }
         }
-      }
+      },
+      "status": "active"
     },
     {
       "id": "parked-anti-scope-shrink",
@@ -432,7 +449,8 @@
             "false": "the agent did not perform the act"
           }
         }
-      }
+      },
+      "status": "active"
     },
     {
       "id": "parked-anti-theatrical",
@@ -452,7 +470,8 @@
             "false": "the agent did not perform the act"
           }
         }
-      }
+      },
+      "status": "active"
     },
     {
       "id": "parked-red-team-default",
@@ -472,7 +491,8 @@
             "false": "the agent did not perform the act"
           }
         }
-      }
+      },
+      "status": "active"
     },
     {
       "id": "parked-basic-logic-check",
@@ -492,7 +512,8 @@
             "false": "the agent did not perform the act"
           }
         }
-      }
+      },
+      "status": "active"
     },
     {
       "id": "parked-graph-before-structural-edit",
@@ -512,7 +533,8 @@
             "false": "the agent did not perform the act"
           }
         }
-      }
+      },
+      "status": "active"
     },
     {
       "id": "sttgf-claim-classification",
@@ -532,7 +554,8 @@
             "false": "the claim binds to a container-test results artifact span from this turn"
           }
         }
-      }
+      },
+      "status": "active"
     },
     {
       "id": "sttgf-claim-polarity",
@@ -552,7 +575,8 @@
             "false": "the negation/gap record is silent; only present-tense claims without evidence are flagged"
           }
         }
-      }
+      },
+      "status": "active"
     },
     {
       "id": "sttgf-mention-vs-performance",
@@ -572,7 +596,8 @@
             "false": "quoted regions and rule discussions are excluded from judgment"
           }
         }
-      }
+      },
+      "status": "active"
     },
     {
       "id": "sttgf-host-voice-exclusion",
@@ -592,7 +617,8 @@
             "false": "host-envelope text is classified as HOST before reaching the judge"
           }
         }
-      }
+      },
+      "status": "active"
     },
     {
       "id": "sttgf-evidence-binding",
@@ -612,7 +638,8 @@
             "false": "every count atom binds to a this-turn span, or the claim is refused"
           }
         }
-      }
+      },
+      "status": "active"
     },
     {
       "id": "sttgf-evidence-machine",
@@ -632,7 +659,8 @@
             "false": "the claim binds to CONTAINER_EVIDENCED state, not UNIT_EVIDENCED alone"
           }
         }
-      }
+      },
+      "status": "active"
     },
     {
       "id": "sttgf-fail-closed-claims",
@@ -652,7 +680,8 @@
             "false": "the claim is refused when no this-turn span binds it"
           }
         }
-      }
+      },
+      "status": "active"
     },
     {
       "id": "sttgf-surgical-mutation",
@@ -672,7 +701,8 @@
             "false": "only the claim span is spliced; the rest flows through untouched"
           }
         }
-      }
+      },
+      "status": "active"
     },
     {
       "id": "sttgf-audit-trail",
@@ -692,7 +722,8 @@
             "false": "every firing records the matched span + verdict BEFORE any discard"
           }
         }
-      }
+      },
+      "status": "active"
     },
     {
       "id": "ts-no-any",
@@ -708,7 +739,8 @@
       "check": {
         "type": "lint",
         "how": "@typescript-eslint/no-explicit-any"
-      }
+      },
+      "status": "active"
     },
     {
       "id": "ts-no-explicit-any",
@@ -724,7 +756,8 @@
       "check": {
         "type": "lint",
         "how": "@typescript-eslint/no-explicit-any"
-      }
+      },
+      "status": "active"
     },
     {
       "id": "ts-no-unused-vars",
@@ -740,7 +773,8 @@
       "check": {
         "type": "lint",
         "how": "@typescript-eslint/no-unused-vars"
-      }
+      },
+      "status": "active"
     },
     {
       "id": "ts-no-non-null-assertion",
@@ -756,7 +790,8 @@
       "check": {
         "type": "lint",
         "how": "@typescript-eslint/no-non-null-assertion"
-      }
+      },
+      "status": "active"
     },
     {
       "id": "ts-no-non-null-asserted-optional-chain",
@@ -772,7 +807,8 @@
       "check": {
         "type": "lint",
         "how": "@typescript-eslint/no-non-null-asserted-optional-chain"
-      }
+      },
+      "status": "active"
     },
     {
       "id": "ts-no-inferrable-types",
@@ -788,7 +824,8 @@
       "check": {
         "type": "lint",
         "how": "@typescript-eslint/no-inferrable-types"
-      }
+      },
+      "status": "active"
     },
     {
       "id": "ts-no-empty-interface",
@@ -804,7 +841,8 @@
       "check": {
         "type": "lint",
         "how": "@typescript-eslint/consistent-type-definitions"
-      }
+      },
+      "status": "active"
     },
     {
       "id": "ts-no-empty-function",
@@ -820,7 +858,8 @@
       "check": {
         "type": "lint",
         "how": "no-empty-function"
-      }
+      },
+      "status": "active"
     },
     {
       "id": "ts-no-var-requires",
@@ -836,7 +875,8 @@
       "check": {
         "type": "lint",
         "how": "@typescript-eslint/no-var-requires"
-      }
+      },
+      "status": "active"
     },
     {
       "id": "ts-consistent-type-imports",
@@ -852,7 +892,8 @@
       "check": {
         "type": "lint",
         "how": "@typescript-eslint/consistent-type-imports"
-      }
+      },
+      "status": "active"
     },
     {
       "id": "ts-no-return-type",
@@ -868,7 +909,8 @@
       "check": {
         "type": "lint",
         "how": "@typescript-eslint/explicit-module-boundary-types"
-      }
+      },
+      "status": "active"
     },
     {
       "id": "ts-explicit-module-boundary-types",
@@ -884,7 +926,8 @@
       "check": {
         "type": "lint",
         "how": "@typescript-eslint/explicit-module-boundary-types"
-      }
+      },
+      "status": "active"
     },
     {
       "id": "ts-explicit-function-return-type",
@@ -900,7 +943,8 @@
       "check": {
         "type": "lint",
         "how": "@typescript-eslint/explicit-function-return-type"
-      }
+      },
+      "status": "active"
     },
     {
       "id": "ts-explicit-member-accessibility",
@@ -916,7 +960,8 @@
       "check": {
         "type": "lint",
         "how": "@typescript-eslint/explicit-member-accessibility"
-      }
+      },
+      "status": "active"
     },
     {
       "id": "ts-no-parameter-properties",
@@ -932,7 +977,8 @@
       "check": {
         "type": "lint",
         "how": "@typescript-eslint/no-parameter-properties"
-      }
+      },
+      "status": "active"
     },
     {
       "id": "ts-no-this-alias",
@@ -948,7 +994,8 @@
       "check": {
         "type": "lint",
         "how": "@typescript-eslint/no-this-alias"
-      }
+      },
+      "status": "active"
     },
     {
       "id": "ts-no-unsafe-assignment",
@@ -964,7 +1011,8 @@
       "check": {
         "type": "lint",
         "how": "@typescript-eslint/no-unsafe-assignment"
-      }
+      },
+      "status": "active"
     },
     {
       "id": "ts-no-unsafe-call",
@@ -980,7 +1028,8 @@
       "check": {
         "type": "lint",
         "how": "@typescript-eslint/no-unsafe-call"
-      }
+      },
+      "status": "active"
     },
     {
       "id": "ts-no-unsafe-member-access",
@@ -996,7 +1045,8 @@
       "check": {
         "type": "lint",
         "how": "@typescript-eslint/no-unsafe-member-access"
-      }
+      },
+      "status": "active"
     },
     {
       "id": "ts-no-unsafe-return",
@@ -1012,7 +1062,8 @@
       "check": {
         "type": "lint",
         "how": "@typescript-eslint/no-unsafe-return"
-      }
+      },
+      "status": "active"
     },
     {
       "id": "ts-no-unsafe-argument",
@@ -1028,7 +1079,8 @@
       "check": {
         "type": "lint",
         "how": "@typescript-eslint/no-unsafe-argument"
-      }
+      },
+      "status": "active"
     },
     {
       "id": "ts-no-floating-promises",
@@ -1044,7 +1096,8 @@
       "check": {
         "type": "lint",
         "how": "@typescript-eslint/no-floating-promises"
-      }
+      },
+      "status": "active"
     },
     {
       "id": "ts-require-await",
@@ -1060,7 +1113,8 @@
       "check": {
         "type": "lint",
         "how": "@typescript-eslint/require-await"
-      }
+      },
+      "status": "active"
     },
     {
       "id": "ts-no-misused-promises",
@@ -1076,7 +1130,8 @@
       "check": {
         "type": "lint",
         "how": "@typescript-eslint/no-misused-promises"
-      }
+      },
+      "status": "active"
     },
     {
       "id": "ts-restrict-template-expressions",
@@ -1092,7 +1147,8 @@
       "check": {
         "type": "lint",
         "how": "@typescript-eslint/restrict-template-expressions"
-      }
+      },
+      "status": "active"
     },
     {
       "id": "ts-no-dynamic-import",
@@ -1108,7 +1164,8 @@
       "check": {
         "type": "lint",
         "how": "@typescript-eslint/no-dynamic-import"
-      }
+      },
+      "status": "active"
     },
     {
       "id": "ts-no-type-alias",
@@ -1124,7 +1181,8 @@
       "check": {
         "type": "lint",
         "how": "@typescript-eslint/consistent-type-definitions"
-      }
+      },
+      "status": "active"
     },
     {
       "id": "ctx-02-auth-fumble",
@@ -1136,7 +1194,8 @@
       "check": {
         "type": "lint",
         "pattern": "auth\\.json.*(?:tee|sed -i|json\\.dump|writeFileSync|>>)"
-      }
+      },
+      "status": "active"
     },
     {
       "id": "ctx-03-sessiondb-fumble",
@@ -1148,7 +1207,8 @@
       "check": {
         "type": "lint",
         "pattern": "opencode\\.db.*(?:UPDATE|INSERT|DELETE|DROP)"
-      }
+      },
+      "status": "active"
     },
     {
       "id": "ctx-04-install-fumble",
@@ -1160,7 +1220,8 @@
       "check": {
         "type": "lint",
         "pattern": "(?:npm|bun|npx)[^;]*(?:install|update|add).*opencode"
-      }
+      },
+      "status": "active"
     },
     {
       "id": "ctx-05-staging-cheat",
@@ -1172,7 +1233,8 @@
       "check": {
         "type": "lint",
         "pattern": "(?:deploy/|dragon-opencode\\.json).*(?:cp|mv|scp|sudo)"
-      }
+      },
+      "status": "active"
     },
     {
       "id": "ctx-06-content-rewrite",
@@ -1184,7 +1246,8 @@
       "check": {
         "type": "lint",
         "pattern": "(opencode\\.json|config\\.json).*(?:tee|sed -i|json\\.dump|writeFileSync|>>)"
-      }
+      },
+      "status": "active"
     },
     {
       "id": "ctx-07-setup-script-staging",
@@ -1196,7 +1259,8 @@
       "check": {
         "type": "lint",
         "pattern": "setup-[a-z0-9-]+\\.sh.*(?:config|apiKey|sed|cp)"
-      }
+      },
+      "status": "active"
     },
     {
       "id": "ctx-08-apikey-fumble",
@@ -1208,7 +1272,8 @@
       "check": {
         "type": "lint",
         "pattern": "(?:apiKey|OPENROUTER_API_KEY).*(?:tee|sed -i|json\\.dump|writeFileSync|>>)"
-      }
+      },
+      "status": "active"
     },
     {
       "id": "w21-ram-bomb",
@@ -1220,7 +1285,8 @@
       "check": {
         "type": "lint",
         "pattern": "(?:python3?|node|bun)\\s+(?:-c|-e|--eval).*(?:\\.readlines\\(|\\.read\\(|readFileSync)"
-      }
+      },
+      "status": "active"
     },
     {
       "id": "w21-unguarded-open",
@@ -1232,7 +1298,8 @@
       "check": {
         "type": "lint",
         "pattern": "open\\s*\\([^)]*['\"][^'\"]+['\"]"
-      }
+      },
+      "status": "active"
     },
     {
       "id": "w21-output-bomb",
@@ -1244,7 +1311,8 @@
       "check": {
         "type": "lint",
         "pattern": "grep\\s+-[a-zA-Z]*r[a-zA-Z]*n?\\s+.*(?:dist|bundle|build)"
-      }
+      },
+      "status": "active"
     },
     {
       "id": "w21-bundle-exec",
@@ -1256,7 +1324,8 @@
       "check": {
         "type": "lint",
         "pattern": "\\b(?:bun|node)\\s+(?:[^;|&\"']*\\/)?(?:dist|bundle|build)[^;|&\"']*\\.(?:js|mjs|cjs)\\b"
-      }
+      },
+      "status": "active"
     },
     {
       "id": "w21-dispatch-memory-screen",
@@ -1268,7 +1337,8 @@
       "check": {
         "type": "lint",
         "pattern": "grep\\s+-[a-zA-Z]*r.*(?:dist|bundle|build)"
-      }
+      },
+      "status": "active"
     },
     {
       "id": "dispatch-path-input",
@@ -1281,7 +1351,8 @@
         "type": "lint",
         "how": "check: input is one single slash-delimited token anchored in OPENCODE_WORKSPACE, no whitespace",
         "pattern": "^\\s*\\S+\\s*$"
-      }
+      },
+      "status": "active"
     },
     {
       "id": "dispatch-mixed-input-block",
@@ -1294,7 +1365,8 @@
         "type": "lint",
         "how": "check: multi-token input where first token is a workspace path",
         "pattern": "^\\s*[^\\s]+\\s+\\S"
-      }
+      },
+      "status": "active"
     },
     {
       "id": "mutator-fail-path-markers",
@@ -1307,7 +1379,8 @@
         "type": "lint",
         "how": "check: fail-path markers present as constants, not inlined or stripped",
         "pattern": "\\[SSTF MUTATION FAIL\\]"
-      }
+      },
+      "status": "active"
     },
     {
       "id": "evidence-fail-closed-load",
@@ -1320,7 +1393,8 @@
         "type": "lint",
         "how": "check: loadEvidenceRecord returns freshRecord on error, never falls back to LEGIT",
         "pattern": "freshRecord"
-      }
+      },
+      "status": "active"
     },
     {
       "id": "w3-adversarial-testing",
@@ -1332,7 +1406,8 @@
       "check": {
         "type": "unenforceable",
         "reason": "about the agent's testing posture — the diff cannot reveal what tests were run first"
-      }
+      },
+      "status": "active"
     },
     {
       "id": "w3-running-build-docs",
@@ -1344,7 +1419,8 @@
       "check": {
         "type": "unenforceable",
         "reason": "about the agent's discipline of keeping append-only logs — not a diff property"
-      }
+      },
+      "status": "active"
     },
     {
       "id": "w3-autonomy-law",
@@ -1356,7 +1432,8 @@
       "check": {
         "type": "unenforceable",
         "reason": "about the gate/agent interaction contract — not a property of a code diff"
-      }
+      },
+      "status": "active"
     },
     {
       "id": "w4-reasoning-self-policing",
@@ -1368,7 +1445,8 @@
       "check": {
         "type": "unenforceable",
         "reason": "about the agent's internal deliberation — not observable from a diff"
-      }
+      },
+      "status": "active"
     },
     {
       "id": "w16-resume-mode",
@@ -1380,7 +1458,8 @@
       "check": {
         "type": "unenforceable",
         "reason": "about the agent's handling of interrupted subagent sessions — not a diff property"
-      }
+      },
+      "status": "active"
     },
     {
       "id": "w15-shrink-overall",
@@ -1392,7 +1471,8 @@
       "check": {
         "type": "deferred",
         "reason": "needs the full session context to judge whether a contraction is a real shrink or a legitimate simplification"
-      }
+      },
+      "status": "active"
     }
   ]
 }

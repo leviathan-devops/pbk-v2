@@ -15,10 +15,20 @@ import { RecordedRunSet } from "./middleware/phantom-gate";
 import { createSessionTracking } from "./hooks/session-hook";
 import { guardianGate } from "./hooks/guardian-hook";
 import { registerCtTools } from "./tools/ct-registry";
+import { existsSync, readFileSync } from "node:fs";
+import { kernelJudge } from "./ext/kernel-judge";
+import { bindAtoms, parseClaimAtoms, type RingSpan } from "./ext/claim-bind";
 
 const LOAD_MARKER = "__OMP_CT_LOADED__";
 
 export default function ctExtension(pi: ExtensionAPI): void {
+  // V-024 INSTRUMENT (the resume condition): log from INSIDE the extension's own init,
+  // before anything else can throw. If this marker is ABSENT in a session whose load
+  // failed, the failure is at/before module evaluation; if PRESENT, the failure is after.
+  try {
+    const { appendFileSync } = require("node:fs");
+    appendFileSync("/tmp/ct-init.log", `[${new Date().toISOString()}] ctExtension() entered marker=${String((globalThis as Record<string, unknown>)[LOAD_MARKER] ?? "unset")}\n`);
+  } catch { /* instrumentation must never break the extension */ }
   const g = globalThis as Record<string, unknown>;
   if (g[LOAD_MARKER]) return;
   g[LOAD_MARKER] = true;
@@ -40,6 +50,14 @@ export default function ctExtension(pi: ExtensionAPI): void {
   };
 
   const chain = new MiddlewareChain();
+  // V-027 INSTRUMENT: prove whether the chain's handler is invoked at all for a model-origin
+  // tool call. If this line is ABSENT when the model calls bash, the chain never runs (the
+  // registration exists without the invocation); if PRESENT, the chain runs and the gate is
+  // mis-classifying downstream.
+  try {
+    const { appendFileSync } = require("node:fs");
+    appendFileSync("/tmp/ct-chain.log", `[${new Date().toISOString()}] chain built\n`);
+  } catch { /* instrumentation never breaks the extension */ }
   chain.useBefore(docDensityGate(host));
   chain.useBefore(containerGate());
   chain.useBefore(guardianGate());
@@ -48,6 +66,17 @@ export default function ctExtension(pi: ExtensionAPI): void {
   chain.useBefore(sttgfGate());
   chain.useBefore(theatricalGate(theatricalTracker));
   chain.useAfter(theatricalGateAfter(theatricalTracker, () => recordedRuns.hasAfter(sttgfStateTracker.getState("default").containerTestTimestamp ?? 0, "ct-sandbox-test")));
+
+  // ── V-027 FIX ──────────────────────────────────────────────────────────────
+  // THE CHAIN WAS BUILT AND NEVER ATTACHED. `attachChain` (which performs the
+  // `pi.on("tool_call", …)` registration) was imported but never called — so no gate ever
+  // ran, in ANY session, while the extension loaded and its tool registered. The second
+  // missing piece: `markReady()` was never called, so `attachChain`'s warmup guard
+  // (`if (isReady && !isReady()) return undefined`) would have passed every call anyway.
+  // Both are required. The extension is fully built at this point, so it is ready.
+  markReady();
+  attachChain(pi, chain, scopeOf, isReady);
+  host.log("INFO", "omp-ct", "chain ATTACHED (V-027) — the gates are now consulted on tool_call");
 
   pi.on("session.compacting", (_event: unknown, c: OmpExtensionContext) => {
     currentCtx = c;
@@ -68,7 +97,11 @@ export default function ctExtension(pi: ExtensionAPI): void {
 
   // Claim arming — v6 text.complete + messages.transform (:1030-1052, :3742-3746):
   // a COMPLETED AGENT MESSAGE arms via the lexicon; a tool result NEVER arms.
-  pi.on("agent-end", (event: { messages?: unknown[] }, c: OmpExtensionContext) => {
+  // V-026: the runtime emits `agent_end` (underscore) and `message_end`; the original
+  // registration used "agent-end" (hyphen), which never fires — so the claim arming AND
+  // the L2 claim bind were silently dead. Register under the real names (the hyphen form
+  // is kept for compatibility with any host that does emit it).
+  const settledHandler = (event: { messages?: unknown[] }, c: OmpExtensionContext) => {
     currentCtx = c;
     try {
       const msgs = Array.isArray(event?.messages) ? (event.messages as Array<{ role?: unknown; content?: unknown }>) : [];
@@ -79,10 +112,65 @@ export default function ctExtension(pi: ExtensionAPI): void {
         for (const p of parts as Array<{ type?: unknown; text?: unknown }>) {
           if (p?.type === "text" && typeof p.text === "string") text += p.text + " ";
         }
-        if (text) armClaimFromCompletedMessage(String((c as unknown as Record<string, unknown>).sessionID ?? "default"), text);
+        if (text) {
+          const sid = String((c as unknown as Record<string, unknown>).sessionID ?? "default");
+          armClaimFromCompletedMessage(sid, text);
+          // ── V2 L2: the claim firewall — bind the claim's atoms to this turn's evidence
+          // ring; fail CLOSED. No bound span => FABRICATED (recorded jev_called=false).
+          try {
+            const atoms = parseClaimAtoms(text);
+            if (atoms.length > 0) {
+              const ring = ringFromLedger();
+              const res = bindAtoms(atoms, ring, { currentTurn: ring.length > 0 ? ring[ring.length - 1].ts : undefined });
+              host.log(res.verdict === "PASS" ? "INFO" : "WARN", "omp-ct", `[CT CLAIM] ${res.verdict} — ${res.reason ?? "claim bound to this turn's evidence"}`);
+            }
+          } catch { /* the claim gate is non-fatal; the arming above still stands */ }
+        }
       }
     } catch { /* non-fatal */ }
-  });
+  };
+
+  // ── V2 LIVE PATH ───────────────────────────────────────────────────────────
+  // The L1 per-edit judge: it registers its own tool_result handler and writes a
+  // ledger row for EVERY branch (act/flag/clear/skip) — the auditability the ledger
+  // front exists to provide. It never blocks the write.
+  // V-029: a LABELLED stub judge mode so the band PLUMBING can be proven live without the
+  // TypeSafe key. Set CT_JUDGE_STUB=<probability> (e.g. 0.9) to make every model rule return
+  // that probability. This proves the path (call -> band -> repair-append -> ledger row ->
+  // fail-open) and NOTHING about judge quality; every row it writes is labelled
+  // `stub: true` so no reader can mistake it for a real verdict.
+  const stubProb = process.env.CT_JUDGE_STUB;
+  const judge = stubProb !== undefined
+    ? kernelJudge({
+        judge: async (rules) => {
+          host.log("WARN", "omp-ct", `[CT JUDGE] STUB ACTIVE (CT_JUDGE_STUB=${stubProb}) — plumbing proof, NOT a real verdict`);
+          return Object.fromEntries(rules.map((r) => [r.id, Number(stubProb)]));
+        },
+      })
+    : kernelJudge();
+  if (stubProb !== undefined) host.log("WARN", "omp-ct", `[CT JUDGE] stub judge mode (${stubProb}) — labelled plumbing proof`);
+  judge.register(pi);
+  host.log("INFO", "omp-ct", "kernel-judge registered (L1 per-edit, ledger-backed)");
+
+  // The L2 claim firewall's ring: THIS TURN's evidence, read from the ledger's rows.
+  // (The judge keeps its ring in memory; the ledger is the durable record both share.)
+  const ringFromLedger = (limit = 40): RingSpan[] => {
+    try {
+      const p = ".abide/events.jsonl";
+      if (!existsSync(p)) return [];
+      const rows = readFileSync(p, "utf8").split("\n").filter((l) => l.trim()).map((l) => {
+        try { return JSON.parse(l) as Record<string, unknown>; } catch { return null; }
+      }).filter(Boolean) as Array<Record<string, unknown>>;
+      return rows
+        .filter((r) => typeof r.matched_span === "string" && r.matched_span)
+        .slice(-limit)
+        .map((r) => ({ text: String(r.matched_span), ts: String(r.ts), source: String(r.rule) }));
+    } catch { return []; }
+  };
+
+  pi.on("agent_end", settledHandler);
+  pi.on("message_end", settledHandler);
+  pi.on("agent-end", settledHandler); // legacy name, kept for hosts that emit it
 
   registerCtTools(pi, { host, recordedRuns });
 }
