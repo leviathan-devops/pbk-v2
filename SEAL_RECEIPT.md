@@ -156,3 +156,74 @@ the per-turn cap being a PERMANENT cap that silenced the repair channel.
 
 **The one block stands:** `TYPESAFE_AI_API_KEY` — proven wired to the auth boundary (no key → `no-key`;
 bogus key → `HTTP 401` in 719 ms). Resume: `bun scripts/verify-key-path.mjs`.
+
+---
+
+# ADDENDUM 4 — 2026-09-21 09:24  — THE CONTRACT-AUDIT AND MEASUREMENT ROUND (current state)
+
+The body above recorded the round that ended at 192 tests. This addendum is the CURRENT seal; where the two
+disagree, this one is the record.
+
+## THE ARTIFACT
+```
+fork suite   242 tests / 32 files / 0 fail · tsc 0
+project      tsc 0 · 439 pass / 0 fail
+dist         4599db718885c657e3883e4973f03896f6692f3ce35d4b9b6a14306994a3f139
+sha trio     repo == deployed (~/.omp/agent/extensions/omp-ct/dist.js) == the fork checkpoint's copy
+checkpoint   Checkpoints/v2-judge-path-hardened/ — self-verifies the same 242 from its own contents
+both repos   0 dirty
+```
+
+## THE DEFECT LEDGER — NINETEEN REAL, ALL FIXED
+V-025 the verdict enum · V-026 the settled-message event name (`agent-end` never fired) · **V-027 the chain
+built and never attached** · V-028 the count · V-029 the labelled stub · V-032 bookkeeping · V-034 the
+untracked source · V-035 a false absence claim · **V-036 the judge invented probability 0** · **V-037 a
+diagnostic naming the wrong cause** · **V-038 the census dropped unreadable rows** · **V-039 regex
+backtracking (a 2.3 s synchronous stall)** · **V-040 the per-turn cap was permanent** · V-041 the
+self-deleted ledger · V-042 the checkpoint's own self-check · **V-044 the audit write could break the edit**
+· **V-045 the census crashed on a directory** · **V-046 NaN banded as CLEAR** · **V-047 audit rows written
+into ./undefined/** · **V-048 the L0 was never wired** · **V-049 the terminal-settle contract ignored** ·
+**V-050 the origin exemption unreachable** · **V-051 the turn identity rotated by a message**.
+
+Plus **5 refuted** misdiagnoses (retracted with their reasons) and **6 self-caught** errors — all in
+FAILURE_LOG.md, none hidden.
+
+## THE MEASUREMENT (the strongest evidence of the run)
+```
+bun scripts/misfire-replay.mjs   -> exit 0 (a GATE: it exits 1 on any regression)
+  9/9 documented false positives stayed SILENT
+       role-filter x4 (the four host envelopes) · quote-exclusion x2 · triggerCondition x2 · no-matcher x1
+  4/4 true positives FIRED · 0 failures
+  rows 15 · firings 4 · SPAN-RESOLUTION 100.0% (4/4) · BASELINE 27 · CURRENT 4 · BELOW BASELINE: yes
+```
+**The fixture is the corpus's own words** (derailment-data-log.md §1/§2/§4/§5 + ttsr-misfire-failure-log.md
+BUG-1..8), with case IDs mapping to the corpus's timestamps. A fixture copied from the incident proves the
+incident; a reconstructed one proves only what the author believed it was.
+
+## THE STOP-CONDITION BOARD
+| condition | state |
+|---|---|
+| W-1's rows tokened or SUPERSEDED-with-referent | **SATISFIED** — 7 tokened + 2 superseded (blueprint §0+§6) |
+| W0's three citations | **PRESENT** — W0_SEAM_NOTE.md, 82L, from the installed host |
+| the six probes green in a tool result | **GREEN** — probe-l0 6 · quote-exclusion 1 · claim-bind 9 · bands-edge 24 · instrument 7 · ledger-span 10 · role-filter 11 · skip-classes 3 |
+| one live edit banded in events.jsonl | **PROVEN** — live rows with band + span |
+| a bare claim refused / a bound claim passed | **HALF** — refused PROVEN live (`FABRICATED`, `jev_called=false`); the PASS is BLOCKED |
+| the census below 27, span-resolution 100% | **SATISFIED** — firings 4, resolution 100.0% |
+| the seal receipt on disk | **THIS FILE** |
+| every canon doc updated | **SATISFIED** — all 15 refreshed; the floor gap recorded as a gap, not padded |
+| no open CRITICAL/HIGH finding | **SATISFIED** — the orphan census is MEDIUM and documented |
+
+## THE ONE BLOCK, unchanged and named
+```
+TYPESAFE_AI_API_KEY  ->  ~/.abide/.env   (chmod 600)
+                        ->  bun omp-ct-v2/scripts/verify-key-path.mjs   (exit 0 unblocks both items)
+proven wired:   no key -> skip/no-key    ·    a bogus key -> judge error: HTTP 401, ms 719
+```
+**A block is never a pass.** The bound-claim PASS and the real-judge act/flag band both stop at this
+boundary, and the code path is proven to it.
+
+## WHAT THIS ROUND ESTABLISHED
+The suite was green through every one of the nineteen. Each of the last six fell to a different QUESTION:
+a failing filesystem (V-044) · a repository audit (V-047) · a wiring check (V-048) · a contract read
+(V-049, V-050) · an event-granularity check (V-051) · and the measurement itself (F-01, F-02, F-03).
+**Probe the edge; do not trust the suite.**
