@@ -6,7 +6,6 @@
  *
  *   docDensityGate      BLOCKS a short .md below its type's floor
  *   containerGate       BLOCKS the protected-path mutation class ([CT CONFIG LOCK])
- *   guardianGate        INERT — structurally unable to fire (V-060; its assertion below is the pin)
  *   containerWriteGate  BLOCKS a test file that smuggles a container run
  *   dispatchGate        BLOCKS a disallowed agent, REWRITES a thin task
  *   sttgfGate           BLOCKS the inline-exec class
@@ -27,7 +26,6 @@ import { containerGate, containerWriteGate } from "../src/middleware/container-g
 import { dispatchGate } from "../src/middleware/dispatch-gate";
 import { sttgfGate } from "../src/middleware/sttgf-gate";
 import { theatricalGate, TheatricalStateTracker } from "../src/middleware/theatrical-gate";
-import { guardianGate } from "../src/hooks/guardian-hook";
 
 const host = {
   readFileSync: () => null, writeFileSync() {}, existsSync: () => false, mkdirSync() {},
@@ -86,11 +84,4 @@ describe("the chain — every gate's firing ability", () => {
     expect(String((third as { reason?: string }).reason)).toContain("THEATRICAL ESCALATE");
   });
 
-  test("guardianGate is INERT in production (V-060) — the assertion that pins the finding", async () => {
-    // The live path can never track an agent, so the gate always returns early. If this ever starts
-    // BLOCKING, the pin in f1-isolation-wiring.test.ts fails first and this test says why.
-    for (const tool of ["code-audit", "poseidon-tool", "ct-gate"]) {
-      expect(await guardianGate()(ctx(tool, {}, { sessionId: "g-" + tool }))).toBeUndefined();
-    }
-  });
 });

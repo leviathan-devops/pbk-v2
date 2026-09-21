@@ -683,10 +683,6 @@ var g = globalThis;
 if (!g.__ctAgentBySession)
   g.__ctAgentBySession = new Map;
 var agentBySession = g.__ctAgentBySession;
-function getCurrentAgent(sessionId) {
-  const sid = sessionId || "default";
-  return agentBySession.get(sid)?.agent;
-}
 var containerSkillSessions = new Set;
 var poseidonIntentBySession = new Map;
 var EVIDENCE_TABLE_DDL = `CREATE TABLE IF NOT EXISTS ct_evidence (
@@ -1780,90 +1776,10 @@ class RecordedRunSet {
   }
 }
 
-// src/agent-identity.ts
-var VANILLA_AGENTS = new Set(["plan", "build", "general", "explore"]);
-function isOwnedAgent(agentName) {
-  if (!agentName)
-    return false;
-  return false;
-}
-
-// src/shared/firewall-audit.ts
-import * as fs2 from "fs";
-import * as path2 from "path";
-class FirewallAudit {
-  logPath;
-  counters = new Map;
-  constructor(basePath) {
-    const dir = basePath || process.cwd();
-    this.logPath = path2.join(dir, ".ct", "firewall-audit.jsonl");
-  }
-  log(entry) {
-    try {
-      this.counters.set(entry.layer, (this.counters.get(entry.layer) || 0) + 1);
-      const dir = path2.dirname(this.logPath);
-      if (!fs2.existsSync(dir)) {
-        fs2.mkdirSync(dir, { recursive: true });
-      }
-      fs2.appendFileSync(this.logPath, JSON.stringify(entry) + `
-`, "utf-8");
-    } catch (e) {
-      ctLog("ERROR", "FirewallAudit", "Write failed: " + (e instanceof Error ? e.message : String(e)));
-    }
-  }
-  layerEntryCount(layer) {
-    return this.counters.get(layer) || 0;
-  }
-  totalCount() {
-    let total = 0;
-    for (const c of this.counters.values())
-      total += c;
-    return total;
-  }
-  getLogPath() {
-    return this.logPath;
-  }
-}
-
-// src/hooks/guardian-hook.ts
-var audit = new FirewallAudit;
-var OWNED_TOOLS = new Set([
-  "code-audit",
-  "deep-planning",
-  "problem-solving",
-  "context-synthesis",
-  "poseidon-tool",
-  "ct-gate",
-  "ct-status",
-  "ct-vision",
-  "ct-help"
-]);
-function checkF1Isolation(toolName, sessionAgent) {
-  if (!isOwnedAgent(sessionAgent) && OWNED_TOOLS.has(toolName)) {
-    throw new Error('[F1 BLOCKED] Tool "' + toolName + '" is plugin-specific and cannot be called by agent "' + sessionAgent + '".');
-  }
-}
-function guardianGate() {
-  return async (ctx) => {
-    const sessionAgent = getCurrentAgent(ctx.sessionId);
-    if (!sessionAgent)
-      return;
-    try {
-      checkF1Isolation(ctx.toolName, sessionAgent);
-    } catch (e) {
-      if (e instanceof Error && e.message.indexOf("[F1 BLOCKED]") === 0) {
-        return { action: "block", gate: "guardian", reason: e.message };
-      }
-      throw e;
-    }
-    return;
-  };
-}
-
 // src/tools/container-testing.ts
-import * as fs3 from "fs";
+import * as fs2 from "fs";
 import * as os2 from "os";
-import * as path3 from "path";
+import * as path2 from "path";
 
 // src/tools/ct-tui-registry.ts
 var CT_IMAGE_OMP = "omp-ct:master";
@@ -2168,10 +2084,10 @@ var provisionOmpContainer = (dockerExec, model, smol) => {
 `).find((l) => l.trim().startsWith("PROVISION"));
   return line ? line.trim() : `PROVISION failed exit=${r.code}`;
 };
-var CT_FIREWALL_STATE = path3.join(os2.homedir(), ".omp/agent/state/ct-firewall.json");
+var CT_FIREWALL_STATE = path2.join(os2.homedir(), ".omp/agent/state/ct-firewall.json");
 function readFirewallState() {
   try {
-    const parsed = JSON.parse(fs3.readFileSync(CT_FIREWALL_STATE, "utf-8"));
+    const parsed = JSON.parse(fs2.readFileSync(CT_FIREWALL_STATE, "utf-8"));
     if (!parsed || typeof parsed.sessions !== "object")
       return { sessions: {} };
     return parsed;
@@ -2184,10 +2100,10 @@ function persistFirewallOff(off) {
   const sessions = {};
   for (const sid of off)
     sessions[sid] = { enabled: false, updatedAt: now };
-  fs3.mkdirSync(path3.dirname(CT_FIREWALL_STATE), { recursive: true });
+  fs2.mkdirSync(path2.dirname(CT_FIREWALL_STATE), { recursive: true });
   const tmp = CT_FIREWALL_STATE + ".tmp";
-  fs3.writeFileSync(tmp, JSON.stringify({ sessions }, null, 2));
-  fs3.renameSync(tmp, CT_FIREWALL_STATE);
+  fs2.writeFileSync(tmp, JSON.stringify({ sessions }, null, 2));
+  fs2.renameSync(tmp, CT_FIREWALL_STATE);
 }
 var firewallOff = new Set(Object.entries(readFirewallState().sessions).filter(([, v]) => v && v.enabled === false).map(([k]) => k));
 var checkCursors = new Map;
@@ -2934,11 +2850,11 @@ function registerCtTools(pi, deps) {
 }
 
 // src/index.ts
-import { existsSync as existsSync6, readFileSync as readFileSync5 } from "fs";
+import { existsSync as existsSync5, readFileSync as readFileSync5 } from "fs";
 
 // src/ledger/events-ledger.ts
-import { appendFileSync as appendFileSync5, readFileSync as readFileSync3, mkdirSync as mkdirSync4, existsSync as existsSync4 } from "fs";
-import { join as join6 } from "path";
+import { appendFileSync as appendFileSync4, readFileSync as readFileSync3, mkdirSync as mkdirSync3, existsSync as existsSync3 } from "fs";
+import { join as join5 } from "path";
 function ledgerDir() {
   const raw = process.env.ABIDE_DIR;
   if (raw === undefined || raw === "" || raw === "undefined" || raw === "null") {
@@ -2955,7 +2871,7 @@ function ledgerDir() {
 }
 var warnedSentinelDir = false;
 function ledgerPath() {
-  return join6(ledgerDir(), "events.jsonl");
+  return join5(ledgerDir(), "events.jsonl");
 }
 var ledgerSession;
 function setLedgerSession(sid) {
@@ -3023,12 +2939,12 @@ function recordFiring(input) {
   const file = ledgerPath();
   let writeError = null;
   try {
-    if (!existsSync4(dir)) {
-      mkdirSync4(dir, { recursive: true });
+    if (!existsSync3(dir)) {
+      mkdirSync3(dir, { recursive: true });
     }
     const line = JSON.stringify(row) + `
 `;
-    appendFileSync5(file, line, "utf8");
+    appendFileSync4(file, line, "utf8");
   } catch (e) {
     writeError = e instanceof Error ? e.message : String(e);
     try {
@@ -3042,7 +2958,7 @@ function recordFiring(input) {
 // src/ext/kernel-judge.ts
 import { join as joinPath } from "path";
 import { homedir as homedir2 } from "os";
-import { readFileSync as readFileSync4, existsSync as existsSync5 } from "fs";
+import { readFileSync as readFileSync4, existsSync as existsSync4 } from "fs";
 var EDIT_CHECK_TIMEOUT_MS = 8000;
 var MAX_ACT_APPENDS_PER_RULE_PER_TURN = 2;
 var judgeUnavailableAnnounced = false;
@@ -3053,13 +2969,13 @@ var MAX_STATE_CHARS = 24000;
 var MAX_DIFF_INPUT_CHARS = 1e6;
 var DEFAULT_RUBRIC = (() => {
   const workspace = joinPath(process.cwd(), ".abide", "rubric.json");
-  if (existsSync5(workspace))
+  if (existsSync4(workspace))
     return workspace;
   return joinPath(import.meta.dirname, "..", ".abide", "rubric.json");
 })();
 function loadRubric(rubricPath) {
   const path = rubricPath ?? DEFAULT_RUBRIC;
-  if (!existsSync5(path))
+  if (!existsSync4(path))
     return [];
   try {
     const raw = readFileSync4(path, "utf8");
@@ -3099,7 +3015,7 @@ function resolveApiKey() {
     return fromEnv;
   try {
     const envPath = joinPath(homedir2(), ".abide", ".env");
-    if (!existsSync5(envPath))
+    if (!existsSync4(envPath))
       return;
     for (const line of readFileSync4(envPath, "utf8").split(`
 `)) {
@@ -4096,7 +4012,7 @@ function decideInner(text, origin = "agent") {
         band: member.severity,
         matched_span: matchedSpan,
         verdict: member.messageTemplate,
-        jev_called: true
+        jev_called: false
       });
       if (member.severity === "act") {
         return {
@@ -4241,7 +4157,6 @@ function ctExtension(pi) {
   } catch {}
   chain.useBefore(docDensityGate(host));
   chain.useBefore(containerGate());
-  chain.useBefore(guardianGate());
   chain.useBefore(containerWriteGate());
   chain.useBefore(dispatchGate());
   chain.useBefore(sttgfGate());
@@ -4342,7 +4257,7 @@ function ctExtension(pi) {
   const ringFromLedger = (limit = 40) => {
     try {
       const p = ".abide/events.jsonl";
-      if (!existsSync6(p))
+      if (!existsSync5(p))
         return [];
       const sid = getLedgerSession();
       const rows = readFileSync5(p, "utf8").split(`

@@ -375,7 +375,13 @@ function decideInner(text: string, origin: BufferOrigin = 'agent'): L0BaseVerdic
         band: member.severity as Band,
         matched_span: matchedSpan,
         verdict: member.messageTemplate,
-        jev_called: true,
+        // IL-15 (LEDGER OR IT DID NOT HAPPEN) + IL-16 (COMPLETION IS A FACT ABOUT THE WORLD):
+        // THIS LAYER HAS NO JUDGE. It is a matcher + a triggerCondition — a regex and a state machine.
+        // It stamped `jev_called: true` on every firing, which MEASURED as 1,080 fabricated rows in the
+        // live ledgers (94.8% of every Jev claim the system ever made). A ledger that claims a model
+        // verdict it never obtained is the F22 failure — "is it working?" becomes unanswerable.
+        // The field states the FACT: no judge was called here.
+        jev_called: false,
       });
 
       if (member.severity === 'act') {

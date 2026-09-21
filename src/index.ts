@@ -13,7 +13,6 @@ import { theatricalGate, theatricalGateAfter, TheatricalStateTracker } from "./m
 import { containerGate, containerWriteGate } from "./middleware/container-gate";
 import { RecordedRunSet } from "./middleware/phantom-gate";
 import { createSessionTracking } from "./hooks/session-hook";
-import { guardianGate } from "./hooks/guardian-hook";
 import { registerCtTools } from "./tools/ct-registry";
 import { existsSync, readFileSync } from "node:fs";
 // V-084: the session attribution — the ring is scoped to THIS session's rows (the cross-session fix).
@@ -68,7 +67,6 @@ export default function ctExtension(pi: ExtensionAPI): void {
   } catch { /* instrumentation never breaks the extension */ }
   chain.useBefore(docDensityGate(host));
   chain.useBefore(containerGate());
-  chain.useBefore(guardianGate());
   chain.useBefore(containerWriteGate());
   chain.useBefore(dispatchGate());
   chain.useBefore(sttgfGate());
