@@ -2563,6 +2563,20 @@ function buildContainerTestingTool(pi, deps) {
             details: { offset: off, limit: lim, totalLines: size, empty: true }
           };
         }
+        const pipe = dockerExec(`tmux display-message -p -t ${session} '#{pane_pipe}' 2>/dev/null`).stdout.trim();
+        if (pipe !== "1") {
+          const live = dockerExec(`tmux capture-pane -p -t ${session} 2>/dev/null`).stdout;
+          const lines = live.split(`
+`).filter((l) => l.trim().length > 0);
+          const take = lines.slice(Math.max(0, lines.length - lim));
+          return {
+            text: `CT READ (LIVE PANE \u2014 the stream pipe is NOT attached: pane_pipe=${pipe || "0"}; ` + `${STREAM_FILE} is stale and must not be read as evidence):
+` + `CT READ lines ${off + 1}-${off + lim}/${size} (stream) -> superseded by capture-pane:
+` + take.join(`
+`).slice(0, 4000),
+            details: { offset: off, limit: lim, totalLines: size, livePane: true, pipe: pipe || "0" }
+          };
+        }
         return { text: `CT READ lines ${off + 1}-${off + lim}/${size}:
 ${slice.slice(0, 4000)}`, details: { offset: off, limit: lim, totalLines: size } };
       }

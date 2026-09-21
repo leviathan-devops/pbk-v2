@@ -73,6 +73,7 @@ describe("V-015 action=read produces a body, or fails loudly", () => {
     // the stream HAS 190 lines, but the slice comes back empty — the exact measured shape
     const host = scriptedHost([
       [/wc -l < \/tmp\/tui-stream\.txt/, { code: 0, stdout: "190\n", stderr: "" }],
+      [/pane_pipe/, { code: 0, stdout: "1\n", stderr: "" }],   // V-054: the stream path requires an ATTACHED pipe
       [/sed -n .*1,12p/, { code: 0, stdout: "\n", stderr: "" }],
     ]);
     const r = await runWith(host, "read", { offset: 0, limit: 12 });
@@ -85,6 +86,7 @@ describe("V-015 action=read produces a body, or fails loudly", () => {
     const log: string[] = [];
     const host = scriptedHost([
       [/wc -l < \/tmp\/tui-stream\.txt/, { code: 0, stdout: "190\n", stderr: "" }],
+      [/pane_pipe/, { code: 0, stdout: "1\n", stderr: "" }],
       [/sed -n/, { code: 0, stdout: "line one\nline two\n", stderr: "" }],
     ], log);
     await runWith(host, "read", { offset: 9, limit: 12 });
@@ -96,6 +98,7 @@ describe("V-015 action=read produces a body, or fails loudly", () => {
   test("CONTROL: a real slice is returned with its header and body", async () => {
     const host = scriptedHost([
       [/wc -l < \/tmp\/tui-stream\.txt/, { code: 0, stdout: "190\n", stderr: "" }],
+      [/pane_pipe/, { code: 0, stdout: "1\n", stderr: "" }],
       [/sed -n .*1,4p/, { code: 0, stdout: "alpha\nbeta\n", stderr: "" }],
     ]);
     const r = await runWith(host, "read", { offset: 0, limit: 4 });
@@ -149,5 +152,40 @@ describe("V-016 action=deploy has a branch and verifies the sha", () => {
     const r = await runWith(host, "deploy", { distPath: "dist/index.js" });
     expect(r.isError).toBe(true);
     expect(r.text).toContain("CT DEPLOY FAILED");
+  });
+});
+
+// ═══ V-054 — A STREAM THAT IS NOT BEING WRITTEN IS NOT AN OBSERVATION ═══════════════════════════════
+// Found while running the container round: the rig's /tmp/tui-stream.txt had an mtime FIVE HOURS old and
+// `pane_pipe` read 0 (the pipe is attached to the pane active at SETUP, and the active window changes),
+// while the TUI was answering prompts. The stale file still contained the PREVIOUS round's token
+// ("recap: ALIVE"), so `read` could hand back an old run's evidence as a fresh observation.
+// Live ground truth is `tmux capture-pane`.
+describe("V-054 a dead stream is named, and the live pane is read", () => {
+  test("ADVERSARIAL: an unattached pipe reads the LIVE PANE and says why", async () => {
+    const host = scriptedHost([
+      [/wc -l < \/tmp\/tui-stream\.txt/, { code: 0, stdout: "190\n", stderr: "" }],
+      [/pane_pipe/, { code: 0, stdout: "0\n", stderr: "" }],          // no pipe attached
+      [/capture-pane/, { code: 0, stdout: "THE LIVE TUI CONTENT\n", stderr: "" }],
+      [/sed -n/, { code: 0, stdout: "STALE STREAM CONTENT\n", stderr: "" }],
+    ]);
+    const r = await runWith(host, "read", { offset: 0, limit: 10 });
+    expect(r.text).toContain("LIVE PANE");
+    expect(r.text).toContain("pane_pipe=0");
+    expect(r.text).toContain("must not be read as evidence");
+    expect(r.text).toContain("THE LIVE TUI CONTENT");
+    expect(r.text).not.toContain("STALE STREAM CONTENT");   // the old run's output never passes as a reading
+  });
+
+  test("CONTROL: an attached pipe still reads the stream (the fix did not replace the normal path)", async () => {
+    const host = scriptedHost([
+      [/wc -l < \/tmp\/tui-stream\.txt/, { code: 0, stdout: "190\n", stderr: "" }],
+      [/pane_pipe/, { code: 0, stdout: "1\n", stderr: "" }],          // attached
+      [/sed -n/, { code: 0, stdout: "stream line one\n", stderr: "" }],
+    ]);
+    const r = await runWith(host, "read", { offset: 0, limit: 10 });
+    expect(r.text).toContain("CT READ lines 1-10/190:");
+    expect(r.text).toContain("stream line one");
+    expect(r.text).not.toContain("LIVE PANE");
   });
 });

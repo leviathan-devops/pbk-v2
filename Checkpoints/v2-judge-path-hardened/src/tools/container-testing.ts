@@ -565,6 +565,26 @@ export function buildContainerTestingTool(pi: ExtensionAPI, deps: CtDeps): OmpTo
             details: { offset: off, limit: lim, totalLines: size, empty: true },
           };
         }
+        // ── V-054: A STREAM THAT IS NOT BEING WRITTEN IS NOT AN OBSERVATION ──────────────────────
+        // The stream is fed by `tmux pipe-pane -t <session> -o 'cat >> /tmp/tui-stream.txt'` at setup.
+        // MEASURED in the rig: `pane_pipe` read 0 (no pipe attached) and the file's mtime was FIVE HOURS
+        // old while the TUI was answering prompts — because the pipe belongs to the pane that was active
+        // at setup, and the active window changes. `read` returned that stale file as a reading: content
+        // that LOOKS like evidence and is not. Live ground truth is `tmux capture-pane`.
+        const pipe = dockerExec(`tmux display-message -p -t ${session} '#{pane_pipe}' 2>/dev/null`).stdout.trim();
+        if (pipe !== "1") {
+          const live = dockerExec(`tmux capture-pane -p -t ${session} 2>/dev/null`).stdout;
+          const lines = live.split("\n").filter((l) => l.trim().length > 0);
+          const take = lines.slice(Math.max(0, lines.length - lim));
+          return {
+            text:
+              `CT READ (LIVE PANE — the stream pipe is NOT attached: pane_pipe=${pipe || "0"}; ` +
+              `${STREAM_FILE} is stale and must not be read as evidence):\n` +
+              `CT READ lines ${off + 1}-${off + lim}/${size} (stream) -> superseded by capture-pane:\n` +
+              take.join("\n").slice(0, 4000),
+            details: { offset: off, limit: lim, totalLines: size, livePane: true, pipe: pipe || "0" },
+          };
+        }
         return { text: `CT READ lines ${off + 1}-${off + lim}/${size}:\n${slice.slice(0, 4000)}`, details: { offset: off, limit: lim, totalLines: size } };
       }
 
