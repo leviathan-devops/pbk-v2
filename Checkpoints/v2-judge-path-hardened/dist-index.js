@@ -1,0 +1,3772 @@
+// @bun
+var __esm = (fn, res, err) => () => {
+  if (fn)
+    try {
+      res = fn(fn = 0);
+    } catch (e) {
+      err = [e];
+    }
+  if (err)
+    throw err[0];
+  return res;
+};
+var __require = import.meta.require;
+
+// src/evidence/merkle-chain.ts
+import { createHash as createHash2 } from "crypto";
+
+class MerkleChain {
+  entries = [];
+  filePath;
+  constructor(filePath) {
+    this.filePath = filePath || null;
+  }
+  async append(sessionId, eventType, payload) {
+    const previousHash = this.entries.length > 0 ? this.entries[this.entries.length - 1].currentHash : "";
+    const timestamp = Date.now();
+    const payloadStr = JSON.stringify(payload);
+    const id = this.entries.length + 1;
+    const hashInput = sessionId + eventType + payloadStr + previousHash + timestamp;
+    const currentHash = createHash2("sha256").update(hashInput).digest("hex");
+    const entry = { id, sessionId, eventType, payload: payloadStr, previousHash, currentHash, timestamp };
+    this.entries.push(entry);
+    return entry;
+  }
+  async getLastHash() {
+    return this.entries.length > 0 ? this.entries[this.entries.length - 1].currentHash : "";
+  }
+  async verifyChain() {
+    if (this.entries.length === 0) {
+      return { valid: this.entries.length === 0, brokenAt: null, evidence: "Chain contains zero entries; an empty Merkle chain is trivially intact with no links or hashes to verify" };
+    }
+    for (let i = 0;i < this.entries.length; i++) {
+      const entry = this.entries[i];
+      const expectedPrevHash = i === 0 ? "" : this.entries[i - 1].currentHash;
+      if (entry.previousHash !== expectedPrevHash) {
+        const linkDesc = i === 0 ? `Genesis entry id=${entry.id} must have empty previousHash but found '${entry.previousHash}' (chain root corrupt)` : `Entry id=${entry.id} previousHash does not match predecessor currentHash (chain linkage broken between entries ${i} and ${i - 1})`;
+        return { valid: false, brokenAt: entry.id, evidence: linkDesc };
+      }
+      const hashInput = entry.sessionId + entry.eventType + entry.payload + entry.previousHash + entry.timestamp;
+      const computedHash = createHash2("sha256").update(hashInput).digest("hex");
+      if (computedHash !== entry.currentHash) {
+        return { valid: false, brokenAt: entry.id, evidence: `Recomputed SHA-256 hash for entry id=${entry.id} does not match stored currentHash (payload, eventType, sessionId, previousHash, or timestamp tampered after append)` };
+      }
+    }
+    return { valid: this.entries.length > 0, brokenAt: null, evidence: `Full chain walk completed over ${this.entries.length} entries; every previousHash linkage and recomputed SHA-256 currentHash matched stored values` };
+  }
+  async queryBySession(sessionId) {
+    return this.entries.filter((e) => e.sessionId === sessionId);
+  }
+  async queryByEventType(eventType) {
+    return this.entries.filter((e) => e.eventType === eventType);
+  }
+  close() {}
+}
+var init_merkle_chain = () => {};
+
+// src/evidence/evidence-store.ts
+import { createHash as createHash3 } from "crypto";
+
+class EvidenceStore {
+  entries = [];
+  merkle;
+  constructor() {
+    this.merkle = new MerkleChain;
+  }
+  async queryBySession(sessionId) {
+    return this.entries.filter((e) => e.sessionId === sessionId);
+  }
+  async queryByMode(mode) {
+    return this.entries.filter((e) => e.mode === mode);
+  }
+  async queryByLayer(layer) {
+    return this.entries.filter((e) => e.layer === layer);
+  }
+  async queryByTimestamp(start, end) {
+    return this.entries.filter((e) => e.timestamp >= start && e.timestamp <= end);
+  }
+  async queryBySessionAndMode(sessionId, mode) {
+    return this.entries.filter((e) => e.sessionId === sessionId && e.mode === mode);
+  }
+  async append(sessionId, mode, layer, eventType, payload) {
+    const timestamp = Date.now();
+    const payloadStr = JSON.stringify(payload);
+    const prevHash = this.entries.length > 0 ? this.entries[this.entries.length - 1].currentHash : "";
+    const hashInput = sessionId + mode + layer + eventType + payloadStr + prevHash + timestamp;
+    const currentHash = createHash3("sha256").update(hashInput).digest("hex");
+    const id = this.entries.length + 1;
+    const entry = { id, sessionId, mode, layer, eventType, payload: payloadStr, previousHash: prevHash, currentHash, timestamp };
+    this.entries.push(entry);
+    await this.merkle.append(sessionId, eventType, { mode, layer, payload });
+    return entry;
+  }
+  async compact(maxAgeMs) {
+    const cutoff = Date.now() - maxAgeMs;
+    const oldEntries = this.entries.filter((e) => e.timestamp < cutoff);
+    if (oldEntries.length === 0)
+      return { deleted: 0, newRootHash: this.entries.length > 0 ? this.entries[this.entries.length - 1].currentHash : "" };
+    if (oldEntries.length > 0) {
+      let aggregateHash = "";
+      for (const entry of oldEntries) {
+        const hashInput = entry.sessionId + entry.mode + entry.layer + entry.eventType + entry.payload + entry.previousHash + entry.currentHash + entry.timestamp;
+        aggregateHash = createHash3("sha256").update(hashInput).digest("hex");
+      }
+      this.entries = this.entries.filter((e) => e.timestamp >= cutoff);
+      const compactTime = Date.now();
+      const markerPayload = JSON.stringify({ deletedCount: oldEntries.length, aggregateHash });
+      const prevHash = this.entries.length > 0 ? this.entries[this.entries.length - 1].currentHash : "";
+      const markerId = this.entries.length + 1;
+      const hashInput = "system" + "COMPACTION" + "R0" + "compaction" + markerPayload + prevHash + compactTime;
+      const markerHash = createHash3("sha256").update(hashInput).digest("hex");
+      const marker = {
+        id: markerId,
+        sessionId: "system",
+        mode: "COMPACTION",
+        layer: "R0",
+        eventType: "compaction",
+        payload: markerPayload,
+        previousHash: prevHash,
+        currentHash: markerHash,
+        timestamp: compactTime
+      };
+      this.entries.push(marker);
+      return { deleted: oldEntries.length, newRootHash: markerHash };
+    }
+    return { deleted: 0, newRootHash: "" };
+  }
+  async verifyChain() {
+    if (this.entries.length === 0) {
+      const emptyChainIntact = this.entries.length === 0;
+      return { valid: emptyChainIntact, brokenAt: null };
+    }
+    let chainIntact = true;
+    for (let i = 0;i < this.entries.length; i++) {
+      const e = this.entries[i];
+      if (i > 0 && e.previousHash !== this.entries[i - 1].currentHash) {
+        chainIntact = false;
+        return { valid: chainIntact, brokenAt: e.id };
+      }
+      const hashInput = e.sessionId + e.mode + e.layer + e.eventType + e.payload + e.previousHash + e.timestamp;
+      const computed = createHash3("sha256").update(hashInput).digest("hex");
+      if (computed !== e.currentHash) {
+        chainIntact = false;
+        return { valid: chainIntact, brokenAt: e.id };
+      }
+    }
+    return { valid: chainIntact, brokenAt: null };
+  }
+  meetsThreshold(threshold) {
+    const total = this.entries.length;
+    if (total === 0)
+      return true;
+    let validCount = 0;
+    for (let i = 0;i < total; i++) {
+      const entry = this.entries[i];
+      if (!entry || typeof entry !== "object")
+        break;
+      if (i > 0 && entry.previousHash !== this.entries[i - 1].currentHash)
+        break;
+      const hashInput = entry.sessionId + entry.mode + entry.layer + entry.eventType + entry.payload + entry.previousHash + entry.timestamp;
+      const computedHash = createHash3("sha256").update(hashInput).digest("hex");
+      if (computedHash !== entry.currentHash)
+        break;
+      validCount++;
+    }
+    const passRate = validCount / total;
+    return passRate >= threshold;
+  }
+  getPassRate() {
+    const total = this.entries.length;
+    if (total === 0)
+      return 1;
+    let validCount = 0;
+    for (let i = 0;i < total; i++) {
+      const entry = this.entries[i];
+      if (!entry || typeof entry !== "object")
+        break;
+      if (i > 0 && entry.previousHash !== this.entries[i - 1].currentHash)
+        break;
+      const hashInput = entry.sessionId + entry.mode + entry.layer + entry.eventType + entry.payload + entry.previousHash + entry.timestamp;
+      const computedHash = createHash3("sha256").update(hashInput).digest("hex");
+      if (computedHash !== entry.currentHash)
+        break;
+      validCount++;
+    }
+    return validCount / total;
+  }
+  getAll() {
+    return [...this.entries];
+  }
+  add(eventType, payload) {
+    const timestamp = Date.now();
+    const payloadStr = typeof payload === "string" ? payload : JSON.stringify(payload);
+    const prevHash = this.entries.length > 0 ? this.entries[this.entries.length - 1].currentHash : "";
+    const hashInput = "poseidon" + "POSEIDON" + "GOD_LOOP" + eventType + payloadStr + prevHash + timestamp;
+    const currentHash = createHash3("sha256").update(hashInput).digest("hex");
+    const id = this.entries.length + 1;
+    const entry = { id, sessionId: "poseidon", mode: "POSEIDON", layer: "GOD_LOOP", eventType, payload: payloadStr, previousHash: prevHash, currentHash, timestamp };
+    this.entries.push(entry);
+  }
+  flush() {}
+  close() {
+    if (this.merkle)
+      this.merkle.close();
+  }
+}
+var init_evidence_store = __esm(() => {
+  init_merkle_chain();
+});
+
+// src/host-omp.ts
+import * as fs from "fs";
+import * as cp from "child_process";
+import { createHash } from "crypto";
+function createOmpEngineHost(pi, ctx) {
+  const run = (cmd, opts) => pi.exec(cmd, { timeoutMs: opts?.timeoutMs, cwd: opts?.cwd }).then((r) => ({
+    code: r.exitCode ?? 0,
+    stdout: r.stdout ?? "",
+    stderr: r.stderr ?? ""
+  }));
+  const readSync = (p) => {
+    try {
+      return fs.readFileSync(p, "utf8");
+    } catch {
+      return null;
+    }
+  };
+  const writeSync = (p, c) => {
+    fs.mkdirSync(p.substring(0, p.lastIndexOf("/")), { recursive: true });
+    fs.writeFileSync(p, c);
+  };
+  const existsFn = (p) => {
+    try {
+      fs.statSync(p);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  return {
+    cwd: () => ctx().cwd,
+    readFileSync: readSync,
+    writeFileSync: writeSync,
+    existsSync: existsFn,
+    statSync: (p) => {
+      try {
+        const s = fs.statSync(p);
+        return { size: s.size, mtimeMs: s.mtimeMs, isFile: s.isFile(), isDir: s.isDirectory(), isSymlink: s.isSymbolicLink() };
+      } catch {
+        return null;
+      }
+    },
+    listDirSync: (dir) => {
+      try {
+        return fs.readdirSync(dir);
+      } catch {
+        return [];
+      }
+    },
+    mkdirSync: (dir) => fs.mkdirSync(dir, { recursive: true }),
+    appendFileSync: (p, c) => fs.appendFileSync(p, c),
+    copyFileSync: (from, to) => fs.copyFileSync(from, to),
+    renameSync: (from, to) => fs.renameSync(from, to),
+    rmSync: (p) => fs.rmSync(p, { recursive: true, force: true }),
+    execSync: (cmd, opts) => {
+      try {
+        const r = cp.execSync(cmd, { encoding: "utf8", cwd: opts?.cwd, timeout: opts?.timeoutMs });
+        return { code: 0, stdout: String(r), stderr: "" };
+      } catch (e) {
+        return { code: e?.status ?? 1, stdout: String(e?.stdout ?? ""), stderr: String(e?.stderr ?? e?.message ?? "") };
+      }
+    },
+    sha256Sync: (p) => {
+      try {
+        return createHash("sha256").update(fs.readFileSync(p)).digest("hex");
+      } catch {
+        return null;
+      }
+    },
+    getEnv: (k) => process.env[k],
+    homedir: () => process.env.HOME ?? "/root",
+    tmpdir: () => "/tmp",
+    pid: () => process.pid,
+    getCurrentSessionModel: () => ctx().models.current() ?? null,
+    readFile: async (p) => readSync(p),
+    writeFile: async (p, c) => writeSync(p, c),
+    exists: async (p) => existsFn(p),
+    exec: run,
+    glob: async (patterns) => {
+      const g = pi.pi;
+      return g.glob ? g.glob(patterns) : [];
+    },
+    now: () => new Date().toISOString(),
+    log: (level, category, message, data) => {
+      const logger = pi.logger ?? {};
+      const msg = `[${category}] ${message}`;
+      try {
+        const fn = logger[level.toLowerCase()] ?? logger.log;
+        if (typeof fn === "function") {
+          fn(msg, data);
+          return;
+        }
+      } catch {}
+      try {
+        console.error(msg, data ?? "");
+      } catch {}
+    },
+    appendEvidence: async (entry) => pi.appendEntry(`com.ct.${entry.type}`, entry.payload),
+    readSessionEntry: async (customType) => ctx().sessionManager.getBranch().filter((e) => e.type === "custom" && e.customType === customType).map((e) => e.data),
+    realpath: async (p) => {
+      try {
+        return fs.realpathSync(p);
+      } catch {
+        return null;
+      }
+    },
+    onSignal: (_signal, _handler) => {}
+  };
+}
+
+// src/middleware/chain.ts
+class StructuredBlockError extends Error {
+  gate;
+  constructor(gate, message) {
+    super(message);
+    this.gate = gate;
+    this.name = "StructuredBlockError";
+  }
+}
+
+class MiddlewareChain {
+  before = [];
+  after = [];
+  useBefore(g) {
+    this.before.push(g);
+  }
+  useAfter(g) {
+    this.after.push(g);
+  }
+  async runBefore(ctx) {
+    let current = ctx;
+    for (const gate of this.before) {
+      const verdict = await gate(current);
+      if (!verdict)
+        continue;
+      if (verdict.action === "block") {
+        throw new StructuredBlockError(verdict.gate, verdict.reason);
+      }
+      if (verdict.action === "rewrite") {
+        current = { ...current, input: verdict.input };
+      }
+    }
+    return { action: "allow", input: { ...current.input } };
+  }
+  async runAfter(ctx) {
+    let current = ctx;
+    for (const gate of this.after) {
+      current = await gate(current);
+    }
+    return current;
+  }
+  get beforeCount() {
+    return this.before.length;
+  }
+  get afterCount() {
+    return this.after.length;
+  }
+}
+function attachChain(pi, chain, scopeOf, isReady) {
+  pi.on("tool_call", (event, ctx) => {
+    if (isReady && !isReady())
+      return;
+    if (event.isAgentOrigin === false)
+      return;
+    const scope = scopeOf(ctx.sessionManager.getSessionFile(), ctx);
+    return chain.runBefore({
+      toolName: event.toolName,
+      input: event.input,
+      scope,
+      isAgentOrigin: event.isAgentOrigin ?? true,
+      toolCallId: event.toolCallId,
+      sessionId: ctx.sessionManager.getSessionFile()
+    }).then((verdict) => {
+      if (verdict.action === "rewrite")
+        return { input: verdict.input };
+      return;
+    }).catch((err) => {
+      if (err instanceof StructuredBlockError) {
+        throw new Error(err.message);
+      }
+      throw err;
+    });
+  });
+  pi.on("tool_result", (event, ctx) => {
+    const scope = scopeOf(ctx.sessionManager.getSessionFile(), ctx);
+    return chain.runAfter({
+      toolName: event.toolName,
+      toolCallId: event.toolCallId,
+      input: event.input,
+      content: event.content,
+      details: event.details,
+      isError: event.isError,
+      scope
+    }).then((patched) => {
+      if (patched.content !== event.content || patched.details !== event.details) {
+        return { content: patched.content, details: patched.details };
+      }
+      return;
+    });
+  });
+}
+
+// src/middleware/doc-density-gate.ts
+var DOC_FLOORS = {
+  spec: 3000,
+  completion: 2000,
+  arch: 1000,
+  report: 500,
+  audit: 100,
+  log: 100,
+  readme: 300,
+  generic: 200
+};
+var EXEMPT_PATHS = [
+  "GENERATED_ARTIFACTS",
+  "god-loop/canon",
+  ".ct/checkpoints",
+  "wave-audit",
+  "container-test-results"
+];
+function classifyDocType(path) {
+  const name = path.split("/").pop() ?? path;
+  const lower = name.toLowerCase();
+  if (/spec/.test(lower) && /(l2|spec|detailed)/.test(lower))
+    return "spec";
+  if (/completion/.test(lower))
+    return "completion";
+  if (/architect/.test(lower) || /macro/.test(lower))
+    return "arch";
+  if (/report/.test(lower) || /build_report/.test(lower))
+    return "report";
+  if (/audit/.test(lower) || /zero_trust/.test(lower))
+    return "audit";
+  if (/log/.test(lower) || /changelog/.test(lower) || /debug/.test(lower))
+    return "log";
+  if (/readme|index|overview/.test(lower))
+    return "readme";
+  return "generic";
+}
+function countLines(content) {
+  if (content.length === 0)
+    return 0;
+  return content.split(`
+`).length;
+}
+function isDraft(content) {
+  const head = content.slice(0, 200);
+  return head.startsWith("DRAFT") || head.includes("<!-- DRAFT -->");
+}
+function docDensityGate(host) {
+  return async (ctx) => {
+    if (!["write", "edit", "create"].includes(ctx.toolName))
+      return;
+    const path = String(ctx.input.path ?? ctx.input.filePath ?? "");
+    if (!path.endsWith(".md"))
+      return;
+    if (EXEMPT_PATHS.some((e) => path.includes(e)))
+      return;
+    const type = classifyDocType(path);
+    const floor = DOC_FLOORS[type];
+    const content = String(ctx.input.content ?? "");
+    const existing = host.readFileSync(path);
+    if (isDraft(content) || existing !== null && isDraft(existing))
+      return;
+    const finalContent = content.length > 0 ? content : existing ?? "";
+    const lines = countLines(finalContent);
+    if (lines < floor) {
+      return {
+        action: "block",
+        gate: "doc-density",
+        reason: `[CT DOC-DENSITY] ${type.toUpperCase()} requires >= ${floor} lines; got ${lines}`
+      };
+    }
+    return;
+  };
+}
+
+// src/middleware/dispatch-gate.ts
+var DPL1_SECTIONS = [
+  "mission",
+  "acceptance",
+  "reading-order",
+  "per-task",
+  "constraints",
+  "verification",
+  "return-format",
+  "grounding"
+];
+var DPL1_MIN_LINES = 150;
+function validateDpl1(taskText) {
+  const missing = [];
+  const lower = taskText.toLowerCase();
+  for (const s of DPL1_SECTIONS) {
+    if (!lower.includes(`# ${s}`) && !lower.includes(`## ${s}`) && !lower.includes(`#${s}`))
+      missing.push(s);
+  }
+  const hasAbsPath = /\n\/(home|tmp|abs)\//.test(taskText) || /\/home\/leviathan\//.test(taskText);
+  if (!hasAbsPath)
+    missing.push("absolute-paths");
+  if (taskText.split(`
+`).length < DPL1_MIN_LINES)
+    missing.push(`density-floor(${DPL1_MIN_LINES} lines)`);
+  return missing;
+}
+var DPL1_SCAFFOLD = `# Mission
+<state the precise task, once>
+
+# Acceptance
+<checkable done-conditions>
+
+# Reading order
+<absolute paths, one per line>
+
+# Per-task
+<WHAT / HOW / WHY / EXPECTED for each task>
+
+# Constraints
+<do-not-touch list>
+
+# Verification
+<concrete commands with pass conditions>
+
+# Return format
+<report contract>
+
+# Grounding
+<every claim carries file:line; unknown values are PROPOSED, never invented>
+`;
+function wrapWithDpl1(thin) {
+  return `${DPL1_SCAFFOLD}
+# Model draft (expand into the sections above)
+${thin}`;
+}
+var OWNED_AGENT_ALLOWLIST = new Set(["ct-build", "ct-scout", "scout", "task", "sonic", "reviewer", "security-reviewer", "librarian", "designer"]);
+function dispatchGate(host) {
+  return async (ctx) => {
+    if (ctx.toolName !== "task")
+      return;
+    if (!ctx.isAgentOrigin)
+      return;
+    const items = Array.isArray(ctx.input.tasks) ? ctx.input.tasks : typeof ctx.input.task === "string" ? [{ task: ctx.input.task, agent: ctx.input.agent }] : [];
+    if (items.length === 0)
+      return;
+    const badAgents = items.map((it) => it.agent).filter((a) => typeof a === "string" && a.length > 0 && !OWNED_AGENT_ALLOWLIST.has(a));
+    if (badAgents.length > 0) {
+      return {
+        action: "block",
+        gate: "dispatch",
+        reason: `[CT DISPATCH GATE] agent type not allowed: ${[...new Set(badAgents)].join(", ")}`
+      };
+    }
+    const thin = items.flatMap((it) => validateDpl1(String(it.task ?? "")));
+    if (thin.length > 0) {
+      const missing = [...new Set(thin)].join(", ");
+      if (ctx.isAgentOrigin) {
+        const rewritten = items.map((it) => ({ ...it, task: wrapWithDpl1(String(it.task ?? "")) }));
+        const input = Array.isArray(ctx.input.tasks) ? { ...ctx.input, tasks: rewritten } : { ...ctx.input, task: wrapWithDpl1(String(ctx.input.task ?? "")) };
+        return { action: "rewrite", gate: "dispatch", input };
+      }
+      return {
+        action: "block",
+        gate: "dispatch",
+        reason: `[CT DISPATCH GATE] missing: ${missing}`
+      };
+    }
+    return;
+  };
+}
+
+// src/utils.ts
+import { appendFileSync as appendFileSync2, existsSync, statSync as statSync2, renameSync as renameSync2 } from "fs";
+import * as os from "os";
+import * as path from "path";
+
+// src/types.ts
+var SEVERITY = {
+  CRITICAL: "CRITICAL",
+  HIGH: "HIGH",
+  MEDIUM: "MEDIUM",
+  LOW: "LOW",
+  INFO: "INFO"
+};
+
+// src/utils.ts
+var _evidenceStore = null;
+async function getOrCreateEvidenceStore() {
+  if (!_evidenceStore) {
+    try {
+      const mod = await Promise.resolve().then(() => (init_evidence_store(), {}));
+      _evidenceStore = new EvidenceStore;
+    } catch (e) {
+      console.error("[Utils] EvidenceStore import failed, using fallback:", e);
+      _evidenceStore = fallbackStore;
+      return _evidenceStore;
+    }
+  }
+  return _evidenceStore;
+}
+var fallbackStore = {
+  append: () => {
+    const ok = true;
+    const stored = false;
+    return Promise.resolve({ ok, stored });
+  },
+  queryBySession: () => Promise.resolve([]),
+  queryByMode: () => Promise.resolve([]),
+  queryByLayer: () => Promise.resolve([]),
+  queryByTimestamp: () => Promise.resolve([]),
+  queryBySessionAndMode: () => Promise.resolve([]),
+  compact: async () => {
+    const deleted = 0;
+    const newRootHash = "";
+    return { deleted, newRootHash };
+  },
+  verifyChain: async () => {
+    const valid = false;
+    const brokenAt = null;
+    return { valid, brokenAt };
+  },
+  close: () => {}
+};
+async function ctLog(level, component, message) {
+  try {
+    const isDebug = level === "DEBUG";
+    if (isDebug && process.env.CT_DEBUG !== "1") {
+      return;
+    }
+    try {
+      if (existsSync(CT_LOG_PATH) && statSync2(CT_LOG_PATH).size > 10485760) {
+        renameSync2(CT_LOG_PATH, CT_LOG_PATH + ".1");
+      }
+    } catch (rotErr) {}
+    appendFileSync2(CT_LOG_PATH, `[${new Date().toISOString()}] [${level}] [${component}] ${message}
+`, "utf-8");
+  } catch (fileErr) {}
+  try {
+    const store = await getOrCreateEvidenceStore();
+    await store.append("global", "SYSTEM", "R0", `log:${level}`, { source: component, message, timestamp: Date.now() });
+  } catch (e) {
+    console.error("[Utils] error:", e);
+    return Promise.resolve();
+  }
+}
+var CT_LOG_PATH = process.env.CT_LOG_PATH || path.join(os.tmpdir(), "ct-engine.log");
+var CT_FALLBACK_LOG = path.join(os.tmpdir(), "ct-error.log");
+var SEVERITY_ORDER = {
+  [SEVERITY.CRITICAL]: 4,
+  [SEVERITY.HIGH]: 3,
+  [SEVERITY.MEDIUM]: 2,
+  [SEVERITY.LOW]: 1,
+  [SEVERITY.INFO]: 0
+};
+
+// src/firewalls/semantic-smoke-firewall.ts
+import { appendFileSync as appendFileSync3, statSync as statSync3, renameSync as renameSync3 } from "fs";
+import { join as join3 } from "path";
+import { tmpdir as tmpdir3 } from "os";
+
+// src/hooks/agent-state.ts
+import { Database } from "bun:sqlite";
+import { join as join2 } from "path";
+import { tmpdir as tmpdir2 } from "os";
+var g = globalThis;
+if (!g.__ctAgentBySession)
+  g.__ctAgentBySession = new Map;
+var agentBySession = g.__ctAgentBySession;
+function getCurrentAgent(sessionId) {
+  const sid = sessionId || "default";
+  return agentBySession.get(sid)?.agent;
+}
+var containerSkillSessions = new Set;
+var poseidonIntentBySession = new Map;
+var EVIDENCE_TABLE_DDL = `CREATE TABLE IF NOT EXISTS ct_evidence (
+  session_id          TEXT PRIMARY KEY,
+  dist_sha            TEXT,
+  state               TEXT NOT NULL DEFAULT 'NO_EVIDENCE',
+  smoke_only          INTEGER NOT NULL DEFAULT 0,
+  last_unit_at        INTEGER,
+  last_container_at   INTEGER,
+  last_smoke_at       INTEGER,
+  last_dist_change_at INTEGER,
+  updated_at          INTEGER NOT NULL
+)`;
+var EVIDENCE_EVENTS_TABLE_DDL = `CREATE TABLE IF NOT EXISTS ct_evidence_events (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id  TEXT NOT NULL,
+  kind        TEXT NOT NULL,
+  at          INTEGER NOT NULL,
+  dist_sha    TEXT NOT NULL,
+  subject     TEXT,
+  artifact    TEXT,
+  detail      TEXT
+)`;
+var EVIDENCE_EVENTS_INDEX_DDL = "CREATE INDEX IF NOT EXISTS idx_evidence_events_session ON ct_evidence_events(session_id, at DESC)";
+var gEdb = globalThis;
+if (!gEdb.__ctEvidenceDbHandle) {
+  const freshHandle = { db: null, ready: false, fault: null };
+  gEdb.__ctEvidenceDbHandle = freshHandle;
+}
+var evidenceDbHandle = gEdb.__ctEvidenceDbHandle;
+var EVIDENCE_DB_PATH = process.env.CT_EVIDENCE_DB_PATH || join2(tmpdir2(), "ct-evidence.sqlite");
+function getEvidenceDb() {
+  if (evidenceDbHandle.db === null) {
+    const db = new Database(EVIDENCE_DB_PATH);
+    try {
+      db.exec("PRAGMA journal_mode = WAL;");
+      db.exec("PRAGMA busy_timeout = 5000;");
+    } catch (pErr) {}
+    db.exec(EVIDENCE_TABLE_DDL);
+    db.exec(EVIDENCE_EVENTS_TABLE_DDL);
+    db.exec(EVIDENCE_EVENTS_INDEX_DDL);
+    evidenceDbHandle.db = db;
+  }
+  evidenceDbHandle.ready = true;
+  return evidenceDbHandle.db;
+}
+function initAgentStateDb() {
+  try {
+    getEvidenceDb();
+    return evidenceDbHandle.ready;
+  } catch (err) {
+    console.error("[AgentState] evidence db init failed (fail-closed):", err);
+    return false;
+  }
+}
+function loadEvidenceRow(sessionId) {
+  if (evidenceDbHandle.fault === "load")
+    throw new Error("evidence db fault (load stub)");
+  const db = getEvidenceDb();
+  const row = db.query("SELECT session_id, dist_sha, state, smoke_only, last_unit_at, last_container_at, last_smoke_at, last_dist_change_at, updated_at FROM ct_evidence WHERE session_id = ?").get(sessionId);
+  return row ?? null;
+}
+function loadEvidenceEventRows(sessionId, limit) {
+  if (evidenceDbHandle.fault === "load")
+    throw new Error("evidence db fault (load stub)");
+  const db = getEvidenceDb();
+  return db.query("SELECT id, session_id, kind, at, dist_sha, subject, artifact, detail FROM ct_evidence_events WHERE session_id = ? ORDER BY at DESC, id DESC LIMIT ?").all(sessionId, limit);
+}
+function saveEvidenceRow(row) {
+  if (evidenceDbHandle.fault === "save")
+    throw new Error("evidence db fault (save stub)");
+  const db = getEvidenceDb();
+  db.run(`INSERT INTO ct_evidence (session_id, dist_sha, state, smoke_only, last_unit_at, last_container_at, last_smoke_at, last_dist_change_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(session_id) DO UPDATE SET
+       dist_sha = excluded.dist_sha,
+       state = excluded.state,
+       smoke_only = excluded.smoke_only,
+       last_unit_at = excluded.last_unit_at,
+       last_container_at = excluded.last_container_at,
+       last_smoke_at = excluded.last_smoke_at,
+       last_dist_change_at = excluded.last_dist_change_at,
+       updated_at = excluded.updated_at`, [row.session_id, row.dist_sha, row.state, row.smoke_only, row.last_unit_at, row.last_container_at, row.last_smoke_at, row.last_dist_change_at, row.updated_at]);
+}
+function insertEvidenceEventRow(row) {
+  if (evidenceDbHandle.fault === "save")
+    throw new Error("evidence db fault (save stub)");
+  const db = getEvidenceDb();
+  db.run("INSERT INTO ct_evidence_events (session_id, kind, at, dist_sha, subject, artifact, detail) VALUES (?, ?, ?, ?, ?, ?, ?)", [row.session_id, row.kind, row.at, row.dist_sha, row.subject, row.artifact, row.detail]);
+}
+function pruneEvidenceRecords(cutoff) {
+  try {
+    const db = getEvidenceDb();
+    db.run("DELETE FROM ct_evidence_events WHERE session_id IN (SELECT session_id FROM ct_evidence WHERE updated_at < ?)", cutoff);
+    db.run("DELETE FROM ct_evidence WHERE updated_at < ?", cutoff);
+  } catch (err) {}
+}
+
+// src/firewalls/evidence-tracker.ts
+import { existsSync as existsSync2 } from "fs";
+var EVIDENCE_RING_CAP = 50;
+var EVIDENCE_RECORD_WINDOW_MS = 86400000;
+var EVIDENCE_ARTIFACT_REL_PATHS = [
+  ".ct/container-test-results.json",
+  ".ct/suite-report.json"
+];
+function freshRecord(sessionId, distSha = null) {
+  return {
+    sessionId,
+    distSha,
+    state: "NO_EVIDENCE",
+    smokeOnly: false,
+    lastUnitAt: null,
+    lastContainerAt: null,
+    lastSmokeAt: null,
+    lastDistChangeAt: null,
+    events: [],
+    updatedAt: Date.now()
+  };
+}
+function validDistSha(v) {
+  return typeof v === "string" && v.length > 0;
+}
+function canUnit(record, event) {
+  if (event.kind !== "unit")
+    return false;
+  if (event.exitOk !== true)
+    return false;
+  if (!validDistSha(event.distSha))
+    return false;
+  if (record.distSha === null)
+    return true;
+  return event.distSha === record.distSha;
+}
+function canContainer(record, event) {
+  if (event.kind !== "container")
+    return false;
+  if (event.hasEvidenceArtifact !== true)
+    return false;
+  if (!validDistSha(event.distSha))
+    return false;
+  if (record.distSha === null)
+    return true;
+  return event.distSha === record.distSha;
+}
+function canSmoke(record, event) {
+  if (event.kind !== "smoke")
+    return false;
+  return validDistSha(event.distSha);
+}
+function canDistChange(record, event) {
+  if (event.kind !== "dist_change")
+    return false;
+  if (!validDistSha(event.distSha))
+    return false;
+  if (record.distSha === null)
+    return true;
+  return event.distSha !== record.distSha;
+}
+function pushRing(events, event) {
+  const next = [...events, event];
+  return next.length > EVIDENCE_RING_CAP ? next.slice(next.length - EVIDENCE_RING_CAP) : next;
+}
+var evidenceArchive = new Map;
+function archiveKey(sessionId, distSha) {
+  return `${sessionId}::${distSha}`;
+}
+function archiveRecord(record) {
+  if (record.distSha === null)
+    return;
+  const key = archiveKey(record.sessionId, record.distSha);
+  const existing = evidenceArchive.get(key) ?? [];
+  existing.push({ ...record, events: [...record.events] });
+  evidenceArchive.set(key, existing);
+}
+function applyUnit(record, event) {
+  return {
+    ...record,
+    state: "UNIT_EVIDENCED",
+    distSha: record.distSha ?? event.distSha,
+    lastUnitAt: event.at,
+    updatedAt: event.at,
+    events: pushRing(record.events, event)
+  };
+}
+function applyContainer(record, event) {
+  return {
+    ...record,
+    state: "CONTAINER_EVIDENCED",
+    distSha: record.distSha ?? event.distSha,
+    lastContainerAt: event.at,
+    updatedAt: event.at,
+    events: pushRing(record.events, event)
+  };
+}
+function applySmoke(record, event) {
+  return {
+    ...record,
+    distSha: record.distSha ?? event.distSha,
+    smokeOnly: true,
+    lastSmokeAt: event.at,
+    updatedAt: event.at,
+    events: pushRing(record.events, event)
+  };
+}
+function applyDistChange(record, event) {
+  archiveRecord(record);
+  return {
+    ...record,
+    distSha: event.distSha,
+    state: "NO_EVIDENCE",
+    smokeOnly: false,
+    lastUnitAt: null,
+    lastContainerAt: null,
+    lastSmokeAt: null,
+    lastDistChangeAt: event.at,
+    updatedAt: event.at,
+    events: pushRing([], event)
+  };
+}
+function ingestEvent(record, event) {
+  if (event.kind === "dist_change" && canDistChange(record, event))
+    return applyDistChange(record, event);
+  if (event.kind === "unit" && canUnit(record, event))
+    return applyUnit(record, event);
+  if (event.kind === "container" && canContainer(record, event))
+    return applyContainer(record, event);
+  if (event.kind === "smoke" && canSmoke(record, event))
+    return applySmoke(record, event);
+  if (event.kind === "claim" || event.kind === "evidence_clear") {
+    return { ...record, updatedAt: event.at, events: pushRing(record.events, event) };
+  }
+  return record;
+}
+function loadEvidenceRecord(sessionId) {
+  try {
+    const row = loadEvidenceRow(sessionId);
+    if (!row)
+      return freshRecord(sessionId);
+    const eventRows = loadEvidenceEventRows(sessionId, EVIDENCE_RING_CAP);
+    const events = eventRows.reverse().map((r) => ({
+      kind: r.kind,
+      at: r.at,
+      distSha: r.dist_sha ?? "",
+      subject: r.subject ?? undefined,
+      artifact: r.artifact ?? undefined,
+      detail: r.detail ?? undefined
+    }));
+    return {
+      sessionId,
+      distSha: row.dist_sha,
+      state: row.state,
+      smokeOnly: row.smoke_only === 1,
+      lastUnitAt: row.last_unit_at,
+      lastContainerAt: row.last_container_at,
+      lastSmokeAt: row.last_smoke_at,
+      lastDistChangeAt: row.last_dist_change_at,
+      events,
+      updatedAt: row.updated_at
+    };
+  } catch (err) {
+    ctLog("ERROR", "evidence-tracker", `evidence record load failed for ${sessionId}: ${err instanceof Error ? err.message : String(err)}`);
+    return freshRecord(sessionId);
+  }
+}
+function saveEvidenceRecord(record, persistEvent = true) {
+  try {
+    saveEvidenceRow({
+      session_id: record.sessionId,
+      dist_sha: record.distSha,
+      state: record.state,
+      smoke_only: record.smokeOnly ? 1 : 0,
+      last_unit_at: record.lastUnitAt,
+      last_container_at: record.lastContainerAt,
+      last_smoke_at: record.lastSmokeAt,
+      last_dist_change_at: record.lastDistChangeAt,
+      updated_at: record.updatedAt
+    });
+    if (persistEvent) {
+      const last = record.events.length > 0 ? record.events[record.events.length - 1] : null;
+      if (last) {
+        insertEvidenceEventRow({
+          session_id: record.sessionId,
+          kind: last.kind,
+          at: last.at,
+          dist_sha: last.distSha,
+          subject: last.subject ?? null,
+          artifact: last.artifact ?? null,
+          detail: last.detail ?? null
+        });
+      }
+    }
+    pruneEvidenceRecords(Date.now() - EVIDENCE_RECORD_WINDOW_MS);
+  } catch (err) {
+    ctLog("ERROR", "evidence-tracker", `evidence record save failed for ${record.sessionId}: ${err instanceof Error ? err.message : String(err)}`);
+    throw err;
+  }
+}
+var verdictCache = new Map;
+function invalidateVerdictCache(sessionId) {
+  const prefix = `${sessionId}::`;
+  for (const key of verdictCache.keys()) {
+    if (key.startsWith(prefix))
+      verdictCache.delete(key);
+  }
+}
+function getEvidenceState(sessionId) {
+  initAgentStateDb();
+  return loadEvidenceRecord(sessionId);
+}
+function ingestEvidenceEvent(sessionId, event) {
+  initAgentStateDb();
+  const record = loadEvidenceRecord(sessionId);
+  const next = ingestEvent(record, event);
+  if (next !== record) {
+    saveEvidenceRecord(next);
+    invalidateVerdictCache(sessionId);
+  } else {
+    saveEvidenceRecord(next, false);
+    ctLog("WARN", "evidence-tracker", `event rejected (no transition) for ${sessionId}: kind=${event.kind} distSha=${event.distSha || "(empty)"}`);
+  }
+  return next;
+}
+function locateEvidenceArtifact() {
+  try {
+    const cwd = typeof process !== "undefined" && process.cwd ? process.cwd() : "";
+    for (const rel of EVIDENCE_ARTIFACT_REL_PATHS) {
+      const abs = cwd ? rel.startsWith("/") ? rel : cwd + "/" + rel : rel;
+      if (existsSync2(abs))
+        return abs;
+    }
+  } catch (err) {
+    ctLog("WARN", "evidence-tracker", `artifact locate failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  return null;
+}
+
+// src/firewalls/semantic-smoke-firewall.ts
+var gfw = globalThis;
+if (!gfw.__sstfContextWindows)
+  gfw.__sstfContextWindows = new Map;
+var contextWindows = gfw.__sstfContextWindows;
+var CLAIM_WINDOW_MS = 300000;
+function extractIntent(toolName, args, sessionState) {
+  const tool = (toolName || "").toLowerCase();
+  if (tool === "grep" || tool === "rg" || tool === "ag" || tool === "ack")
+    return "inspection";
+  if (tool === "read" || tool === "glob" || tool === "ls")
+    return "inspection";
+  if (tool === "ct-status" || tool === "ct-help" || tool === "ct-gate" || tool === "code-audit" || tool === "preflight" || tool === "context-synthesis" || tool === "omni-vision")
+    return "inspection";
+  if (tool === "edit" || tool === "write" || tool === "write_file" || tool === "patch" || tool === "create" || tool === "delete_file")
+    return "operation";
+  if (tool === "bash" || tool === "terminal" || tool === "exec" || tool === "execute")
+    return "operation";
+  if (tool === "deep-planning" || tool === "poseidon-tool" || tool === "problem-solving" || tool === "ship-package")
+    return "operation";
+  if (tool.indexOf("ct-") === 0)
+    return "operation";
+  if (tool === "task" || tool === "webfetch" || tool === "question" || tool === "skill" || tool === "checkpoint" || tool === "todowrite" || tool === "memlink_parent" || tool === "memread_session" || tool === "build-status" || tool === "omni_vision" || tool === "subagent_omni_vision" || tool === "execute_omni_canvas" || tool.indexOf("manta-") === 0 || tool.indexOf("shark-") === 0 || tool.indexOf("ps-mode-") === 0 || tool.indexOf("tv-browser_") === 0 || tool.indexOf("vc-fetch_") === 0 || tool.indexOf("zai-vision_") === 0 || tool.indexOf("reasoning-bus_") === 0 || tool.indexOf("omni_canvas_") === 0 || tool.indexOf("hive_") === 0)
+    return "operation";
+  if (tool === "container-testing")
+    return "operation";
+  if (sessionState?.verificationClaimed && !sessionState.containerTestRan && Date.now() - sessionState.claimTimestamp < CLAIM_WINDOW_MS) {
+    return "claim_verification";
+  }
+  return "unknown";
+}
+function extractPath(a) {
+  const args = extractToolArgs(a);
+  if (typeof args.filePath === "string")
+    return args.filePath;
+  if (typeof args.path === "string")
+    return args.path;
+  if (typeof args.file === "string")
+    return args.file;
+  if (typeof args.fileName === "string")
+    return args.fileName;
+  const raw = JSON.stringify(a);
+  const m = raw.match(/"filePath"\s*:\s*"([^"]+)"/) || raw.match(/"path"\s*:\s*"([^"]+)"/);
+  if (m)
+    return m[1];
+  return "";
+}
+function extractToolArgs(raw) {
+  const a = raw || {};
+  return a.input || a.args || a.params || a.arguments || a;
+}
+function extractCommand(args) {
+  const a = extractToolArgs(args);
+  if (typeof a.command === "string" && a.command)
+    return a.command;
+  if (typeof a.cmd === "string" && a.cmd)
+    return a.cmd;
+  if (typeof a.text === "string" && a.text)
+    return a.text;
+  return "";
+}
+function classifyVerb(toolName, args, commandStr) {
+  const tool = (toolName || "").toLowerCase();
+  if (tool === "grep" || tool === "rg" || tool === "ag" || tool === "ack") {
+    const path = extractPath(args);
+    const target = classifyTarget(path);
+    return target === "bundle" ? "inspect_bundle" : "grep_source";
+  }
+  if (tool === "read") {
+    const path = extractPath(args);
+    const target = classifyTarget(path);
+    return target === "bundle" ? "inspect_bundle" : "read_source";
+  }
+  if (tool === "bash" || tool === "terminal" || tool === "execute" || tool === "exec") {
+    const cmd = extractCommand(args);
+    if (!cmd && commandStr)
+      return classifyVerb(toolName, { command: commandStr });
+    if (/\b(?:opencode|omp|jarvis)[\s-]+(?:run\b|-p\b|--print\b)/i.test(cmd))
+      return "headless";
+    if (/\b(bun|npm|yarn|pnpm)\s+(build|run\s+build)\b/i.test(cmd) || /\btsc\b/i.test(cmd))
+      return "build";
+    if (/\b(sha256sum|md5sum|shasum)\b/i.test(cmd))
+      return "hash";
+    if (/\b(node|bun)[\\\s]+(?:-[ex]\b|--eval\b|--print\b|--evaluate\b)/i.test(cmd) || /\bnpx\s+-e\b/i.test(cmd))
+      return "inline_exec";
+    const subcommands = cmd.split(/\s*(?:;|&&|\|\||\||\n)\s*/);
+    for (const sub of subcommands) {
+      if (/(sudo\s+)?(strings|sed|awk|head|tail|less|more|grep|rg|ack|ag)\b/i.test(sub) && /d[A-Z]st|bundle|\.min\.js/i.test(sub))
+        return "inspect_bundle";
+      if (/(sudo\s+)?cat\b(?!\s*(?:>>|>|\|))/i.test(sub) && /d[A-Z]st|bundle|\.min\.js/i.test(sub))
+        return "inspect_bundle";
+      if (/(sudo\s+)?(grep|rg|ack|ag)\b/i.test(sub))
+        return "grep_source";
+      if (/(sudo\s+)?(ls|stat|file|test\s+-[fd])\b/i.test(sub) && /d[A-Z]st|bundle|\.min\.js/i.test(sub))
+        return "existence";
+    }
+    return "other";
+  }
+  return "other";
+}
+function classifyTarget(p) {
+  if (!p)
+    return "unknown";
+  const l = p.toLowerCase();
+  if (/(^|[\/\\])d[A-Z]st([\/\\]|$)/i.test(l) || /\.min\.js$/i.test(l))
+    return "bundle";
+  if (/(^|[\/\\])src([\/\\]|$)/i.test(l) || /\.(ts|tsx)$/i.test(l) && !/node_modules/i.test(l))
+    return "source";
+  return "other";
+}
+function decide(intent, target, verb, sessionState, isAgentOrigin = true) {
+  if (verb === "headless") {
+    return { action: "BLOCK", category: "HEADLESS", reason: "Headless exec forbidden. Use TUI.", intent, target };
+  }
+  if (verb === "inline_exec") {
+    return { action: "BLOCK", category: "INLINE_EXEC", reason: "Inline exec is smoke test. Use container.", intent, target };
+  }
+  if (verb === "hash" && intent === "smoke_verification") {
+    return { action: "BLOCK", category: "HASH_AS_PROOF", reason: "Hash is not runtime proof. Container test required.", intent, target };
+  }
+  if (verb === "inspect_bundle") {
+    const claimPending = !!sessionState && sessionState.verificationClaimed && !sessionState.containerTestRan && Date.now() - sessionState.claimTimestamp < CLAIM_WINDOW_MS;
+    if (false) {}
+    return { action: "ALLOW", category: "LEGITIMATE", reason: "Bundle-path work (no verification claim pending)", intent, target };
+  }
+  if (verb === "existence" && intent === "smoke_verification") {
+    return { action: "BLOCK", category: "VERIFY_EXIST", reason: "Existence check is not runtime proof. Use container.", intent, target };
+  }
+  if (intent === "inspection" || intent === "operation" || intent === "unknown") {
+    return { action: "ALLOW", category: "LEGITIMATE", reason: "Information gathering / modification workflow", intent, target };
+  }
+  if (intent === "claim_verification") {
+    return { action: "ALLOW", category: "CLAIM_GATED_PHASE_B", reason: "Claim pending \u2014 Phase B demand injected on tool output (work not blocked)", intent, target };
+  }
+  return { action: "ALLOW", category: "LEGITIMATE", reason: "Default allow", intent, target };
+}
+
+class VerificationStateTracker {
+  s = new Map;
+  getLocal(sid) {
+    if (!this.s.has(sid)) {
+      this.s.set(sid, {
+        codeChanged: false,
+        verificationClaimed: false,
+        claimTimestamp: 0,
+        lastClaimText: "",
+        containerTestRan: false,
+        containerTestTimestamp: 0,
+        lastBlockedCategory: "",
+        blockCount: 0
+      });
+    }
+    return this.s.get(sid);
+  }
+  getState(sid) {
+    const local = this.getLocal(sid);
+    const rec = getEvidenceState(sid);
+    const claimEvent = rec.events.filter((e) => e.kind === "claim").at(-1);
+    return {
+      ...local,
+      codeChanged: rec.lastDistChangeAt !== null,
+      verificationClaimed: claimEvent !== undefined && (rec.lastContainerAt ?? 0) < claimEvent.at,
+      claimTimestamp: claimEvent?.at ?? 0,
+      containerTestRan: rec.lastContainerAt !== null,
+      containerTestTimestamp: rec.lastContainerAt ?? 0,
+      lastClaimText: local.lastClaimText,
+      lastBlockedCategory: local.lastBlockedCategory,
+      blockCount: local.blockCount
+    };
+  }
+  setCodeChanged(sid, v) {
+    this.getLocal(sid).codeChanged = v;
+  }
+  setVerificationClaimed(sid, v, claimText) {
+    const local = this.getLocal(sid);
+    const distSha = getEvidenceState(sid).distSha ?? "";
+    const at = Date.now();
+    if (v) {
+      local.verificationClaimed = true;
+      local.claimTimestamp = at;
+      local.lastClaimText = claimText || "";
+      ingestEvidenceEvent(sid, { kind: "claim", at, distSha, detail: claimText || "" });
+    } else {
+      local.verificationClaimed = false;
+      ingestEvidenceEvent(sid, { kind: "evidence_clear", at, distSha });
+    }
+  }
+  clearVerificationPending(sid) {
+    this.setVerificationClaimed(sid, false);
+  }
+  setContainerTestRan(sid, v) {
+    if (!v)
+      return;
+    const rec = getEvidenceState(sid);
+    const distSha = rec.distSha ?? "";
+    const artifact = locateEvidenceArtifact();
+    if (artifact !== null && distSha !== "") {
+      ingestEvidenceEvent(sid, { kind: "container", at: Date.now(), distSha, hasEvidenceArtifact: true, artifact });
+    } else {
+      ingestEvidenceEvent(sid, { kind: "evidence_clear", at: Date.now(), distSha });
+    }
+  }
+  hasClaimWithoutContainerTest(sid, windowMs) {
+    const rec = getEvidenceState(sid);
+    const claimEvent = rec.events.filter((e) => e.kind === "claim").at(-1);
+    if (!claimEvent)
+      return false;
+    if (Date.now() - claimEvent.at > windowMs)
+      return false;
+    return (rec.lastContainerAt ?? 0) < claimEvent.at;
+  }
+  incrementBlockCount(sid) {
+    this.getLocal(sid).blockCount++;
+  }
+  getBlockCount(sid) {
+    return this.getLocal(sid).blockCount;
+  }
+  getLastBlockedCategory(sid) {
+    return this.getLocal(sid).lastBlockedCategory;
+  }
+  setLastBlockedCategory(sid, c) {
+    this.getLocal(sid).lastBlockedCategory = c;
+  }
+  isPendingExpired(sid, ms) {
+    const st = this.getState(sid);
+    if (!st.verificationClaimed)
+      return true;
+    return Date.now() - st.claimTimestamp > ms;
+  }
+  getWindow(sid) {
+    return this.getState(sid);
+  }
+  clearSession(sid) {
+    this.s.delete(sid);
+  }
+}
+var sstfStateTracker = new VerificationStateTracker;
+var sttgfStateTracker = sstfStateTracker;
+var TELEMETRY = { totalChecks: 0, totalBlocks: 0, totalAllows: 0 };
+async function checkSmokeTestFirewall(params) {
+  try {
+    const tool = (params.toolName || "").toLowerCase();
+    const sid = params.sessionId || "default";
+    const sessionState = sstfStateTracker.getState(sid);
+    const intent = extractIntent(tool, params.args, sessionState);
+    const verb = classifyVerb(tool, params.args, params.commandStr);
+    const path = extractPath(params.args);
+    const target = classifyTarget(path);
+    try {
+      if (process.env.CT_DEBUG === "1") {
+        const SSTF_DIAG_ROTATE_BYTES = 10485760;
+        const diagPath = join3(tmpdir3(), "ct-hook-debug.log");
+        try {
+          if (statSync3(diagPath).size >= SSTF_DIAG_ROTATE_BYTES) {
+            renameSync3(diagPath, `${diagPath}.1`);
+          }
+        } catch {}
+        appendFileSync3(diagPath, `[${Date.now()}] SSTF_DIAG: intent=${intent} verb=${verb || "n/a"} target=${target} claim=${sessionState.verificationClaimed} ctRan=${sessionState.containerTestRan}
+`);
+      }
+    } catch {}
+    TELEMETRY.totalChecks++;
+    const result = decide(intent, target, verb, sessionState, params.isAgentOrigin ?? true);
+    if (result.action === "BLOCK")
+      TELEMETRY.totalBlocks++;
+    else
+      TELEMETRY.totalAllows++;
+    return result;
+  } catch (e) {
+    ctLog("ERROR", "sstf", `Error: ${e instanceof Error ? e.message : String(e)}`);
+    return { action: "ALLOW", category: "ERROR", reason: "Firewall error, allowing information gathering", intent: "unknown" };
+  }
+}
+
+// src/middleware/sttgf-gate.ts
+var CLAIM_WORD_RE = /(success|done|shipped|audited|verified|everything works|all green|passed)/i;
+var CLAIM_NEGATION_RE = /(not|cannot|can't|won't|refuse|refused|decline|never|no |without|unverified|unsubstantiated|fail|failing)/i;
+var CLAIM_WORK_ENTITY_RE = /(wave|build|task|fix|feature|module|everything|all|audit|ship|shipped|deploy|release|regression|battery|gate|scenario|listing|result|output|report|finding|directory|work|change|diff|code|file)/i;
+var CLAIM_STRONG_PHRASE_RE = /(everything works|all green|all done|all passed|the wave succeeded|wave shipped|build succeeded|task completed|audit passed|verified everything|everything verified|all verified|fully verified|verified correct|confirmed correct|is verified|verified the (listing|result|output|report|finding|directory|work|change|diff))/i;
+var CLAIM_AUDIT_REMEDY_RE = /(wave audit|the audit|audit file|VERDICT|coverage|per-hunk|spec-coverage|wave-audit|run the wave|read every changed hunk)/i;
+function isCompletionClaim(text) {
+  if (!CLAIM_WORD_RE.test(text))
+    return false;
+  const sentences = text.split(/(?<=[.!?])\s+|\n+/);
+  for (let si = 0;si < sentences.length; si++) {
+    const s = sentences[si];
+    if (!CLAIM_WORD_RE.test(s) || CLAIM_NEGATION_RE.test(s))
+      continue;
+    if (CLAIM_STRONG_PHRASE_RE.test(s))
+      return true;
+    if (CLAIM_WORK_ENTITY_RE.test(s) && !CLAIM_AUDIT_REMEDY_RE.test(s))
+      return true;
+  }
+  return false;
+}
+var CT_TOOL = "container-testing";
+var CT_ACTIONS = { setup: true, run: true, suite: true, deploy: true };
+function sttgfGate() {
+  return async (ctx) => {
+    try {
+      const { appendFileSync } = __require("fs");
+      appendFileSync("/tmp/ct-chain.log", `[${new Date().toISOString()}] gate saw tool=${ctx.toolName} cmd=${String((ctx.input || {}).command || "").slice(0, 60)}
+`);
+    } catch {}
+    const toolName = ctx.toolName;
+    const sid = ctx.sessionId || "default";
+    const input = ctx.input;
+    const args = ctx.input;
+    const commandStr = String(input.command ?? "");
+    const sessionAgent = String(input.agentName ?? "");
+    const currentMode = String(input.mode ?? "");
+    let sttgfBlockCategory = "";
+    try {
+      const sttgfResult = await checkSmokeTestFirewall({
+        toolName,
+        sessionId: sid,
+        agentName: sessionAgent,
+        mode: currentMode,
+        args,
+        commandStr
+      });
+      if (sttgfResult.action === "BLOCK") {
+        sttgfBlockCategory = sttgfResult.category;
+        ctLog("WARN", "sttgf", `BLOCKED: ${sttgfResult.category} \u2014 ${sttgfResult.reason}`);
+        try {
+          const { appendFileSync } = __require("fs");
+          appendFileSync("/tmp/ct-block-cmd.log", `[${new Date().toISOString()}] ${sttgfResult.category} cmd=${JSON.stringify(commandStr)}
+`);
+        } catch {}
+        try {
+          sttgfStateTracker.incrementBlockCount(sid);
+          sttgfStateTracker.setLastBlockedCategory(sid, sttgfBlockCategory);
+          if (sttgfStateTracker.getBlockCount(sid) >= 3) {
+            return {
+              action: "block",
+              gate: "sttgf",
+              reason: `[STTGF ESCALATE] ${sttgfBlockCategory} \u2014 repeated smoke attempts. Running container test is MANDATORY.`
+            };
+          }
+        } catch (escErr) {
+          ctLog("WARN", "sttgf", `Escalation check failed: ${escErr instanceof Error ? escErr.message : String(escErr)}`);
+        }
+        return {
+          action: "block",
+          gate: "sttgf",
+          reason: `[STTGF BLOCK] ${sttgfResult.category}
+
+` + `${sttgfResult.reason}
+
+` + `Smoke tests are FORBIDDEN. Use container-testing.`
+        };
+      }
+    } catch (sttgfErr) {
+      ctLog("WARN", "sttgf", `Firewall check failed: ${sttgfErr instanceof Error ? sttgfErr.message : String(sttgfErr)}`);
+    }
+    if (toolName === CT_TOOL) {
+      try {
+        const ctAction = typeof args.action === "string" ? args.action : "";
+        if (CT_ACTIONS[ctAction]) {
+          sttgfStateTracker.setContainerTestRan(sid, true);
+          sttgfStateTracker.setVerificationClaimed(sid, false);
+          ctLog("INFO", "sttgf", "Container test detected (" + ctAction + ") \u2014 claim gate cleared");
+        }
+      } catch (ctTrackErr) {
+        ctLog("WARN", "sttgf", `Container test tracking failed: ${ctTrackErr instanceof Error ? ctTrackErr.message : String(ctTrackErr)}`);
+      }
+    }
+  };
+}
+function armClaimFromCompletedMessage(sessionId, completedText) {
+  const sid = sessionId || "default";
+  if (!completedText || !completedText.trim())
+    return;
+  try {
+    if (isCompletionClaim(completedText)) {
+      sttgfStateTracker.setVerificationClaimed(sid, true, completedText.substring(0, 200));
+      ctLog("INFO", "sttgf", "claim armed from the completed message: " + completedText.substring(0, 80));
+    }
+  } catch {}
+}
+
+// src/middleware/theatrical-gate.ts
+var THEATRICAL_SUBSTITUTE_FRAMES = [
+  /\b(just|simply|only|why\s+not|we\s+can|i'?ll|i\s+will|let'?s|we\s+should|you\s+can)\s+(mock|stub|fake|pretend)\b/i,
+  /\b(mock|stub|fake)\s+(the|this|that)\s+(result|response|output|tool|function|call|test|evidence|verification|audit)\b/i,
+  /\bpretend\s+(the|this|it)\s+(test|audit|verification|check)\s+(passed|works|succeeded|is\s+done)\b/i,
+  /\b(say|claim|report|write)\s+(that\s+)?(the|this|it)\s+(test|audit|verification)\s+(passed|works|succeeded)\b/i,
+  /\b(skip\s+the\s+(container|docker|container\s+test)|just\s+run\s+it\s+on\s+the\s+host|let'?s\s+run\s+it\s+on\s+the\s+host|we\s+can\s+run\s+it\s+on\s+the\s+host)\b/i,
+  /\b(skip|without|no\s+need\s+for)\s+(the\s+)?(container|docker|container\s+test)\b.{0,120}\b(on\s+the\s+host|host)\b/i
+];
+var THEATRICAL_USE_FRAMES = [
+  /\b(jest|vi|vitest|sinon)\s*\.\s*mock\(/i,
+  /\b(npm|yarn|pnpm|bun)\s+(i|install|add)\s+\S*mock\S*/i,
+  /\bmock\s+(data|server|endpoint|api|service|module|handler|fixture|response|request|object|file|config)\b/i,
+  /\bstub\s+(api|endpoint|service|function|branch|method|request|handler|out|file)\b/i,
+  /\bunmock\b|\bmock\s+implementation|\bmock\s+function/i
+];
+var PROPOSAL_TOOLS = {
+  write: ["content"],
+  write_file: ["content"],
+  edit: ["newString"],
+  send: ["prompt", "text"],
+  task: ["prompt", "description"],
+  bash: ["command", "cmd", "text"]
+};
+function proposalText(toolName, input) {
+  const keys = PROPOSAL_TOOLS[toolName];
+  if (!keys)
+    return "";
+  return keys.map((k) => {
+    const v = input[k];
+    return typeof v === "string" ? v : "";
+  }).join(" ");
+}
+function isTheatricalSuggestion(text) {
+  if (!text)
+    return false;
+  if (THEATRICAL_USE_FRAMES.some((r) => r.test(text)))
+    return false;
+  const hit = THEATRICAL_SUBSTITUTE_FRAMES.some((r) => r.test(text));
+  if (!hit)
+    return false;
+  if (/\b(skip\s+the\s+(container|docker)|just\s+run\s+it\s+on\s+the\s+host|let'?s\s+run\s+it\s+on\s+the\s+host|we\s+can\s+run\s+it\s+on\s+the\s+host)\b/i.test(text)) {
+    return true;
+  }
+  const DEPENDENCY_RE = /\b(cannot|can'?t|not\s+run|not\s+possible|must\s+(run|use|have)|needs?\s+(the\s+)?(container|docker)|requires?\s+(the\s+)?(container|docker)|already\s+has\s+omp|already\s+installed)\b/i;
+  return !DEPENDENCY_RE.test(text);
+}
+class TheatricalStateTracker {
+  states = new Map;
+  windowMs = 300000;
+  get(sid) {
+    let s = this.states.get(sid);
+    if (!s) {
+      s = { suggested: false, ts: 0, count: 0 };
+      this.states.set(sid, s);
+    }
+    return s;
+  }
+  mark(sid) {
+    const s = this.get(sid);
+    s.suggested = true;
+    s.ts = Date.now();
+    s.count++;
+    return s.count;
+  }
+  pending(sid) {
+    if (sid) {
+      const s = this.states.get(sid);
+      return !!s && s.suggested && Date.now() - s.ts < this.windowMs;
+    }
+    for (const s of this.states.values()) {
+      if (s.suggested && Date.now() - s.ts < this.windowMs)
+        return true;
+    }
+    return false;
+  }
+  clear(sid) {
+    if (sid)
+      this.states.delete(sid);
+    else
+      this.states.clear();
+  }
+  count(sid) {
+    return this.states.get(sid)?.count ?? 0;
+  }
+}
+var POSEIDON_UNLOCKED_TOOLS = [
+  "bash",
+  "write",
+  "write_file",
+  "edit",
+  "patch",
+  "create",
+  "delete_file"
+];
+function skipTheatrical(toolName, poseidonActive) {
+  if (POSEIDON_UNLOCKED_TOOLS.includes(toolName) && poseidonActive)
+    return true;
+  if (toolName && toolName.startsWith("ct-"))
+    return true;
+  return false;
+}
+var ESCALATION_THRESHOLD = 3;
+var PHASE_B_DEMAND = "[CT THEATRICAL GATE] substitute-frame detected \u2014 build the real thing and verify in the sandbox. " + "Call the ct-sandbox-test AGENT TOOL (sandbox test) with a 2000-char, 6-section plan (OBJECTIVE / TOOLS UNDER TEST / TEST SCENARIOS 3+ / " + "ADVERSARIAL 1+ / EVIDENCE / PASS CRITERIA), then cite ContainerTestResult.json.";
+function theatricalGate(state, opts = { poseidonActive: () => false }) {
+  return async (ctx) => {
+    if (!ctx.isAgentOrigin)
+      return;
+    if (skipTheatrical(ctx.toolName, opts.poseidonActive()))
+      return;
+    const text = proposalText(ctx.toolName, ctx.input);
+    if (!text)
+      return;
+    if (!isTheatricalSuggestion(text))
+      return;
+    const count = state.mark(ctx.sessionId);
+    if (count >= ESCALATION_THRESHOLD) {
+      return {
+        action: "block",
+        gate: "theatrical",
+        reason: "[CT THEATRICAL ESCALATE] repeated substitute-frame suggestions. Running a REAL container test is MANDATORY."
+      };
+    }
+    return;
+  };
+}
+function theatricalGateAfter(state, containerTestRan) {
+  return async (ctx) => {
+    if (ctx.toolName === "ct-sandbox-test" || ctx.toolName === "container-test") {
+      state.clear();
+      return ctx;
+    }
+    if (containerTestRan()) {
+      state.clear();
+      return ctx;
+    }
+    if (!state.pending())
+      return ctx;
+    const already = ctx.content.filter((b) => typeof b === "object" && b !== null && ("text" in b)).map((b) => b.text).join(`
+`);
+    if (already.includes("[CT THEATRICAL GATE]"))
+      return ctx;
+    return { ...ctx, content: [...ctx.content, { type: "text", text: `
+` + PHASE_B_DEMAND }] };
+  };
+}
+
+// src/firewalls/ct-anti-derailment.ts
+var CT_MUTATION_PATTERN_BASE = [
+  {
+    id: "CTX-02",
+    kind: "ct-exec-mutation",
+    familyName: "THE AUTH FUMBLING (the auth.json writes)",
+    target: /auth\.json/i,
+    mutationVerb: /(?:>>|\>\s|cat\s+>|\btee\b|sed\s+-i|open\s*\([^)]*['"]w['"]|json\.dump|writeFileSync|writeFile\s*\(|writeTextFile|createWriteStream|base64\s+-d\s*>|\b(?:cp|mv)\b[^;]*auth\.json|\brm\s+(?:-rf\s+)?auth\.json|\b(?:curl|wget)\b[^;]*-o\s+[^;]*auth\.json)/i,
+    severity: "BLOCK",
+    remedy: "THE SANCTIONED PATH: the auth material comes from the build + the deploy's secret handling \u2014 NEVER a runtime auth write. The reads are always allowed."
+  },
+  {
+    id: "CTX-03",
+    kind: "ct-exec-mutation",
+    familyName: "THE SESSION-DB FUMBLING (the opencode.db session-model writes)",
+    target: /opencode\.db/i,
+    mutationVerb: /sqlite3[^;]*(?:UPDATE|INSERT|DELETE|DROP)|execute\s*\([^)]*(?:UPDATE|INSERT|DELETE|DROP)|executemany\s*\([^)]*(?:UPDATE|INSERT|DELETE|DROP)/i,
+    severity: "BLOCK",
+    remedy: "THE SANCTIONED PATH: the session state is the runtime's own \u2014 NEVER a manual db write. The SELECT reads are always allowed."
+  },
+  {
+    id: "CTX-04",
+    kind: "ct-exec-mutation",
+    familyName: "THE INSTALL FUMBLING (the opencode install/version mutations)",
+    target: /(?:npm|bun|npx)[^;]*(?:i|install|update|add|up)[^;]*\bopencode\b/i,
+    mutationVerb: /npm\s+(?:i|install)\s+-g|bun\s+(?:add|i|install)\s+-g|npx\s+opencode\s+(?:@[^ ]+)?(?:install|update)/i,
+    severity: "BLOCK",
+    remedy: "THE SANCTIONED PATH: the deploy action (container-testing deploy) + the pre-built master image \u2014 NEVER an install/update against the runtime."
+  },
+  {
+    id: "CTX-05",
+    kind: "ct-exec-mutation",
+    familyName: "THE STAGING CHEAT (the config staged through /tmp + copied into the deploy/config areas)",
+    target: /(?:deploy\/|dragon-opencode\.json)/i,
+    mutationVerb: /(?:^|[;&|]\s*)\b(?:cp|mv|scp|sudo)\b[^;]*(?:opencode\.json|dragon-opencode\.json|config\.json|\.config\/opencode|deploy\/)/i,
+    severity: "BLOCK",
+    remedy: "THE SANCTIONED PATH: the PRE-BUILT MASTER IMAGE + the sanctioned deploy action \u2014 a config change is a CODEBASE change (edit the source config in the repo, rebuild, redeploy). NEVER stage a hand-edited config through /tmp + the deploy script: the staging IS the fumble, whatever the final copy command looks like."
+  },
+  {
+    id: "CTX-06",
+    kind: "ct-exec-mutation",
+    familyName: "THE CONFIG-CONTENT REWRITE (writing/rewriting the opencode.json/config.json content through ANY channel)",
+    target: /(?:opencode\.json|dragon-opencode\.json)/i,
+    mutationVerb: /(?:>>|\>\s|cat\s+>|\btee\b|sed\s+-i|open\s*\([^)]*['"]w['"]|json\.dump|writeFileSync|writeFile\s*\(|writeTextFile|createWriteStream|base64\s+-d\s*>|\bprintf\b[^;]*>)/i,
+    severity: "BLOCK",
+    remedy: "THE SANCTIONED PATH: the config content comes from the BUILD \u2014 the deploy action ships the built config. A runtime write/rewrite of the config content through any channel (python, sed, tee, printf, the heredoc, the base64) is the fumble. THE READS (cat/json.load) are always allowed."
+  },
+  {
+    id: "CTX-07",
+    kind: "ct-exec-mutation",
+    familyName: "THE DEPLOY-SCRIPT STAGING (running the setup script over a hand-modified config copy)",
+    target: /\bsetup-[a-z0-9-]+\.sh\b/i,
+    mutationVerb: /(?:opencode\.json|dragon-opencode\.json|config\.json|apiKey|OPENROUTER_API_KEY|sed|cp\s+.*config)/i,
+    severity: "BLOCK",
+    remedy: "THE SANCTIONED PATH: the setup script exists to deploy the SHIPPED config from the PRE-BUILT MASTER IMAGE \u2014 running it over a hand-modified config copy is the same bypass as the direct write. A config change requires the repo edit + the rebuild + the sanctioned deploy."
+  },
+  {
+    id: "CTX-08",
+    kind: "ct-exec-mutation",
+    familyName: "THE API-KEY FUMBLING (rewriting the config auth \u2014 the apiKey removal / the env-fallback reasoning)",
+    target: /(?:apiKey|OPENROUTER_API_KEY)/i,
+    mutationVerb: /(?:>>|\>\s|cat\s+>|\btee\b|sed\s+-i|open\s*\([^)]*['"]w['"]|json\.dump|writeFileSync|writeFile\s*\(|writeTextFile|createWriteStream|\b(?:cp|mv)\b[^;]*auth\.json)/i,
+    severity: "BLOCK",
+    remedy: `THE SANCTIONED PATH: the auth/key material comes from the build + the deploy's secret handling \u2014 NEVER a runtime config edit, whatever the reasoning (the env-fallback "clean fix" is still a config rewrite). The deploy action + the pre-built master image are the only channels.`
+  }
+];
+var CT_MUTATION_PATTERNS = CT_MUTATION_PATTERN_BASE.slice().sort((a, b) => parseInt(b.id.slice(4), 10) - parseInt(a.id.slice(4), 10));
+var CT_READ_VERBS = /(?:^|[;&|]\s*)\b(?:cat|md5sum|ls|grep|find|wc|head|tail|python3?|node|bun|stat)\b|json\.load|open\s*\([^)]*['"]r['"]|\bSELECT\b|\bsed\s+-n\b|\bawk\b/i;
+function classifyCtExec(command) {
+  if (!command || typeof command !== "string")
+    return { verdict: "ALLOW", reason: "UNRELATED" };
+  const lower = command.toLowerCase();
+  let scan = lower;
+  const b64Tokens = command.match(/[A-Za-z0-9+/]{40,}={0,2}/g) || [];
+  for (const t of b64Tokens) {
+    try {
+      const dec = Buffer.from(t, "base64").toString("utf-8");
+      if (dec && dec.length > 10)
+        scan += `
+` + dec.toLowerCase();
+    } catch (e) {}
+  }
+  const protectedCode = [];
+  let surface = scan.replace(/(?:-c|-e|--eval|--command)\s+(["'])([\s\S]*?)\1/g, (m) => {
+    protectedCode.push(m);
+    return "\x01" + (protectedCode.length - 1) + "\x01";
+  });
+  surface = surface.replace(/<<\s*['"]?[A-Za-z0-9_]+['"]?[\s\S]*?\n\s*[A-Za-z0-9_]+\s*(?:\n|$)/g, " ").replace(/"[^"]{80,}"/g, " ").replace(/'[^']{80,}'/g, " ");
+  const executableSurface = surface.replace(/\u0001(\d+)\u0001/g, (m, i) => protectedCode[Number(i)] ?? m);
+  let anyTarget = false;
+  for (const p of CT_MUTATION_PATTERNS) {
+    const targetHit = p.target.test(executableSurface);
+    if (!targetHit)
+      continue;
+    anyTarget = true;
+    const verbMatch = scan.match(p.mutationVerb);
+    if (verbMatch) {
+      return {
+        verdict: "BLOCK",
+        family: p.id,
+        familyName: p.familyName,
+        matchedVerb: verbMatch[0],
+        evidence: 'the matched verb "' + verbMatch[0] + '" + the protected path pattern "' + p.target.source + '" (ct-anti-derailment.ts:classifyCtExec)'
+      };
+    }
+  }
+  if (!anyTarget)
+    return { verdict: "ALLOW", reason: "UNRELATED" };
+  if (CT_READ_VERBS.test(scan))
+    return { verdict: "ALLOW", reason: "READ" };
+  return {
+    verdict: "BLOCK",
+    family: "CTX-02",
+    familyName: "THE FAIL-CLOSED (the protected path present + the intent unparseable)",
+    matchedVerb: "(unparseable)",
+    evidence: "the protected opencode path present + no read verb + no mutation verb \u2192 INCONCLUSIVE \u2192 BLOCK (ct-anti-derailment.ts:classifyCtExec \u2014 the fail-closed per the ISE law)"
+  };
+}
+function buildCtConfigLockMessage(v) {
+  const fam = CT_MUTATION_PATTERNS.find((p) => p.id === v.family);
+  const warhead = fam && fam.remedy ? fam.remedy : "THE SANCTIONED PATH: the tool's deploy action + the pre-built master image \u2014 NEVER the config/auth/db files. THE READS (cat/md5sum/json.load/SELECT) are always allowed \u2014 the inspection surface is intact.";
+  return "[CT CONFIG LOCK] " + v.family + ": " + v.familyName + ' \u2014 this exec command is BLOCKED mechanically (the operator 2026-08-09: "WHY ARE YOU FUCKING WITH THE CONFIG. FOR WHAT REASON. WHY IS THIS NOT BANNED AND BLOCKED BY THE TOOL"). THE EVIDENCE: ' + v.evidence + ". " + warhead;
+}
+
+// src/middleware/container-gate.ts
+var CONTAINER_VERB_RE = /(docker\s+(exec|run|attach|logs|cp|stop|rm|start|kill|wait|top|inspect|port)|tmux\s+(send-keys|capture-pane|pipe-pane|new-session|new-window|split-window)|pkill\s+-f\s+omp)\b/i;
+var SPAWN_INDIRECTION_RE = /(Bun\.spawnSync|spawnSync|execSync|execFileSync|child_process|fork\()[\s\S]{0,120}(docker|tmux|container)/i;
+var BASE64_OBFUSCATION_RE = /(base64\s*(-d|--decode)\s*)(\s*\|\s*(sh|bash|zsh|eval|source|\.\s))/i;
+var ENTRYPOINT_OVERRIDE_RE = /docker\s+run[\s\S]{0,80}--entrypoint/i;
+var TEST_RUNNER_BYPASS_RE = /(bun\s+test|bunx\s+bun-test|bun\s+test:battery)[\s\S]{0,80}(net-probe|flip-debug|container-flip-gate)/i;
+var HEREDOC_DOCKER_RE = /(<<\s*['"]?(EOF|EOT|heredoc)|tee\s+\/tmp|>\/tmp)[\s\S]{0,300}(docker|tmux)[\s\S]{0,80}(exec|run|rm)/i;
+var DOCKER_ANYWHERE_RE = /["'`](docker|tmux)\s+(exec|run|rm|attach|cp|logs)[\s\S]{0,60}(["'`]|$)/i;
+function isContainerPathCommand(cmd) {
+  if (!cmd)
+    return false;
+  if (CONTAINER_VERB_RE.test(cmd))
+    return true;
+  if (SPAWN_INDIRECTION_RE.test(cmd))
+    return true;
+  if (BASE64_OBFUSCATION_RE.test(cmd))
+    return true;
+  if (ENTRYPOINT_OVERRIDE_RE.test(cmd))
+    return true;
+  if (TEST_RUNNER_BYPASS_RE.test(cmd))
+    return true;
+  if (HEREDOC_DOCKER_RE.test(cmd))
+    return true;
+  if (DOCKER_ANYWHERE_RE.test(cmd))
+    return true;
+  return false;
+}
+var SANDBOX_ENGINE_EXEMPT = /src\/engines\/sandbox\//;
+var EXEC_CONTEXT_RE = /(Bun\.spawnSync|spawnSync|execSync|execFileSync|child_process|fork\(|bash\s+-lc|sh\s+-c|`[\s\S]*docker|docker[\s\S]*`|>\s*\/tmp|<<\s*['"]?(EOF|EOT))/i;
+function isBypassWrite(path, content) {
+  if (SANDBOX_ENGINE_EXEMPT.test(path))
+    return false;
+  if (!/\.(test|spec)\.(ts|js|tsx|jsx)$/.test(path))
+    return false;
+  const hasDocker = /docker\s+(run|exec|rm)\b/i.test(content) || SPAWN_INDIRECTION_RE.test(content);
+  if (!hasDocker)
+    return false;
+  return EXEC_CONTEXT_RE.test(content);
+}
+function containerGate() {
+  return async (ctx) => {
+    if (ctx.toolName !== "bash")
+      return;
+    const cmd = String(ctx.input.command ?? "");
+    try {
+      const ctVerdict = classifyCtExec(cmd);
+      if (ctVerdict.verdict === "BLOCK") {
+        return { action: "block", gate: "container", reason: buildCtConfigLockMessage(ctVerdict) };
+      }
+    } catch (e) {
+      ctLog("WARN", "container-gate", "the anti-derailment lexicon check failed (non-gate): " + (e instanceof Error ? e.message : String(e)));
+    }
+    if (isContainerPathCommand(cmd)) {
+      return {
+        action: "block",
+        gate: "container",
+        reason: "[CT CONTAINER GATE] raw docker/tmux container commands + bypass indirection are blocked \u2014 use the ct-sandbox-test AGENT TOOL (sandbox test), the ONLY sanctioned sandbox path"
+      };
+    }
+    return;
+  };
+}
+function containerWriteGate() {
+  return async (ctx) => {
+    if (ctx.toolName !== "write" && ctx.toolName !== "edit")
+      return;
+    const path = String(ctx.input.path ?? ctx.input.filePath ?? "");
+    const content = String(ctx.input.content ?? ctx.input.newString ?? ctx.input.value ?? "");
+    if (isBypassWrite(path, content)) {
+      return {
+        action: "block",
+        gate: "container",
+        reason: "[CT CONTAINER GATE] writing a test file that drives containers is a bypass \u2014 use the ct-sandbox-test AGENT TOOL (sandbox test) instead"
+      };
+    }
+    return;
+  };
+}
+
+// src/middleware/phantom-gate.ts
+class RecordedRunSet {
+  runs = new Map;
+  record(toolName, ts = Date.now()) {
+    this.runs.set(toolName, Math.max(this.runs.get(toolName) ?? 0, ts));
+  }
+  has(toolName) {
+    return this.runs.has(toolName);
+  }
+  hasAfter(timestamp, toolName) {
+    const ts = this.runs.get(toolName);
+    return ts !== undefined && ts >= timestamp;
+  }
+  clear() {
+    this.runs.clear();
+  }
+  snapshot() {
+    return [...this.runs.keys()];
+  }
+  rehydrate(names) {
+    for (const n of names)
+      this.runs.set(n, Date.now());
+  }
+}
+
+// src/agent-identity.ts
+var VANILLA_AGENTS = new Set(["plan", "build", "general", "explore"]);
+function isOwnedAgent(agentName) {
+  if (!agentName)
+    return false;
+  return false;
+}
+
+// src/shared/firewall-audit.ts
+import * as fs2 from "fs";
+import * as path2 from "path";
+class FirewallAudit {
+  logPath;
+  counters = new Map;
+  constructor(basePath) {
+    const dir = basePath || process.cwd();
+    this.logPath = path2.join(dir, ".ct", "firewall-audit.jsonl");
+  }
+  log(entry) {
+    try {
+      this.counters.set(entry.layer, (this.counters.get(entry.layer) || 0) + 1);
+      const dir = path2.dirname(this.logPath);
+      if (!fs2.existsSync(dir)) {
+        fs2.mkdirSync(dir, { recursive: true });
+      }
+      fs2.appendFileSync(this.logPath, JSON.stringify(entry) + `
+`, "utf-8");
+    } catch (e) {
+      ctLog("ERROR", "FirewallAudit", "Write failed: " + (e instanceof Error ? e.message : String(e)));
+    }
+  }
+  layerEntryCount(layer) {
+    return this.counters.get(layer) || 0;
+  }
+  totalCount() {
+    let total = 0;
+    for (const c of this.counters.values())
+      total += c;
+    return total;
+  }
+  getLogPath() {
+    return this.logPath;
+  }
+}
+
+// src/hooks/guardian-hook.ts
+var audit = new FirewallAudit;
+var OWNED_TOOLS = new Set([
+  "code-audit",
+  "deep-planning",
+  "problem-solving",
+  "context-synthesis",
+  "poseidon-tool",
+  "ct-gate",
+  "ct-status",
+  "ct-vision",
+  "ct-help"
+]);
+function checkF1Isolation(toolName, sessionAgent) {
+  if (!isOwnedAgent(sessionAgent) && OWNED_TOOLS.has(toolName)) {
+    throw new Error('[F1 BLOCKED] Tool "' + toolName + '" is plugin-specific and cannot be called by agent "' + sessionAgent + '".');
+  }
+}
+function guardianGate() {
+  return async (ctx) => {
+    const sessionAgent = getCurrentAgent(ctx.sessionId);
+    if (!sessionAgent)
+      return;
+    try {
+      checkF1Isolation(ctx.toolName, sessionAgent);
+    } catch (e) {
+      if (e instanceof Error && e.message.indexOf("[F1 BLOCKED]") === 0) {
+        return { action: "block", gate: "guardian", reason: e.message };
+      }
+      throw e;
+    }
+    return;
+  };
+}
+
+// src/tools/container-testing.ts
+import * as fs3 from "fs";
+import * as os2 from "os";
+import * as path3 from "path";
+
+// src/tools/ct-tui-registry.ts
+var CT_IMAGE_OMP = "omp-ct:master";
+var CT_IMAGE_MIMO = "mimo-ct:master";
+var TUI_PRESETS = {
+  omp: {
+    id: "omp",
+    aliases: ["pi", "oh-my-pi", "oh-my-pi-omp"],
+    image: CT_IMAGE_OMP,
+    command: "TERM=xterm-256color omp",
+    workdir: "/workspace",
+    binds: [],
+    notes: "In-image on runtime-grade-container-sandbox:master (/root/.bun/bin/omp). pi is the same binary on this host."
+  },
+  pi: {
+    id: "pi",
+    aliases: ["oh-my-pi"],
+    image: CT_IMAGE_OMP,
+    command: "TERM=xterm-256color omp",
+    workdir: "/workspace",
+    binds: [],
+    notes: "Oh-My-Pi runtime is omp on this device \u2014 same image, same binary."
+  },
+  opencode: {
+    id: "opencode",
+    aliases: ["open-code"],
+    image: CT_IMAGE_OMP,
+    command: "TERM=xterm-256color opencode",
+    workdir: "/workspace",
+    binds: [],
+    notes: "In-image at /usr/local/bin/opencode on runtime-grade-container-sandbox:master."
+  },
+  mimo: {
+    id: "mimo",
+    aliases: ["mimocode", "mimo-code"],
+    image: CT_IMAGE_MIMO,
+    command: "mimo",
+    workdir: "/root/MIMOCODE_WORKSPACE",
+    binds: [],
+    notes: "In-image on mimo-ct:master (/root/.mimocode/bin/mimo)."
+  },
+  mimocode: {
+    id: "mimocode",
+    aliases: ["mimo"],
+    image: CT_IMAGE_MIMO,
+    command: "mimo",
+    workdir: "/root/MIMOCODE_WORKSPACE",
+    binds: [],
+    notes: "Alias of mimo \u2014 same image and binary."
+  },
+  qwen: {
+    id: "qwen",
+    aliases: ["qwen-code", "qwencode"],
+    image: CT_IMAGE_OMP,
+    command: "PATH=/opt/qwen-global/bin:$PATH bun /opt/qwen-global/lib/node_modules/@qwen-code/qwen-code/cli-entry.js",
+    workdir: "/workspace",
+    binds: [{ host: "/home/leviathan/.npm-global", container: "/opt/qwen-global" }],
+    notes: "Host Qwen Code CLI bind-mounted from ~/.npm-global; bun runs the node entry inside the omp sandbox image."
+  },
+  "qwen-code": {
+    id: "qwen-code",
+    aliases: ["qwen"],
+    image: CT_IMAGE_OMP,
+    command: "PATH=/opt/qwen-global/bin:$PATH bun /opt/qwen-global/lib/node_modules/@qwen-code/qwen-code/cli-entry.js",
+    workdir: "/workspace",
+    binds: [{ host: "/home/leviathan/.npm-global", container: "/opt/qwen-global" }],
+    notes: "Alias of qwen."
+  },
+  grok: {
+    id: "grok",
+    aliases: ["grok-build", "grok-tui"],
+    image: CT_IMAGE_OMP,
+    command: "grok",
+    workdir: "/workspace",
+    binds: [{ host: "/home/leviathan/.grok/downloads/grok-1.0.25-linux-x86_64", container: "/usr/local/bin/grok" }],
+    notes: "Static Grok Build TUI binary bind-mounted into the omp sandbox image."
+  },
+  "grok-build": {
+    id: "grok-build",
+    aliases: ["grok"],
+    image: CT_IMAGE_OMP,
+    command: "grok",
+    workdir: "/workspace",
+    binds: [{ host: "/home/leviathan/.grok/downloads/grok-1.0.25-linux-x86_64", container: "/usr/local/bin/grok" }],
+    notes: "Alias of grok."
+  }
+};
+function listTuiIds() {
+  return Object.keys(TUI_PRESETS).sort();
+}
+function formatTuiCatalog() {
+  const lines = Object.values(TUI_PRESETS).map((p) => `- ${p.id} aliases=[${p.aliases.join(",")}] image=${p.image} cmd=${JSON.stringify(p.command)} \u2014 ${p.notes}`);
+  return `CT TUIS (${lines.length} presets):
+${lines.join(`
+`)}
+Custom: pass tuiCommand="<any headed command>" and optional image=. Unknown tui names loud-fail \u2014 never silently fall back to omp.`;
+}
+function lookupPreset(name) {
+  const key = name.trim().toLowerCase();
+  if (TUI_PRESETS[key])
+    return TUI_PRESETS[key];
+  for (const p of Object.values(TUI_PRESETS)) {
+    if (p.aliases.some((a) => a.toLowerCase() === key))
+      return p;
+  }
+  return null;
+}
+function resolveTui(input) {
+  const custom = (input.tuiCommand ?? "").trim();
+  if (custom.length > 0) {
+    return {
+      ok: true,
+      value: {
+        id: "custom",
+        image: (input.image ?? "").trim() || CT_IMAGE_OMP,
+        command: custom,
+        workdir: "/workspace",
+        binds: [],
+        source: "custom-command",
+        notes: "Raw tuiCommand \u2014 caller owns PATH/image contents."
+      }
+    };
+  }
+  const name = (input.tui ?? "").trim();
+  if (!name) {
+    const p = TUI_PRESETS.omp;
+    return {
+      ok: true,
+      value: {
+        id: p.id,
+        image: (input.image ?? "").trim() || p.image,
+        command: p.command,
+        workdir: p.workdir,
+        binds: [...p.binds],
+        source: "preset",
+        notes: p.notes
+      }
+    };
+  }
+  const preset = lookupPreset(name);
+  if (preset) {
+    return {
+      ok: true,
+      value: {
+        id: preset.id,
+        image: (input.image ?? "").trim() || preset.image,
+        command: preset.command,
+        workdir: preset.workdir,
+        binds: [...preset.binds],
+        source: "preset",
+        notes: preset.notes
+      }
+    };
+  }
+  const hostBin = input.hostBinary ?? null;
+  if (hostBin && hostBin.length > 0) {
+    const base = name.replace(/[^a-zA-Z0-9._+-]/g, "") || "tui";
+    return {
+      ok: true,
+      value: {
+        id: name,
+        image: (input.image ?? "").trim() || CT_IMAGE_OMP,
+        command: base,
+        workdir: "/workspace",
+        binds: [{ host: hostBin, container: `/usr/local/bin/${base}` }],
+        source: "host-binary",
+        notes: `Host binary ${hostBin} bind-mounted \u2014 not a named preset.`
+      }
+    };
+  }
+  return {
+    ok: false,
+    error: `CT SETUP FAILED: unknown tui "${name}". Known: ${listTuiIds().join(", ")}. Pass tuiCommand= for a custom headed command, or install the binary on the host so it can be bind-mounted.`
+  };
+}
+
+// src/tools/container-testing.ts
+var CT_ACTIONS2 = [
+  "setup",
+  "deploy",
+  "send",
+  "read",
+  "check",
+  "exec",
+  "cp",
+  "key",
+  "files",
+  "logs",
+  "screenshot",
+  "export",
+  "clear",
+  "stop",
+  "alive",
+  "connect",
+  "restart",
+  "verify-model",
+  "verify-agent",
+  "switch-model",
+  "switch-agent",
+  "host-pipeline",
+  "suite",
+  "report",
+  "firewall",
+  "tui",
+  "shot",
+  "tile",
+  "tuis"
+];
+var CT_IMAGE = "runtime-grade-container-sandbox:master";
+var DEFAULT_TMUX_SESSION = "test";
+var STREAM_FILE = "/tmp/tui-stream.txt";
+var DEFAULT_OMP_CT_MODEL = "poolside/poolside/laguna-s-2.1";
+var DEFAULT_OMP_CT_SMOL = "poolside/poolside/laguna-xs-2.1";
+var OMP_FAMILY_TUIS = new Set(["omp", "pi"]);
+var PROVISION_PY = [
+  "import json, os, sqlite3",
+  "oc_path = '/root/.local/share/opencode/auth.json'",
+  "db_path = '/root/.omp/agent/agent.db'",
+  "cfg_path = '/root/.omp/agent/config.yml'",
+  "model = os.environ.get('PROV_MODEL', '').strip()",
+  "smol = os.environ.get('PROV_SMOL', '').strip()",
+  "notes = []",
+  "os.makedirs('/root/.omp/agent', exist_ok=True)",
+  "key = None",
+  "try:",
+  "    entry = json.load(open(oc_path)).get('openrouter') or {}",
+  "    key = entry.get('key') if isinstance(entry, dict) else None",
+  "except Exception as e:",
+  "    notes.append('auth-read-failed:' + type(e).__name__)",
+  "if key:",
+  "    try:",
+  "        db = sqlite3.connect(db_path)",
+  `        db.execute("CREATE TABLE IF NOT EXISTS auth_credentials (id INTEGER PRIMARY KEY AUTOINCREMENT, provider TEXT NOT NULL, credential_type TEXT NOT NULL, data TEXT NOT NULL, disabled_cause TEXT DEFAULT NULL, identity_key TEXT DEFAULT NULL, created_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER)), updated_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER)))")`,
+  '        db.execute("CREATE TABLE IF NOT EXISTS auth_change_revision (id INTEGER PRIMARY KEY, revision INTEGER)")',
+  "        if db.execute('SELECT COUNT(*) FROM auth_change_revision').fetchone()[0] == 0:",
+  "            db.execute('INSERT INTO auth_change_revision (id, revision) VALUES (1, 0)')",
+  "        have = db.execute('SELECT COUNT(*) FROM auth_credentials WHERE provider = ? AND credential_type = ?', ('openrouter', 'api_key')).fetchone()[0]",
+  "        if have == 0:",
+  "            db.execute('INSERT INTO auth_credentials (provider, credential_type, data) VALUES (?, ?, ?)', ('openrouter', 'api_key', json.dumps({'key': key, 'source': 'login'})))",
+  "            db.execute('UPDATE auth_change_revision SET revision = revision + 1')",
+  "            db.commit()",
+  "            notes.append('openrouter-credential:inserted')",
+  "        else:",
+  "            notes.append('openrouter-credential:present')",
+  "        db.close()",
+  "    except Exception as e:",
+  "        notes.append('openrouter-credential:failed:' + type(e).__name__)",
+  "else:",
+  "    notes.append('openrouter-credential:no-key-in-image')",
+  "if model:",
+  "    try:",
+  "        cfg = open(cfg_path).read() if os.path.exists(cfg_path) else ''",
+  "        lines = cfg.split(chr(10)) if cfg else []",
+  "        out = []",
+  "        in_roles = False",
+  "        saw_roles = False",
+  "        saw_default = False",
+  "        saw_smol = False",
+  "        for ln in lines:",
+  "            stripped = ln.strip()",
+  "            if stripped == 'modelRoles:':",
+  "                in_roles = True",
+  "                saw_roles = True",
+  "                out.append(ln)",
+  "                continue",
+  "            if in_roles and stripped and (not ln.startswith(' ')):",
+  "                in_roles = False",
+  "            if in_roles and stripped.startswith('default:'):",
+  "                out.append('  default: ' + model)",
+  "                saw_default = True",
+  "                continue",
+  "            if in_roles and smol and stripped.startswith('smol:'):",
+  "                out.append('  smol: ' + smol)",
+  "                saw_smol = True",
+  "                continue",
+  "            out.append(ln)",
+  "        if not saw_roles:",
+  "            out.append('modelRoles:')",
+  "            out.append('  default: ' + model)",
+  "            if smol:",
+  "                out.append('  smol: ' + smol)",
+  "            notes.append('model:roles-created')",
+  "        else:",
+  "            anchor = next(i for i, l in enumerate(out) if l.strip() == 'modelRoles:')",
+  "            if not saw_default:",
+  "                out.insert(anchor + 1, '  default: ' + model)",
+  "            if smol and not saw_smol:",
+  "                out.insert(anchor + 1, '  smol: ' + smol)",
+  "            notes.append('model:default-set')",
+  "        open(cfg_path, 'w').write(chr(10).join(out))",
+  "    except Exception as e:",
+  "        notes.append('model:failed:' + type(e).__name__)",
+  "print('PROVISION ' + ' '.join(notes))"
+].join(`
+`);
+var sanitizeModel = (v) => v.replace(/[^A-Za-z0-9/._:-]/g, "");
+var provisionOmpContainer = (dockerExec, model, smol) => {
+  const b64 = Buffer.from(PROVISION_PY, "utf8").toString("base64");
+  const r = dockerExec(`printf %s ${shq(b64)} | base64 -d > /tmp/omp-ct-provision.py && PROV_MODEL=${shq(model)} PROV_SMOL=${shq(smol)} python3 /tmp/omp-ct-provision.py; rm -f /tmp/omp-ct-provision.py`, 30000);
+  const line = (r.stdout + `
+` + r.stderr).split(`
+`).find((l) => l.trim().startsWith("PROVISION"));
+  return line ? line.trim() : `PROVISION failed exit=${r.code}`;
+};
+var CT_FIREWALL_STATE = path3.join(os2.homedir(), ".omp/agent/state/ct-firewall.json");
+function readFirewallState() {
+  try {
+    const parsed = JSON.parse(fs3.readFileSync(CT_FIREWALL_STATE, "utf-8"));
+    if (!parsed || typeof parsed.sessions !== "object")
+      return { sessions: {} };
+    return parsed;
+  } catch {
+    return { sessions: {} };
+  }
+}
+function persistFirewallOff(off) {
+  const now = new Date().toISOString();
+  const sessions = {};
+  for (const sid of off)
+    sessions[sid] = { enabled: false, updatedAt: now };
+  fs3.mkdirSync(path3.dirname(CT_FIREWALL_STATE), { recursive: true });
+  const tmp = CT_FIREWALL_STATE + ".tmp";
+  fs3.writeFileSync(tmp, JSON.stringify({ sessions }, null, 2));
+  fs3.renameSync(tmp, CT_FIREWALL_STATE);
+}
+var firewallOff = new Set(Object.entries(readFirewallState().sessions).filter(([, v]) => v && v.enabled === false).map(([k]) => k));
+var checkCursors = new Map;
+var suiteVerdicts = new Map;
+var setupRecord = new Map;
+var sidOf = (ctx) => String(ctx?.sessionID ?? "default");
+var sleep = (ms) => {
+  const { promise, resolve } = Promise.withResolvers();
+  setTimeout(resolve, ms);
+  return promise;
+};
+var cwdOf = (ctx) => ctx?.cwd ?? process.cwd();
+var shq = (s) => "'" + s.replace(/'/g, "'\\''") + "'";
+var PLAN_SECTIONS = [
+  "OBJECTIVE",
+  "TOOLS UNDER TEST",
+  "TEST SCENARIOS",
+  "ADVERSARIAL",
+  "EVIDENCE",
+  "PASS CRITERIA"
+];
+function planShortfalls(plan) {
+  const missing = [];
+  if (plan.length < 2000)
+    missing.push(`length ${plan.length} < 2000`);
+  const upper = plan.toUpperCase();
+  for (const s of PLAN_SECTIONS)
+    if (!upper.includes(s))
+      missing.push(`missing section: ${s}`);
+  const scenarios = (plan.match(/SCENARIO/gi) || []).length;
+  if (scenarios < 3)
+    missing.push(`only ${scenarios} scenario markers \u2014 3+ required`);
+  return missing;
+}
+var EXEC_BLOCKED = /docker\s+(exec|run|rm|stop|restart|kill|cp|push|load|create|start)\b|tmux\s+(send-keys|new-session|kill-session|pipe-pane|capture-pane)\b/i;
+function buildContainerTestingTool(pi, deps) {
+  const { host, recordedRuns } = deps;
+  const zProp = (v) => {
+    const d = v;
+    if (!d)
+      return pi.zod.string();
+    if (d.type === "number")
+      return pi.zod.number();
+    if (d.type === "boolean")
+      return pi.zod.boolean();
+    if (d.type === "array")
+      return pi.zod.array(zProp(d.items));
+    if (d.enum)
+      return pi.zod.enum(d.enum);
+    let s = pi.zod.string();
+    if (typeof d.minLength === "number")
+      s = s.min(d.minLength);
+    return s;
+  };
+  const obj = (properties, required = []) => {
+    const shape = {};
+    for (const [k, v] of Object.entries(properties)) {
+      const base = zProp(v);
+      shape[k] = required.includes(k) ? base : base.optional();
+    }
+    return pi.zod.object(shape);
+  };
+  const safe = async (fn) => {
+    try {
+      const r = await fn();
+      return {
+        content: [{ type: "text", text: r.text }],
+        details: { ...r.details ?? {}, ...r.isError ? { isError: true } : {} },
+        ...r.isError ? { isError: true } : {}
+      };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return {
+        content: [{ type: "text", text: `CONTAINER-TESTING FAILED (loud): ${msg}` }],
+        details: { isError: true, error: msg },
+        isError: true
+      };
+    }
+  };
+  return {
+    name: "container-testing",
+    label: "Container Testing",
+    description: "Container testing for agents \u2014 THE first-class container path in OMP (ported from mimocode). " + "setup launches a HEADED TUI in a container (plan-gated; tui=omp|pi|opencode|mimo|mimocode|qwen|qwen-code|grok|grok-build or tuiCommand=). " + "Not hardcoded to omp. action=tuis lists presets. deploy/send/read/check/exec/suite/report/firewall match the mimo surface.",
+    parameters: obj({
+      action: { type: "string", enum: [...CT_ACTIONS2] },
+      containerName: { type: "string" },
+      image: { type: "string" },
+      distPath: { type: "string" },
+      agentName: { type: "string" },
+      modelName: { type: "string" },
+      testPlan: { type: "string" },
+      prompt: { type: "string" },
+      pattern: { type: "string" },
+      command: { type: "string" },
+      mode: { type: "string" },
+      maxWaitMs: { type: "number" },
+      waitForCompletion: { type: "boolean" },
+      offset: { type: "number" },
+      limit: { type: "number" },
+      key: { type: "string" },
+      keys: { type: "array", items: { type: "string" } },
+      src: { type: "string" },
+      dest: { type: "string" },
+      direction: { type: "string" },
+      out: { type: "string" },
+      suite: { type: "string" },
+      scenarios: { type: "string" },
+      model: { type: "string" },
+      agent: { type: "string" },
+      provider: { type: "string" },
+      tmuxSessionName: { type: "string" },
+      sessionName: { type: "string" },
+      memoryLimitMb: { type: "number" },
+      cpuLimit: { type: "string" },
+      adopt: { type: "boolean" },
+      smolModel: { type: "string" },
+      timeoutMs: { type: "number" },
+      enable: { type: "string" },
+      cleanup: { type: "boolean" },
+      volumes: { type: "array", items: { type: "string" } },
+      tui: { type: "string" },
+      tuiCommand: { type: "string" },
+      path: { type: "string" },
+      localPath: { type: "string" },
+      containerPath: { type: "string" },
+      fromBytes: { type: "number" },
+      sandbox: { type: "string" }
+    }, ["action"]),
+    loadMode: "essential",
+    defaultInactive: false,
+    execute: async (_id, params, _sig, _upd, ctx) => safe(async () => {
+      const action = String(params.action ?? "");
+      if (!CT_ACTIONS2.includes(action)) {
+        return { text: `CONTAINER-TESTING FAILED: unknown action "${action}" \u2014 use ${CT_ACTIONS2.join("|")}`, isError: true };
+      }
+      const sid = sidOf(ctx);
+      const name = String(params.containerName ?? "omp-ct");
+      const image = String(params.image ?? CT_IMAGE);
+      const session = String(params.tmuxSessionName ?? params.sessionName ?? DEFAULT_TMUX_SESSION);
+      const dockerExec = (cmd, timeoutMs = 20000) => host.execSync(`docker exec ${name} sh -c ${shq(cmd)}`, { timeoutMs });
+      if (["setup", "deploy", "suite"].includes(action)) {
+        recordedRuns.record("container-testing");
+        recordedRuns.record("ct-sandbox-test");
+        sttgfStateTracker.setContainerTestRan(sid, true);
+        sttgfStateTracker.setVerificationClaimed(sid, false);
+      }
+      if (action === "firewall") {
+        const mode = String(params.enable ?? "status").toLowerCase();
+        if (mode === "status") {
+          return { text: `CT FIREWALL: ${firewallOff.has(sid) ? "DISABLED" : "ENABLED"} (scope session ${sid})` };
+        }
+        if (mode === "disable") {
+          firewallOff.add(sid);
+          persistFirewallOff(firewallOff);
+          return { text: `CT FIREWALL: DISABLED for session ${sid} (docker/tmux exec verbs allowed)` };
+        }
+        if (mode === "enable") {
+          firewallOff.delete(sid);
+          persistFirewallOff(firewallOff);
+          return { text: `CT FIREWALL: ENABLED for session ${sid}` };
+        }
+        return { text: `CT FIREWALL FAILED: enable must be enable|disable|status, got "${mode}"`, isError: true };
+      }
+      if (action === "tuis") {
+        return { text: formatTuiCatalog(), details: { action: "tuis" } };
+      }
+      if (action === "setup") {
+        const plan = String(params.testPlan ?? "");
+        const shortfalls = planShortfalls(plan);
+        if (shortfalls.length > 0) {
+          return { text: `CT SETUP FAILED (plan gate): ${shortfalls.join("; ")}`, isError: true };
+        }
+        const tuiName = String(params.tui ?? "").trim();
+        const which = tuiName.length > 0 ? host.execSync(`command -v ${shq(tuiName)} 2>/dev/null || true`).stdout.trim() : "";
+        const resolved = resolveTui({
+          tui: params.tui !== undefined ? String(params.tui) : undefined,
+          tuiCommand: params.tuiCommand !== undefined ? String(params.tuiCommand) : params.command !== undefined ? String(params.command) : undefined,
+          image: params.image !== undefined ? String(params.image) : undefined,
+          hostBinary: which.length > 0 ? which : null
+        });
+        if (!resolved.ok)
+          return { text: resolved.error, isError: true };
+        const tui = resolved.value;
+        for (const b of tui.binds) {
+          if (!host.existsSync(b.host)) {
+            return { text: `CT SETUP FAILED: tui ${tui.id} bind missing on host: ${b.host}`, isError: true };
+          }
+        }
+        const psOut = host.execSync(`docker ps --filter "name=^${name}$" --format "{{.Status}}"`, { timeoutMs: 1e4 });
+        const adopting = params.adopt === true && psOut.stdout.trim().length > 0;
+        if (!adopting)
+          host.execSync(`docker rm -f ${name} 2>/dev/null`);
+        const memMb = params.memoryLimitMb !== undefined ? Number(params.memoryLimitMb) : 4096;
+        const mem = `--memory ${memMb}m`;
+        const cpus = params.cpuLimit !== undefined ? `--cpus ${String(params.cpuLimit)}` : "--cpus 4";
+        const callerVols = Array.isArray(params.volumes) ? params.volumes.map((v) => `-v ${String(v)}`).join(" ") : "";
+        const bindVols = tui.binds.map((b) => `-v ${b.host}:${b.container}:ro`).join(" ");
+        const socketFlag = host.existsSync("/var/run/docker.sock") ? " -v /var/run/docker.sock:/var/run/docker.sock" : "";
+        const envFile = host.existsSync("/home/leviathan/.omp/agent/.env") ? " --env-file /home/leviathan/.omp/agent/.env" : "";
+        if (!adopting) {
+          const run = host.execSync(`docker run -d --name ${name} --label omp-ct=owned ${mem} ${cpus}${socketFlag}${envFile} ${bindVols} ${callerVols} ${tui.image} sleep infinity`, { timeoutMs: 120000 });
+          if (run.code !== 0)
+            return { text: `CT SETUP FAILED: docker run -> ${(run.stderr || run.stdout).slice(0, 500)}`, isError: true };
+        }
+        const probe = dockerExec(`echo CT_UP`);
+        if (probe.code !== 0 || !probe.stdout.includes("CT_UP")) {
+          return { text: `CT SETUP FAILED: container ${name} does not answer exec: ${(probe.stderr || probe.stdout).slice(0, 300)}`, isError: true };
+        }
+        dockerExec(`mkdir -p ${tui.workdir}`);
+        let provisionSummary = null;
+        if (OMP_FAMILY_TUIS.has(tui.id)) {
+          const modelParam = typeof params.modelName === "string" && String(params.modelName).includes("/") ? String(params.modelName) : "";
+          const smolParam = typeof params.smolModel === "string" && String(params.smolModel).includes("/") ? String(params.smolModel) : "";
+          const model = sanitizeModel(modelParam || process.env.OMP_CT_DEFAULT_MODEL || DEFAULT_OMP_CT_MODEL);
+          const smol = sanitizeModel(smolParam || process.env.OMP_CT_DEFAULT_SMOL || DEFAULT_OMP_CT_SMOL);
+          provisionSummary = provisionOmpContainer(dockerExec, model, smol);
+        }
+        const tmuxCheck = dockerExec("command -v tmux");
+        if (tmuxCheck.code !== 0 || !tmuxCheck.stdout.trim()) {
+          const install = dockerExec("apt-get update -qq && apt-get install -y -qq tmux >/tmp/tmux-install.log 2>&1; command -v tmux", 90000);
+          if (install.code !== 0 || !install.stdout.trim()) {
+            return { text: `CT SETUP FAILED: tmux not in ${tui.image} and install failed`, isError: true };
+          }
+        }
+        dockerExec(`tmux kill-session -t ${session} 2>/dev/null; rm -f ${STREAM_FILE}; true`);
+        const boot = dockerExec(`tmux new-session -d -s ${session} -x 240 -y 60 && echo NEW_OK`);
+        if (!boot.stdout.includes("NEW_OK")) {
+          return { text: `CT SETUP FAILED: tmux new-session -> ${(boot.stderr || boot.stdout).slice(0, 400)}`, isError: true };
+        }
+        let pipeOk = false;
+        for (let attempt = 1;attempt <= 5; attempt++) {
+          const pr = dockerExec(`tmux pipe-pane -t ${session} -o ${shq(`cat >> ${STREAM_FILE}`)} && echo PIPE_OK`);
+          if (pr.stdout.includes("PIPE_OK")) {
+            pipeOk = true;
+            break;
+          }
+          await sleep(300);
+        }
+        if (!pipeOk)
+          return { text: `CT SETUP FAILED: pipe-pane not established for ${name}`, isError: true };
+        dockerExec(`: > ${STREAM_FILE}`);
+        dockerExec(`tmux send-keys -t ${session} -l ${shq(`cd ${tui.workdir} && ${tui.command}`)}`);
+        dockerExec(`tmux send-keys -t ${session} Enter`);
+        await sleep(1500);
+        for (let i = 0;i < 6; i++) {
+          const pane = dockerExec(`tmux capture-pane -t ${session} -p 2>/dev/null`).stdout;
+          if (/trust this folder|trust the files|No, exit/i.test(pane)) {
+            dockerExec(`tmux send-keys -t ${session} Enter`);
+            await sleep(1200);
+            break;
+          }
+          if (/\u25D2|\u03C0/.test(pane))
+            break;
+          await sleep(1200);
+        }
+        const live = dockerExec(`tmux has-session -t ${session} 2>/dev/null && echo HAS_SESSION`);
+        if (!live.stdout.includes("HAS_SESSION")) {
+          return { text: `CT SETUP FAILED: headed session "${session}" not up after launching tui=${tui.id}`, isError: true };
+        }
+        let statusBarText = "";
+        for (let i = 0;i < 15; i++) {
+          statusBarText = dockerExec(`tmux capture-pane -p -t ${session} -e 2>/dev/null | tail -5`).stdout;
+          if (/\u25D2|\u03C0/.test(statusBarText))
+            break;
+          await sleep(1000);
+        }
+        let hash = 0;
+        for (let i = 0;i < plan.length; i++)
+          hash = hash * 31 + plan.charCodeAt(i) >>> 0;
+        setupRecord.set(name, { image: tui.image, tui: tui.id, command: tui.command, planChars: plan.length, planHash: hash.toString(16), at: host.now(), provision: provisionSummary });
+        checkCursors.delete(name);
+        const barLine = statusBarText.split(`
+`).map((l) => l.replace(/\x1b\[[0-9;]*m/g, "").trim()).filter(Boolean).pop() ?? "";
+        return {
+          text: `CT SETUP: ${name} up image=${tui.image} tui=${tui.id} (${tui.source}) cmd=${tui.command} headed=${session} plan=${plan.length} hash=${hash.toString(16)}${adopting ? " adopted=true" : ""}${provisionSummary ? ` | ${provisionSummary}` : ""}${barLine ? ` | bar: ${barLine}` : ""}`,
+          details: { container: name, image: tui.image, tui: tui.id, command: tui.command, source: tui.source, session, planChars: plan.length, tuiUp: true, adopted: adopting, provision: provisionSummary, statusBar: barLine }
+        };
+      }
+      if (action === "tui") {
+        const rec = setupRecord.get(name);
+        const resolved = resolveTui({
+          tui: params.tui !== undefined ? String(params.tui) : rec && typeof rec.tui === "string" ? rec.tui : undefined,
+          tuiCommand: params.tuiCommand !== undefined ? String(params.tuiCommand) : params.command !== undefined ? String(params.command) : rec && typeof rec.command === "string" ? rec.command : undefined,
+          image: params.image !== undefined ? String(params.image) : undefined
+        });
+        if (!resolved.ok)
+          return { text: resolved.error.replace("CT SETUP FAILED", "CT TUI FAILED"), isError: true };
+        const tui = resolved.value;
+        const tmuxCheck = dockerExec("command -v tmux");
+        if (tmuxCheck.code !== 0 || !tmuxCheck.stdout.trim()) {
+          return { text: `CT TUI FAILED: tmux not found in ${name}`, isError: true };
+        }
+        dockerExec(`mkdir -p ${tui.workdir}`);
+        let tuiProvision = null;
+        if (OMP_FAMILY_TUIS.has(tui.id)) {
+          tuiProvision = provisionOmpContainer(dockerExec, sanitizeModel(process.env.OMP_CT_DEFAULT_MODEL || DEFAULT_OMP_CT_MODEL), sanitizeModel(process.env.OMP_CT_DEFAULT_SMOL || DEFAULT_OMP_CT_SMOL));
+        }
+        dockerExec(`tmux kill-session -t ${session} 2>/dev/null; rm -f ${STREAM_FILE}; true`);
+        const boot = dockerExec(`tmux new-session -d -s ${session} -x 240 -y 60 && echo NEW_OK`);
+        if (!boot.stdout.includes("NEW_OK"))
+          return { text: `CT TUI FAILED: new-session -> ${(boot.stderr || boot.stdout).slice(0, 400)}`, isError: true };
+        let tuiPipeOk = false;
+        for (let attempt = 1;attempt <= 5; attempt++) {
+          const pr = dockerExec(`tmux pipe-pane -t ${session} -o ${shq(`cat >> ${STREAM_FILE}`)} && echo PIPE_OK`);
+          if (pr.stdout.includes("PIPE_OK")) {
+            tuiPipeOk = true;
+            break;
+          }
+          await sleep(300);
+        }
+        if (!tuiPipeOk)
+          return { text: `CT TUI FAILED: pipe-pane not established for ${name}`, isError: true };
+        dockerExec(`: > ${STREAM_FILE}`);
+        dockerExec(`tmux send-keys -t ${session} -l ${shq(`cd ${tui.workdir} && ${tui.command}`)}`);
+        dockerExec(`tmux send-keys -t ${session} Enter`);
+        await sleep(1500);
+        for (let i = 0;i < 6; i++) {
+          const pane = dockerExec(`tmux capture-pane -t ${session} -p 2>/dev/null`).stdout;
+          if (/trust this folder|trust the files|No, exit/i.test(pane)) {
+            dockerExec(`tmux send-keys -t ${session} Enter`);
+            await sleep(1200);
+            break;
+          }
+          if (/\u25D2|\u03C0/.test(pane))
+            break;
+          await sleep(1200);
+        }
+        const live = dockerExec(`tmux has-session -t ${session} 2>/dev/null && echo HAS_SESSION`);
+        if (!live.stdout.includes("HAS_SESSION")) {
+          return { text: `CT TUI FAILED: session "${session}" not up in ${name} (tui=${tui.id})`, isError: true };
+        }
+        return { text: `CT TUI: session "${session}" up in ${name} tui=${tui.id} cmd=${tui.command} stream=${STREAM_FILE}${tuiProvision ? ` | ${tuiProvision}` : ""}`, details: { session, container: name, tui: tui.id, command: tui.command, stream: STREAM_FILE, provision: tuiProvision } };
+      }
+      if (action === "send") {
+        const prompt = String(params.prompt ?? params.testPlan ?? "");
+        if (!prompt)
+          return { text: "CT SEND FAILED: prompt required", isError: true };
+        const mode = String(params.mode ?? "queue").toLowerCase();
+        if (mode === "interrupt")
+          dockerExec(`tmux send-keys -t ${session} Escape Escape`);
+        dockerExec(`tmux send-keys -t ${session} -l ${shq(prompt)}`);
+        dockerExec(`tmux send-keys -t ${session} Enter`);
+        if (params.waitForCompletion === true) {
+          const budget = Math.min(Math.max(Number(params.maxWaitMs ?? 90000) || 90000, 5000), 600000);
+          const start = Date.now();
+          let lastSize = -1;
+          let stableSince = Date.now();
+          while (Date.now() - start < budget) {
+            const sz = Number(dockerExec(`wc -c < ${STREAM_FILE} 2>/dev/null || echo 0`).stdout.trim()) || 0;
+            if (sz === lastSize) {
+              if (Date.now() - stableSince > 8000)
+                break;
+            } else {
+              lastSize = sz;
+              stableSince = Date.now();
+            }
+            await sleep(2000);
+          }
+          const tail = dockerExec(`tail -c 2000 ${STREAM_FILE} 2>/dev/null`).stdout;
+          return { text: `CT SEND: completed:true \u2014 stream ${lastSize} bytes, tail: ${tail.slice(-500)}`, details: { completed: true, bytes: lastSize, responseSlice: tail.slice(-2000) } };
+        }
+        return { text: "CT SEND: queued (waitForCompletion not set \u2014 use read/check to observe)", details: { completed: false } };
+      }
+      if (action === "read") {
+        const off = Math.max(0, Number(params.offset ?? params.fromBytes ?? 0) || 0);
+        const lim = Math.min(Math.max(Number(params.limit ?? 50) || 50, 1), 500);
+        const size = Number(dockerExec(`wc -l < ${STREAM_FILE} 2>/dev/null || echo 0`).stdout.trim()) || 0;
+        const slice = dockerExec(`sed -n '${off + 1},$((off + lim))p' ${STREAM_FILE} 2>/dev/null`).stdout;
+        return { text: `CT READ lines ${off + 1}-${off + lim}/${size}:
+${slice.slice(0, 4000)}`, details: { offset: off, limit: lim, totalLines: size } };
+      }
+      if (action === "check") {
+        const pattern = String(params.pattern ?? "");
+        if (!pattern)
+          return { text: "CT CHECK FAILED: pattern required", isError: true };
+        let re;
+        try {
+          re = new RegExp(pattern);
+        } catch (e) {
+          return { text: `CT CHECK FAILED: bad regex /${pattern}/`, isError: true };
+        }
+        const cursor = checkCursors.get(name) ?? 0;
+        const raw = dockerExec(`cat ${STREAM_FILE} 2>/dev/null`).stdout;
+        const fresh = raw.slice(cursor);
+        checkCursors.set(name, raw.length);
+        const m = re.exec(fresh);
+        if (!m)
+          return { text: `CT CHECK: NO MATCH /${pattern}/ in ${fresh.length} new bytes (${raw.length} total)`, details: { match: false, pattern, newBytes: fresh.length } };
+        const at = cursor + m.index;
+        const excerpt = raw.slice(Math.max(0, at - 60), at + 60).replace(/\x1b/g, "\\e");
+        return { text: `CT CHECK: MATCH@${at} /${pattern}/ \u2026${excerpt}\u2026`, details: { match: true, offset: at, pattern } };
+      }
+      if (action === "key") {
+        const rawKeys = Array.isArray(params.keys) ? params.keys.map(String) : [String(params.key ?? "")].filter((k) => k.length > 0);
+        if (rawKeys.length === 0)
+          return { text: "CT KEY FAILED: key or keys[] required", isError: true };
+        const PLAIN = {
+          up: "Up",
+          down: "Down",
+          left: "Left",
+          right: "Right",
+          pageup: "PageUp",
+          pagedown: "PageDown",
+          home: "Home",
+          end: "End",
+          enter: "Enter",
+          space: "Space",
+          escape: "Escape",
+          backspace: "BSpace",
+          tab: "Tab"
+        };
+        const sent = [];
+        const failed = [];
+        for (const k of rawKeys) {
+          const lk = k.toLowerCase();
+          const r = PLAIN[lk] ? dockerExec(`tmux send-keys -t ${session} ${PLAIN[lk]}`) : dockerExec(`tmux send-keys -t ${session} -l ${shq(k)}`);
+          if (r.code === 0)
+            sent.push(k);
+          else
+            failed.push(`${k}: ${(r.stderr || r.stdout).slice(0, 200)}`);
+        }
+        if (failed.length > 0)
+          return { text: `CT KEY: sent [${sent.join(", ") || "none"}] | FAILED [${failed.join("; ")}]`, isError: true };
+        return { text: `CT KEY: ${sent.join(", ")}` };
+      }
+      if (action === "shot" || action === "screenshot") {
+        const out = String(params.out ?? "/tmp/tui-shot.txt");
+        const r = dockerExec(`tmux capture-pane -p -t ${session} -e > ${out}; wc -c < ${out}`);
+        if (r.code !== 0)
+          return { text: `CT SHOT FAILED: ${(r.stderr || r.stdout).slice(0, 500)}`, isError: true };
+        const pane = dockerExec(`cat ${out}`).stdout;
+        return { text: `CT SHOT: ${pane.slice(0, 2000)}`, details: { path: out, chars: pane.length } };
+      }
+      if (action === "files") {
+        const p = String(params.path ?? "/app/ct");
+        const r = dockerExec(`ls -la ${p}`);
+        if (r.code !== 0)
+          return { text: `CT FILES FAILED (${p})`, isError: true };
+        return { text: `CT FILES ${p}:
+${r.stdout.slice(0, 3000)}`, details: { path: p } };
+      }
+      if (action === "logs") {
+        const r = host.execSync(`docker logs --tail 200 ${name} 2>&1`);
+        return { text: `CT LOGS (tail 200):
+${r.stdout.slice(-6000)}` };
+      }
+      if (action === "exec") {
+        const cmd = String(params.command ?? "");
+        if (!cmd)
+          return { text: "CT EXEC FAILED: command required", isError: true };
+        if (!firewallOff.has(sid)) {
+          try {
+            const ctVerdict = classifyCtExec(cmd);
+            if (ctVerdict.verdict === "BLOCK") {
+              return { text: buildCtConfigLockMessage(ctVerdict), isError: true };
+            }
+          } catch {}
+          if (classifyVerb("bash", { command: cmd }) === "headless") {
+            return { text: "Headless exec forbidden. Use TUI.", isError: true };
+          }
+        }
+        if (!firewallOff.has(sid) && EXEC_BLOCKED.test(cmd)) {
+          return { text: `CT EXEC BLOCKED (firewall ON, session ${sid}): "${cmd.slice(0, 120)}" contains a docker/tmux host-mutation verb \u2014 use the tool actions (setup/send/cp/\u2026) or firewall enable=disable`, isError: true };
+        }
+        const r = dockerExec(cmd, Math.min(Math.max(Number(params.timeoutMs ?? 30000) || 30000, 1000), 300000));
+        if (r.code !== 0)
+          return { text: `CT EXEC FAILED (exit ${r.code}): ${(r.stderr || r.stdout).slice(0, 2000)}`, details: { isError: true, code: r.code }, isError: true };
+        return { text: `CT EXEC: ${r.stdout.slice(0, 2000)}`, details: { code: 0 } };
+      }
+      if (action === "cp") {
+        const local = String(params.src ?? params.localPath ?? "");
+        const target = String(params.dest ?? params.containerPath ?? "");
+        const dir = String(params.direction ?? "to").toLowerCase();
+        if (!local || !target)
+          return { text: "CT CP FAILED: src/localPath + dest/containerPath required", isError: true };
+        if (dir !== "from" && !firewallOff.has(sid)) {
+          try {
+            const cpProtected = classifyCtExec("cp x " + target);
+            if (cpProtected.verdict === "BLOCK") {
+              return { text: buildCtConfigLockMessage(cpProtected), isError: true };
+            }
+          } catch {}
+        }
+        const r = dir === "from" ? host.execSync(`docker cp ${name}:${local} ${target}`) : host.execSync(`docker exec ${name} mkdir -p ${target.replace(/\/[^/]*$/, "")} && docker cp ${local} ${name}:${target}`);
+        if (r.code !== 0)
+          return { text: `CT CP FAILED: ${(r.stderr || r.stdout).slice(0, 500)}`, isError: true };
+        return { text: `CT CP: ${dir === "from" ? `${name}:${local} -> ${target}` : `${local} -> ${name}:${target}`}` };
+      }
+      if (action === "export") {
+        const cpath = String(params.src ?? params.containerPath ?? "");
+        const lpath = String(params.dest ?? params.localPath ?? "");
+        if (!cpath || !lpath)
+          return { text: "CT EXPORT FAILED: src/containerPath + dest/localPath required", isError: true };
+        const r = host.execSync(`docker cp ${name}:${cpath} ${lpath}`);
+        if (r.code !== 0)
+          return { text: `CT EXPORT FAILED: ${(r.stderr || r.stdout).slice(0, 500)}`, isError: true };
+        return { text: `CT EXPORT: ${name}:${cpath} -> ${lpath}` };
+      }
+      if (action === "clear") {
+        dockerExec(`rm -f ${STREAM_FILE}; tmux clear-history -t ${session} 2>/dev/null; true`);
+        checkCursors.set(name, 0);
+        return { text: `CT CLEAR: stream truncated, check cursor reset for ${name}` };
+      }
+      if (action === "stop") {
+        if (String(params.cleanup ?? "false") === "true" || params.cleanup === true) {
+          host.execSync(`docker ps -a --format '{{.Names}}' | grep '^${name}-' | xargs -r docker rm -f 2>/dev/null`);
+        }
+        const r = host.execSync(`docker rm -f ${name}`);
+        suiteVerdicts.delete(name);
+        checkCursors.delete(name);
+        return { text: `CT STOP: ${r.stdout.trim() || r.stderr.trim() || name + " removed"}` };
+      }
+      if (action === "alive") {
+        const ps = host.execSync(`docker ps --filter name=^${name}$ --format '{{.Names}}'`).stdout.trim();
+        const tmux = dockerExec(`tmux has-session -t ${session} 2>/dev/null && echo TMUX_UP || echo TMUX_DOWN`).stdout.trim();
+        return { text: `CT ALIVE: container ${ps === name ? "RUNNING" : "DOWN"} | tmux ${tmux || "UNKNOWN"}`, details: { containerUp: ps === name, tmux } };
+      }
+      if (action === "connect") {
+        const ps = host.execSync(`docker ps --filter name=^${name}$ --format '{{.Names}}'`).stdout.trim();
+        if (ps !== name)
+          return { text: `CT CONNECT FAILED: container ${name} not running`, isError: true };
+        const tmux = dockerExec(`tmux has-session -t ${session} 2>/dev/null && echo TMUX_UP || echo TMUX_DOWN`).stdout.trim();
+        const rec = setupRecord.get(name);
+        return { text: `CT CONNECT: ${name} RUNNING, tmux ${tmux || "UNKNOWN"}, session "${session}"${rec ? ` (setup ${JSON.stringify(rec)})` : " (no setup record this process)"}`, details: { container: name, tmux, setup: rec ?? null } };
+      }
+      if (action === "restart") {
+        const r = host.execSync(`docker restart ${name}`, { timeoutMs: 60000 });
+        if (r.code !== 0)
+          return { text: `CT RESTART FAILED: ${(r.stderr || r.stdout).slice(0, 500)}`, isError: true };
+        const probe = dockerExec(`echo CT_UP`, 30000);
+        const tmux = dockerExec(`tmux has-session -t ${session} 2>/dev/null && echo TMUX_UP || echo TMUX_DOWN`).stdout.trim();
+        return { text: `CT RESTART: ${name} restarted \u2014 exec ${probe.stdout.includes("CT_UP") ? "OK" : "DEAD"}, tmux ${tmux || "UNKNOWN"} (re-run tui if the session died with the daemon)`, details: { execOk: probe.stdout.includes("CT_UP"), tmux } };
+      }
+      const statusBar = () => dockerExec(`tmux capture-pane -p -t ${session} -e 2>/dev/null | tail -5`).stdout;
+      if (action === "verify-model" || action === "verify-agent") {
+        const bar = statusBar();
+        const m = bar.match(/([A-Za-z0-9_. -]+?)\s*[\u00B7|]\s*([A-Za-z0-9_. ()/-]+?)\s+([A-Za-z0-9_.-]+)\s*$/m) ?? bar.match(/(CT|ct|build|main)\s*[\u00B7\u2022]\s*(.+?)\s+(\S+)\s*$/m);
+        if (!m)
+          return { text: `CT ${action === "verify-model" ? "VERIFY-MODEL" : "VERIFY-AGENT"}: status bar unparseable \u2014 tail:
+${bar.slice(-500)}`, details: { raw: bar.slice(-1000) } };
+        return { text: `CT ${action === "verify-model" ? "VERIFY-MODEL" : "VERIFY-AGENT"}: agent="${m[1].trim()}" model="${m[2].trim()}" provider="${m[3].trim()}"`, details: { agent: m[1].trim(), model: m[2].trim(), provider: m[3].trim() } };
+      }
+      if (action === "switch-model" || action === "switch-agent") {
+        const want = String(params.model ?? params.agent ?? "");
+        if (!want)
+          return { text: `CT ${action.toUpperCase()} FAILED: model/agent display name required`, isError: true };
+        const picker = action === "switch-model" ? "/models" : "/agents";
+        dockerExec(`tmux send-keys -t ${session} Escape Escape`);
+        await sleep(500);
+        dockerExec(`tmux send-keys -t ${session} -l ${shq(picker)}`);
+        await sleep(1000);
+        dockerExec(`tmux send-keys -t ${session} Enter`);
+        await sleep(3000);
+        dockerExec(`tmux send-keys -t ${session} -l ${shq(want)}`);
+        await sleep(2000);
+        dockerExec(`tmux send-keys -t ${session} Enter`);
+        await sleep(2000);
+        dockerExec(`tmux send-keys -t ${session} Enter`);
+        await sleep(6000);
+        const bar = statusBar();
+        const ok = bar.toLowerCase().includes(want.toLowerCase().split(" ")[0]);
+        return { text: `CT ${action.toUpperCase()}: picker driven for "${want}" \u2014 status bar ${ok ? "SHOWS it" : "does NOT show it (verify manually)"}:
+${bar.slice(-300)}`, details: { want, verified: ok, bar: bar.slice(-500) } };
+      }
+      if (action === "suite") {
+        const which = String(params.suite ?? "quick").toLowerCase();
+        const rawScenarios = String(params.scenarios ?? "");
+        let list;
+        if (!rawScenarios) {
+          list = which === "full" || which === "standard" ? [
+            { prompt: "Reply with exactly: CT_ALIVE_OK", pattern: "CT_ALIVE_OK", maxWaitMs: 120000 },
+            { prompt: "Reply with your current agent and model as: CT_IDENTITY agent=<agent> model=<model>", pattern: "CT_IDENTITY", maxWaitMs: 120000 },
+            { prompt: "List the tools you can call, one per line, then end with: CT_TOOLS_OK", pattern: "CT_TOOLS_OK", maxWaitMs: 180000 },
+            { prompt: "Reply with exactly: CT_EVIDENCE_OK", pattern: "CT_EVIDENCE_OK", maxWaitMs: 120000 }
+          ] : [
+            { prompt: "Reply with exactly: CT_ALIVE_OK", pattern: "CT_ALIVE_OK", maxWaitMs: 120000 },
+            { prompt: "Reply with your current agent and model as: CT_IDENTITY agent=<agent> model=<model>", pattern: "CT_IDENTITY", maxWaitMs: 120000 }
+          ];
+        } else {
+          try {
+            list = JSON.parse(rawScenarios);
+            if (!Array.isArray(list) || list.length === 0)
+              throw new Error("empty");
+          } catch {
+            return { text: "CT SUITE FAILED: scenarios is not a non-empty JSON array", isError: true };
+          }
+        }
+        const verdicts = [];
+        for (let i = 0;i < list.length; i++) {
+          const sc = list[i];
+          dockerExec(`tmux send-keys -t ${session} -l ${shq(String(sc.prompt ?? ""))}`);
+          dockerExec(`tmux send-keys -t ${session} Enter`);
+          const budget = Math.min(Math.max(Number(sc.maxWaitMs ?? 60000) || 60000, 5000), 600000);
+          const start = Date.now();
+          let lastSize = -1;
+          let stableSince = Date.now();
+          while (Date.now() - start < budget) {
+            const sz = Number(dockerExec(`wc -c < ${STREAM_FILE} 2>/dev/null || echo 0`).stdout.trim()) || 0;
+            if (sz === lastSize) {
+              if (Date.now() - stableSince > 8000)
+                break;
+            } else {
+              lastSize = sz;
+              stableSince = Date.now();
+            }
+            await sleep(2000);
+          }
+          const cursor = checkCursors.get(name) ?? 0;
+          const raw = dockerExec(`cat ${STREAM_FILE} 2>/dev/null`).stdout;
+          const fresh = raw.slice(cursor);
+          checkCursors.set(name, raw.length);
+          let passTokenMatch = false;
+          try {
+            passTokenMatch = new RegExp(String(sc.pattern ?? "")).test(fresh);
+          } catch {
+            passTokenMatch = false;
+          }
+          verdicts.push({ i, prompt: String(sc.prompt ?? "").slice(0, 120), pattern: String(sc.pattern ?? ""), passTokenMatch, bytes: raw.length, verdict: passTokenMatch ? "PASS" : "FAIL" });
+        }
+        suiteVerdicts.set(name, verdicts);
+        const passed = verdicts.filter((v) => v.verdict === "PASS").length;
+        return { text: `CT SUITE "${which}": ${passed}/${verdicts.length} PASS
+${verdicts.map((v) => `  [${v.verdict}] #${v.i} /${v.pattern}/`).join(`
+`)}`, details: { suite: which, passed, total: verdicts.length, verdicts } };
+      }
+      if (action === "report") {
+        const verdicts = suiteVerdicts.get(name) ?? [];
+        const passed = verdicts.filter((v) => v.verdict === "PASS").length;
+        const setup = setupRecord.get(name) ?? null;
+        const result = {
+          testId: `container-test-${host.now()}`,
+          timestamp: host.now(),
+          container: name,
+          image,
+          setup,
+          passRate: verdicts.length > 0 ? passed / verdicts.length : 0,
+          total: verdicts.length,
+          passed,
+          failed: verdicts.length - passed,
+          tests: verdicts
+        };
+        const dir = `${cwdOf(ctx)}/.ct`;
+        host.mkdirSync(dir);
+        const out = `${dir}/container-test-results.json`;
+        host.writeFileSync(out, JSON.stringify(result, null, 2));
+        return { text: `CT REPORT: ${out} \u2014 ${passed}/${verdicts.length} PASS`, details: { path: out, ...result } };
+      }
+      if (action === "host-pipeline") {
+        const hostName = `${name}-host`;
+        const targetName = `${name}-target`;
+        host.execSync(`docker rm -f ${hostName} ${targetName} 2>/dev/null`);
+        const h = host.execSync(`docker run -d --name ${hostName} ${image} sleep infinity`, { timeoutMs: 120000 });
+        if (h.code !== 0)
+          return { text: `CT HOST-PIPELINE FAILED (host role): ${(h.stderr || h.stdout).slice(0, 400)}`, isError: true };
+        const t = host.execSync(`docker run -d --name ${targetName} ${image} sleep infinity`, { timeoutMs: 120000 });
+        if (t.code !== 0) {
+          host.execSync(`docker rm -f ${hostName} 2>/dev/null`);
+          return { text: `CT HOST-PIPELINE FAILED (target role): ${(t.stderr || t.stdout).slice(0, 400)}`, isError: true };
+        }
+        const dist = String(params.distPath ?? "");
+        let distDeployed = false;
+        if (dist) {
+          const d = host.execSync(`docker cp ${dist} ${targetName}:/app/ct/dist/index.js`);
+          distDeployed = d.code === 0;
+        }
+        return { text: `CT HOST-PIPELINE: host=${hostName} target=${targetName} distDeployed=${distDeployed} (cleanup=${params.cleanup === true ? "false-kept" : "manual stop"})`, details: { hostContainer: hostName, targetContainer: targetName, distDeployed, hostTuiReady: false } };
+      }
+      if (action === "tile") {
+        return { text: "CT TILE: herdr auto-tile lives in ct-sandbox-test action=tile \u2014 container-testing leaves multiplexing to the sandbox tool", details: { container: name } };
+      }
+      return { text: `CT ${action.toUpperCase()}: unhandled (loud) \u2014 action reached the dispatcher with no branch`, isError: true };
+    })
+  };
+}
+
+// src/tools/ct-registry.ts
+function registerCtTools(pi, deps) {
+  pi.registerTool(buildContainerTestingTool(pi, deps));
+  const names = ["container-testing"];
+  console.log("[omp-ct] registered " + names.join(", "));
+  return names;
+}
+
+// src/index.ts
+import { existsSync as existsSync6, readFileSync as readFileSync5 } from "fs";
+
+// src/ext/kernel-judge.ts
+import { join as joinPath } from "path";
+import { readFileSync as readFileSync4, existsSync as existsSync5 } from "fs";
+
+// src/ledger/events-ledger.ts
+import { appendFileSync as appendFileSync5, readFileSync as readFileSync3, mkdirSync as mkdirSync4, existsSync as existsSync4 } from "fs";
+import { join as join6 } from "path";
+function ledgerDir() {
+  const raw = process.env.ABIDE_DIR;
+  if (raw === undefined || raw === "" || raw === "undefined" || raw === "null") {
+    if (raw !== undefined && raw !== "" && !warnedSentinelDir) {
+      warnedSentinelDir = true;
+      try {
+        process.stderr.write(`[omp-ct] ABIDE_DIR was set to the sentinel ${JSON.stringify(raw)} (a broken value, not a ` + `path) \u2014 resolving to '.abide' instead of writing audit rows into ./${raw}/. Fix the caller.
+`);
+      } catch {}
+    }
+    return ".abide";
+  }
+  return raw;
+}
+var warnedSentinelDir = false;
+function ledgerPath() {
+  return join6(ledgerDir(), "events.jsonl");
+}
+function recordFiring(input) {
+  if ((input.band === "act" || input.band === "flag") && input.matched_span == null) {
+    throw new Error(`matched_span is required for band '${input.band}' (rule='${input.rule}'): ` + `a null span on an enforcement action is the EVIDENCE-DESTRUCTION regression`);
+  }
+  const row = {
+    ts: input.ts ?? new Date().toISOString(),
+    rule: input.rule,
+    buffer: input.buffer,
+    band: input.band,
+    probability: input.probability ?? null,
+    verdict: input.verdict,
+    jev_called: input.jev_called ?? false,
+    ms: input.ms ?? 0,
+    matched_span: input.matched_span,
+    skip_reason: input.skip_reason ?? null
+  };
+  const dir = ledgerDir();
+  const file = ledgerPath();
+  let writeError = null;
+  try {
+    if (!existsSync4(dir)) {
+      mkdirSync4(dir, { recursive: true });
+    }
+    const line = JSON.stringify(row) + `
+`;
+    appendFileSync5(file, line, "utf8");
+  } catch (e) {
+    writeError = e instanceof Error ? e.message : String(e);
+    try {
+      process.stderr.write(`[omp-ct] LEDGER WRITE FAILED (${file}): ${writeError} \u2014 the firing is NOT recorded; ` + `the edit/claim proceeds (fail-open). Fix the ledger path or permissions.
+`);
+    } catch {}
+  }
+  return { row, writeError };
+}
+
+// src/ext/kernel-judge.ts
+var EDIT_CHECK_TIMEOUT_MS = 8000;
+var MAX_ACT_APPENDS_PER_RULE_PER_TURN = 2;
+var ACT_THRESHOLD = 0.8;
+var FLAG_THRESHOLD = 0.5;
+var MAX_STATE_CHARS = 24000;
+var MAX_DIFF_INPUT_CHARS = 1e6;
+var DEFAULT_RUBRIC = (() => {
+  const workspace = joinPath(process.cwd(), ".abide", "rubric.json");
+  if (existsSync5(workspace))
+    return workspace;
+  return joinPath(import.meta.dirname, "..", ".abide", "rubric.json");
+})();
+function loadRubric(rubricPath) {
+  const path = rubricPath ?? DEFAULT_RUBRIC;
+  if (!existsSync5(path))
+    return [];
+  try {
+    const raw = readFileSync4(path, "utf8");
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed.rules) ? parsed.rules : [];
+  } catch {
+    return [];
+  }
+}
+function selectEditModelRules(rules) {
+  return rules.filter((r) => r.status === "active" && r.check?.type === "model" && r.when === "edit");
+}
+function computeBand(probability) {
+  if (probability >= ACT_THRESHOLD)
+    return "act";
+  if (probability >= FLAG_THRESHOLD)
+    return "flag";
+  return "clear";
+}
+function countActsInRing(ring, ruleId) {
+  return ring.entries.filter((e) => e.ruleId === ruleId && e.band === "act").length;
+}
+function repairText(rule, probability) {
+  const where = rule.source?.line !== undefined ? `${rule.source.path ?? "unknown"} line ${rule.source.line}` : rule.source?.path ?? "unknown";
+  const trimmed = rule.text.trim().replace(/\s+/g, " ");
+  const quoted = trimmed.length > 220 ? `${trimmed.slice(0, 217)}...` : trimmed;
+  const pct = (probability * 100).toFixed(0);
+  return `Abide: this edit appears to break rule "${rule.id}" from ${where}: ` + `"${quoted}" Judged: ${pct}%. Repair the edit now.`;
+}
+function flagNoticeText(rule, probability) {
+  const pct = probability.toFixed(2);
+  return `Abide: uncertain about "${rule.id}" ${pct} on this edit. Not blocking. Details in .abide/events.jsonl.`;
+}
+async function defaultJudge(rules, state, apiKey) {
+  const key = apiKey ?? process.env.TYPESAFE_AI_API_KEY;
+  if (!key) {
+    const err = new Error("no-key");
+    err.code = "NO_API_KEY";
+    throw err;
+  }
+  const questions = {};
+  for (const rule of rules) {
+    const q = rule.check?.question;
+    if (!q)
+      continue;
+    questions[rule.id] = {
+      type: q.type,
+      ...q.instructions ? { instructions: q.instructions } : {},
+      ...q.criteria ? { criteria: q.criteria } : {}
+    };
+  }
+  const body = JSON.stringify({
+    state: {
+      file: state.file,
+      phase: state.phase,
+      diff: state.diff,
+      ...state.task ? { task: state.task } : {}
+    },
+    model: "jev-latest",
+    questions
+  });
+  const controller = new AbortController;
+  const timeoutId = setTimeout(() => controller.abort(), EDIT_CHECK_TIMEOUT_MS);
+  try {
+    const resp = await fetch("https://api.typesafe.ai/v1/systemone", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${key}`
+      },
+      body,
+      signal: controller.signal
+    });
+    if (!resp.ok) {
+      const err = new Error(`HTTP ${resp.status}: ${resp.statusText}`);
+      err.code = "HTTP_ERROR";
+      throw err;
+    }
+    const result = await resp.json();
+    const scores = {};
+    for (const rule of rules) {
+      const answer = result.answers?.[rule.id];
+      if (answer && typeof answer.probability === "number" && Number.isFinite(answer.probability)) {
+        scores[rule.id] = Math.min(1, Math.max(0, answer.probability));
+      }
+    }
+    return scores;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+function excerptDiff(event) {
+  const input = event.input;
+  const toolName = event.toolName;
+  const filePath = typeof input.file_path === "string" ? input.file_path : "unknown";
+  if (toolName === "edit") {
+    const oldStr = typeof input.old_string === "string" ? input.old_string : "";
+    const newStr = typeof input.new_string === "string" ? input.new_string : "";
+    return synthesizeDiff(oldStr, newStr, filePath);
+  }
+  if (toolName === "write") {
+    const content = typeof input.content === "string" ? input.content : "";
+    if (content.length > MAX_STATE_CHARS) {
+      return content.slice(0, MAX_STATE_CHARS) + `
+...[truncated]`;
+    }
+    return content;
+  }
+  return "";
+}
+function synthesizeDiff(oldStr, newStr, file) {
+  const combined = oldStr + newStr;
+  if (combined.length > MAX_DIFF_INPUT_CHARS) {
+    const oldSlice = oldStr.slice(0, Math.floor(MAX_STATE_CHARS / 2));
+    const newSlice = newStr.slice(0, Math.floor(MAX_STATE_CHARS / 2));
+    return `--- a/${file}
++++ b/${file}
+${oldSlice}
+${newSlice}
+...[truncated]`;
+  }
+  return `--- a/${file}
++++ b/${file}
+${oldStr}
+${newStr}`;
+}
+async function judgeWithBands(event, opts, ringAccessor) {
+  const originalContent = event.content;
+  const diff = excerptDiff(event);
+  const file = typeof event.input.file_path === "string" ? event.input.file_path : "unknown";
+  const sessionId = opts.sessionId ?? event.sessionId ?? "default";
+  const turnId = opts.turnId ?? event.turnId;
+  const ring = ringAccessor(sessionId, turnId);
+  const diffTs = new Date().toISOString();
+  ring.entries.push({
+    ruleId: "__diff__",
+    probability: 0,
+    band: "clear",
+    ts: diffTs,
+    verdict: `diff excerpted: ${diff.length} chars`,
+    matchedSpan: null,
+    repairText: null
+  });
+  const allRules = loadRubric(opts.rubricPath);
+  const rules = selectEditModelRules(allRules);
+  if (rules.length === 0) {
+    recordFiring({
+      rule: "kernel-judge",
+      buffer: "tool-result",
+      band: "skip",
+      probability: null,
+      verdict: "no edit+model rules found in rubric",
+      jev_called: false,
+      ms: 0,
+      matched_span: null,
+      skip_reason: "no-model-rules"
+    });
+    return {
+      content: originalContent,
+      notices: [],
+      checked: false,
+      actAppends: 0,
+      flagNotices: 0
+    };
+  }
+  const started = performance.now();
+  const judgeState = {
+    diff,
+    ...opts.task ? { task: opts.task } : {},
+    file,
+    phase: "edit",
+    sessionId,
+    turnId
+  };
+  let scores;
+  let ms = 0;
+  try {
+    const judgeFn = opts.judge ?? ((rs, st) => defaultJudge(rs, st, opts.apiKey));
+    scores = await judgeFn(rules, judgeState);
+    ms = Math.round(performance.now() - started);
+  } catch (e) {
+    const err = e;
+    const isNoKey = err?.code === "NO_API_KEY" || err?.message === "no-key";
+    const isTimeout = err?.name === "AbortError" || err?.message?.includes("aborted") || err instanceof Error && err.name === "TimeoutError";
+    if (isNoKey) {
+      recordFiring({
+        rule: "kernel-judge",
+        buffer: "tool-result",
+        band: "skip",
+        probability: null,
+        verdict: "judge skipped: no API key",
+        jev_called: false,
+        ms: Math.round(performance.now() - started),
+        matched_span: null,
+        skip_reason: "no-key"
+      });
+      return {
+        content: originalContent,
+        notices: [],
+        checked: false,
+        actAppends: 0,
+        flagNotices: 0
+      };
+    }
+    if (isTimeout) {
+      recordFiring({
+        rule: "kernel-judge",
+        buffer: "tool-result",
+        band: "skip",
+        probability: null,
+        verdict: `judge timed out after ${EDIT_CHECK_TIMEOUT_MS}ms`,
+        jev_called: false,
+        ms: Math.round(performance.now() - started),
+        matched_span: null,
+        skip_reason: "timeout"
+      });
+      return {
+        content: originalContent,
+        notices: [],
+        checked: false,
+        actAppends: 0,
+        flagNotices: 0
+      };
+    }
+    recordFiring({
+      rule: "kernel-judge",
+      buffer: "tool-result",
+      band: "skip",
+      probability: null,
+      verdict: `judge error: ${err instanceof Error ? err.message : String(err)}`,
+      jev_called: false,
+      ms: Math.round(performance.now() - started),
+      matched_span: null,
+      skip_reason: "judge-error"
+    });
+    return {
+      content: originalContent,
+      notices: [],
+      checked: false,
+      actAppends: 0,
+      flagNotices: 0
+    };
+  }
+  let content = originalContent;
+  const notices = [];
+  let actAppends = 0;
+  let flagNotices = 0;
+  const matchedSpan = diff.slice(0, 200);
+  for (const rule of rules) {
+    const scoreForRule = scores[rule.id];
+    if (typeof scoreForRule !== "number" || !Number.isFinite(scoreForRule)) {
+      recordFiring({
+        rule: rule.id,
+        buffer: "tool-result",
+        band: "skip",
+        probability: null,
+        verdict: typeof scoreForRule !== "number" ? `judge returned no answer for rule "${rule.id}"` : `judge returned a non-finite score (${String(scoreForRule)}) for rule "${rule.id}"`,
+        jev_called: true,
+        ms: Math.round(performance.now() - started),
+        matched_span: null,
+        skip_reason: "no-answer"
+      });
+      continue;
+    }
+    const prob = scoreForRule;
+    const band = computeBand(prob);
+    const ts = new Date().toISOString();
+    const verdict = rule.text.trim().replace(/\s+/g, " ").slice(0, 220);
+    let repairTextVal = null;
+    switch (band) {
+      case "act": {
+        const actsSoFar = countActsInRing(ring, rule.id);
+        if (actsSoFar < MAX_ACT_APPENDS_PER_RULE_PER_TURN) {
+          repairTextVal = repairText(rule, prob);
+          const repairBlock = { type: "text", text: repairTextVal };
+          content = [...content, repairBlock];
+          actAppends++;
+          recordFiring({
+            rule: rule.id,
+            buffer: "tool-result",
+            band: "act",
+            probability: prob,
+            verdict,
+            jev_called: true,
+            ms,
+            matched_span: matchedSpan,
+            skip_reason: null
+          });
+        } else {
+          const notice = flagNoticeText(rule, prob);
+          notices.push(notice);
+          flagNotices++;
+          recordFiring({
+            rule: rule.id,
+            buffer: "tool-result",
+            band: "flag",
+            probability: prob,
+            verdict: `act downgraded to flag (cap ${MAX_ACT_APPENDS_PER_RULE_PER_TURN} reached): ${verdict}`,
+            jev_called: true,
+            ms,
+            matched_span: matchedSpan,
+            skip_reason: `act-cap-exceeded:${actsSoFar}`
+          });
+        }
+        break;
+      }
+      case "flag": {
+        const notice = flagNoticeText(rule, prob);
+        notices.push(notice);
+        flagNotices++;
+        recordFiring({
+          rule: rule.id,
+          buffer: "tool-result",
+          band: "flag",
+          probability: prob,
+          verdict,
+          jev_called: true,
+          ms,
+          matched_span: matchedSpan,
+          skip_reason: null
+        });
+        break;
+      }
+      case "clear": {
+        recordFiring({
+          rule: rule.id,
+          buffer: "tool-result",
+          band: "clear",
+          probability: prob,
+          verdict,
+          jev_called: true,
+          ms,
+          matched_span: matchedSpan,
+          skip_reason: null
+        });
+        break;
+      }
+      case "skip": {
+        recordFiring({
+          rule: rule.id,
+          buffer: "tool-result",
+          band: "skip",
+          probability: prob,
+          verdict,
+          jev_called: true,
+          ms,
+          matched_span: matchedSpan,
+          skip_reason: "unexpected-skip"
+        });
+        break;
+      }
+    }
+    ring.entries.push({
+      ruleId: rule.id,
+      probability: prob,
+      band,
+      ts,
+      verdict,
+      matchedSpan,
+      repairText: repairTextVal
+    });
+  }
+  if (ring.entries.length > 200) {
+    ring.entries.splice(0, ring.entries.length - 100);
+  }
+  return {
+    content,
+    notices,
+    checked: true,
+    actAppends,
+    flagNotices
+  };
+}
+function kernelJudge(opts = {}) {
+  const rings = new Map;
+  let currentTurn = 0;
+  const ringAccessor = (sessionId, turnId) => {
+    const key = `${sessionId ?? "default"}::${turnId ?? "T" + currentTurn}`;
+    let ring = rings.get(key);
+    if (!ring) {
+      ring = { sessionId: sessionId ?? "default", turnId: turnId ?? "default", entries: [] };
+      rings.set(key, ring);
+    }
+    return ring;
+  };
+  const judge = async (event) => {
+    return judgeWithBands(event, opts, ringAccessor);
+  };
+  const reset = (sessionId, turnId) => {
+    const key = `${sessionId ?? opts.sessionId ?? "default"}::${turnId ?? opts.turnId ?? "turn"}`;
+    rings.delete(key);
+  };
+  function register(pi) {
+    pi.on("tool_result", async (event, _ctx) => {
+      if (!event || typeof event !== "object")
+        return;
+      const toolName = "toolName" in event ? String(event.toolName) : "";
+      if (toolName !== "write" && toolName !== "edit")
+        return;
+      try {
+        const result = await judgeWithBands(event, opts, ringAccessor);
+        const hasMutation = JSON.stringify(result.content) !== JSON.stringify(event) || result.notices.length > 0;
+        if (hasMutation) {
+          return {
+            content: result.content,
+            details: "details" in event ? event.details : undefined
+          };
+        }
+        return;
+      } catch (e) {
+        recordFiring({
+          rule: "kernel-judge",
+          buffer: "tool-result",
+          band: "skip",
+          probability: null,
+          verdict: `judge handler error: ${e instanceof Error ? e.message : String(e)}`,
+          jev_called: false,
+          ms: 0,
+          matched_span: null,
+          skip_reason: "handler-error"
+        });
+        return;
+      }
+    });
+  }
+  return { register, judge, reset, setTurn: (turn) => {
+    currentTurn = turn;
+  } };
+}
+
+// src/ext/claim-bind.ts
+function parseClaimAtoms(text) {
+  if (!text || !text.trim())
+    return [];
+  const atoms = [];
+  const statusRe = /\b(?:the\s+)?(\w+(?:\s+\w+){0,6})\s+is\s+(running|working|live|complete|done|verified|pass(?:es|ed)?|green|all\s+green)\b/gi;
+  let m;
+  while ((m = statusRe.exec(text)) !== null) {
+    atoms.push({ kind: "status", text: m[0] });
+  }
+  const countRe = /\b(\d+)\s+(pass(?:es|d)?|fail(?:ures?)?|tests?|checks?|errors?)\b/gi;
+  while ((m = countRe.exec(text)) !== null) {
+    atoms.push({ kind: "count", text: m[0] });
+  }
+  const fileRe = /\b([A-Za-z0-9_./-]+\.(?:ts|js|json|md|jsonl|sha256))\b/g;
+  while ((m = fileRe.exec(text)) !== null) {
+    atoms.push({ kind: "file", text: m[0] });
+  }
+  return atoms;
+}
+function bindAtoms(atoms, ring, opts = {}) {
+  const currentTurn = opts.currentTurn ?? new Date().toISOString();
+  const judge = opts.judge;
+  if (ring.length === 0) {
+    const missingAtoms = atoms.length > 0 ? atoms : [{ kind: "status", text: "" }];
+    const spanText = atoms.length > 0 ? atoms[0].text : "";
+    recordFiring({
+      rule: "claim-bind",
+      buffer: "agent-text",
+      band: "act",
+      probability: null,
+      verdict: "FABRICATED",
+      jev_called: false,
+      ms: 0,
+      matched_span: spanText,
+      skip_reason: `claim made with ${atoms.length} atoms but ring is empty \u2014 no same-turn evidence`
+    });
+    return {
+      verdict: "FABRICATED",
+      jev_called: false,
+      boundSpan: null,
+      missingAtoms,
+      reason: `claim with ${atoms.length} atom(s) has no ring evidence at all`
+    };
+  }
+  if (atoms.length === 0) {
+    recordFiring({
+      rule: "claim-bind",
+      buffer: "agent-text",
+      band: "skip",
+      probability: null,
+      verdict: "REJECT",
+      jev_called: false,
+      ms: 0,
+      matched_span: "",
+      skip_reason: "close-shaped claim detected but no structured atoms could be parsed"
+    });
+    return {
+      verdict: "REJECT",
+      jev_called: false,
+      boundSpan: null,
+      missingAtoms: [],
+      reason: "close-shaped claim message but no claim atoms extracted"
+    };
+  }
+  const missingAtoms = [];
+  let boundSpan = null;
+  let jevCalled = false;
+  for (const atom of atoms) {
+    let bound = false;
+    let wrongSpan = false;
+    for (const span of ring) {
+      if (span.ts !== currentTurn && textMatchesAtom(atom, span.text)) {
+        recordFiring({
+          rule: "claim-bind",
+          buffer: "agent-text",
+          band: "skip",
+          probability: null,
+          verdict: "WRONG_SPAN",
+          jev_called: false,
+          ms: 0,
+          matched_span: atom.text,
+          skip_reason: `atom "${atom.text}" matched only a previous-turn span (ts mismatch)`
+        });
+        wrongSpan = true;
+        break;
+      }
+      if (span.ts === currentTurn && textMatchesAtom(atom, span.text)) {
+        if (judge) {
+          let jr = null;
+          try {
+            jr = judge(atom, span);
+          } catch (err) {
+            recordFiring({
+              rule: "claim-bind",
+              buffer: "agent-text",
+              band: "skip",
+              probability: null,
+              verdict: "FAIL_CLOSED",
+              jev_called: true,
+              ms: 0,
+              matched_span: atom.text,
+              skip_reason: `judge threw: ${err instanceof Error ? err.message : String(err)}`
+            });
+            jr = null;
+          }
+          jevCalled = true;
+          if (jr && typeof jr.then === "function") {
+            recordFiring({
+              rule: "claim-bind",
+              buffer: "agent-text",
+              band: "skip",
+              probability: null,
+              verdict: "FAIL_CLOSED",
+              jev_called: true,
+              ms: 0,
+              matched_span: atom.text,
+              skip_reason: "judge returned a Promise \u2014 JudgeFn is SYNCHRONOUS; the async judge was not awaited"
+            });
+            return {
+              verdict: "FAIL_CLOSED",
+              jev_called: true,
+              boundSpan: null,
+              missingAtoms: [],
+              reason: `judge returned a Promise for atom "${atom.text}" \u2014 JudgeFn is synchronous, the async judge was never awaited`
+            };
+          }
+          if (jr) {
+            if (jr.verdict === "support") {
+              if (!boundSpan)
+                boundSpan = atom.text;
+              bound = true;
+              break;
+            } else {
+              recordFiring({
+                rule: "claim-bind",
+                buffer: "agent-text",
+                band: "flag",
+                probability: jr.probability ?? null,
+                verdict: "REJECT",
+                jev_called: true,
+                ms: jr.ms ?? 0,
+                matched_span: atom.text,
+                skip_reason: `judge rejected atom "${atom.text}" despite ring match`
+              });
+              return {
+                verdict: "REJECT",
+                jev_called: true,
+                boundSpan: null,
+                missingAtoms: [],
+                reason: `judge rejected atom "${atom.text}"`
+              };
+            }
+          }
+        } else {
+          break;
+        }
+      }
+    }
+    if (wrongSpan) {
+      return {
+        verdict: "WRONG_SPAN",
+        jev_called: false,
+        boundSpan: null,
+        missingAtoms: [],
+        reason: `atom "${atom.text}" only matched a previous-turn span`
+      };
+    }
+    if (!bound) {
+      missingAtoms.push(atom);
+    }
+  }
+  if (missingAtoms.length === 0) {
+    recordFiring({
+      rule: "claim-bind",
+      buffer: "agent-text",
+      band: "clear",
+      probability: null,
+      verdict: "PASS",
+      jev_called: jevCalled,
+      ms: 0,
+      matched_span: boundSpan,
+      skip_reason: null
+    });
+    return {
+      verdict: "PASS",
+      jev_called: jevCalled,
+      boundSpan,
+      missingAtoms: [],
+      reason: `all ${atoms.length} atom(s) bound to same-turn evidence`
+    };
+  }
+  const evidenceSpan = boundSpan ?? atoms[0].text;
+  recordFiring({
+    rule: "claim-bind",
+    buffer: "agent-text",
+    band: "act",
+    probability: null,
+    verdict: "FAIL_CLOSED",
+    jev_called: jevCalled,
+    ms: 0,
+    matched_span: evidenceSpan,
+    skip_reason: `${missingAtoms.length} of ${atoms.length} atom(s) had no same-turn supporting span`
+  });
+  return {
+    verdict: "FAIL_CLOSED",
+    jev_called: jevCalled,
+    boundSpan,
+    missingAtoms,
+    reason: `${missingAtoms.length} of ${atoms.length} atom(s) unbound \u2014 fail-closed without judge`
+  };
+}
+function textMatchesAtom(atom, spanText) {
+  if (!spanText || !atom.text)
+    return false;
+  const span = spanText.toLowerCase();
+  const text = atom.text.toLowerCase();
+  switch (atom.kind) {
+    case "count":
+      return span.includes(text);
+    case "file": {
+      const parts = atom.text.split(/[/\\]/);
+      const basename = parts[parts.length - 1].toLowerCase();
+      if (basename && span.includes(basename))
+        return true;
+      return span.includes(atom.text.toLowerCase());
+    }
+    case "status": {
+      const statusVerbs = [
+        "running",
+        "working",
+        "live",
+        "complete",
+        "done",
+        "verified",
+        "pass",
+        "passes",
+        "passed",
+        "green",
+        "all green",
+        "works"
+      ];
+      for (const v of statusVerbs) {
+        if (span.includes(v)) {
+          const subjectMatch = text.match(/(?:the\s+)?(\w+(?:\s+\w+){0,6})\s+is\s+/i);
+          if (subjectMatch) {
+            const subjWords = subjectMatch[1].toLowerCase().split(/\s+/);
+            if (subjWords.every((w) => span.includes(w)))
+              return true;
+          } else {
+            return true;
+          }
+        }
+      }
+      return false;
+    }
+  }
+}
+
+// src/index.ts
+var LOAD_MARKER = "__OMP_CT_LOADED__";
+function ctExtension(pi) {
+  try {
+    const { appendFileSync } = __require("fs");
+    appendFileSync("/tmp/ct-init.log", `[${new Date().toISOString()}] ctExtension() entered marker=${String(globalThis[LOAD_MARKER] ?? "unset")}
+`);
+  } catch {}
+  const g = globalThis;
+  if (g[LOAD_MARKER])
+    return;
+  g[LOAD_MARKER] = true;
+  pi.setLabel("OMP");
+  let currentCtx;
+  const ctx = () => currentCtx;
+  const host = createOmpEngineHost(pi, ctx);
+  const theatricalTracker = new TheatricalStateTracker;
+  const recordedRuns = new RecordedRunSet;
+  let ready = false;
+  const markReady = () => {
+    ready = true;
+  };
+  const isReady = () => ready;
+  const scopeOf = (_sessionKey, _c) => {
+    return "main";
+  };
+  const chain = new MiddlewareChain;
+  try {
+    const { appendFileSync } = __require("fs");
+    appendFileSync("/tmp/ct-chain.log", `[${new Date().toISOString()}] chain built
+`);
+  } catch {}
+  chain.useBefore(docDensityGate(host));
+  chain.useBefore(containerGate());
+  chain.useBefore(guardianGate());
+  chain.useBefore(containerWriteGate());
+  chain.useBefore(dispatchGate());
+  chain.useBefore(sttgfGate());
+  chain.useBefore(theatricalGate(theatricalTracker));
+  chain.useAfter(theatricalGateAfter(theatricalTracker, () => recordedRuns.hasAfter(sttgfStateTracker.getState("default").containerTestTimestamp ?? 0, "ct-sandbox-test")));
+  markReady();
+  attachChain(pi, chain, scopeOf, isReady);
+  host.log("INFO", "omp-ct", "chain ATTACHED (V-027) \u2014 the gates are now consulted on tool_call");
+  pi.on("session.compacting", (_event, c) => {
+    currentCtx = c;
+    return {
+      context: [],
+      preserveData: { ct: { phase: "idle" } }
+    };
+  });
+  pi.on("session_compact", (_event) => {
+    return;
+  });
+  pi.on("session_start", (_event, c) => {
+    currentCtx = c;
+    pi.appendEntry("com.ct.state", { loaded: true, version: "2.0.0", ts: host.now() });
+    host.log("INFO", "omp-ct", "extension loaded \u2014 container-testing first-class");
+  });
+  let turnCounter = 0;
+  const settledHandler = (event, c) => {
+    turnCounter += 1;
+    try {
+      judge.setTurn(turnCounter);
+    } catch {}
+    currentCtx = c;
+    try {
+      const msgs = Array.isArray(event?.messages) ? event.messages : [];
+      for (const m of msgs) {
+        if (m?.role !== "assistant")
+          continue;
+        const parts = Array.isArray(m.content) ? m.content : [{ type: "text", text: typeof m.content === "string" ? m.content : "" }];
+        let text = "";
+        for (const p of parts) {
+          if (p?.type === "text" && typeof p.text === "string")
+            text += p.text + " ";
+        }
+        if (text) {
+          const sid = String(c.sessionID ?? "default");
+          armClaimFromCompletedMessage(sid, text);
+          try {
+            const atoms = parseClaimAtoms(text);
+            if (atoms.length > 0) {
+              const ring = ringFromLedger();
+              const res = bindAtoms(atoms, ring, { currentTurn: ring.length > 0 ? ring[ring.length - 1].ts : undefined });
+              host.log(res.verdict === "PASS" ? "INFO" : "WARN", "omp-ct", `[CT CLAIM] ${res.verdict} \u2014 ${res.reason ?? "claim bound to this turn's evidence"}`);
+            }
+          } catch {}
+        }
+      }
+    } catch {}
+  };
+  const stubProb = process.env.CT_JUDGE_STUB;
+  const judge = stubProb !== undefined ? kernelJudge({
+    judge: async (rules) => {
+      host.log("WARN", "omp-ct", `[CT JUDGE] STUB ACTIVE (CT_JUDGE_STUB=${stubProb}) \u2014 plumbing proof, NOT a real verdict`);
+      return Object.fromEntries(rules.map((r) => [r.id, Number(stubProb)]));
+    }
+  }) : kernelJudge();
+  if (stubProb !== undefined)
+    host.log("WARN", "omp-ct", `[CT JUDGE] stub judge mode (${stubProb}) \u2014 labelled plumbing proof`);
+  judge.register(pi);
+  host.log("INFO", "omp-ct", "kernel-judge registered (L1 per-edit, ledger-backed)");
+  const ringFromLedger = (limit = 40) => {
+    try {
+      const p = ".abide/events.jsonl";
+      if (!existsSync6(p))
+        return [];
+      const rows = readFileSync5(p, "utf8").split(`
+`).filter((l) => l.trim()).map((l) => {
+        try {
+          return JSON.parse(l);
+        } catch {
+          return null;
+        }
+      }).filter(Boolean);
+      return rows.filter((r) => typeof r.matched_span === "string" && r.matched_span).slice(-limit).map((r) => ({ text: String(r.matched_span), ts: String(r.ts), source: String(r.rule) }));
+    } catch {
+      return [];
+    }
+  };
+  pi.on("agent_end", settledHandler);
+  pi.on("message_end", settledHandler);
+  pi.on("agent-end", settledHandler);
+  registerCtTools(pi, { host, recordedRuns });
+}
+var IDENTITY_HEADER = ``;
+export {
+  IDENTITY_HEADER,
+  ctExtension as default
+};

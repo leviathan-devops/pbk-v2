@@ -296,11 +296,17 @@ export async function defaultJudge(
     const scores: Record<string, number> = {};
     for (const rule of rules) {
       const answer = result.answers?.[rule.id];
-      if (answer && typeof answer.probability === 'number') {
+      // V-046: `typeof NaN === 'number'`, and Math.min(1, Math.max(0, NaN)) === NaN — so a non-finite
+      // score entered `scores` and passed the decision guard below, where BOTH threshold comparisons
+      // are false and computeBand returned 'clear'. A judge that produced no usable number was
+      // reported as a CLEAN rule: the V-036 defect class, one type-check deeper.
+      if (answer && typeof answer.probability === 'number' && Number.isFinite(answer.probability)) {
         scores[rule.id] = Math.min(1, Math.max(0, answer.probability));
-      } else {
-        scores[rule.id] = 0;
       }
+      // V-036: an UNANSWERED rule gets NO score. The previous `else { scores[rule.id] = 0 }`
+      // FABRICATED a probability: a partial/truncated API response made every unjudged rule read
+      // as band `clear` — "no violation found" — for a rule the judge never saw. Measured: a 200
+      // with no `answers` returned `{"verify-rule":0}`. A missing answer is a SKIP, not a verdict.
     }
     return scores;
   } finally {
@@ -395,8 +401,10 @@ export async function judgeWithBands(
     typeof event.input.file_path === 'string'
       ? event.input.file_path
       : 'unknown';
-  const sessionId = opts.sessionId ?? 'default';
-  const turnId = opts.turnId ?? 'turn';
+  // V-040: prefer the EVENT's identifiers (a host that supplies them gets true per-turn rings),
+  // then the constructor opts, then let the accessor's counter default apply.
+  const sessionId = opts.sessionId ?? (event as { sessionId?: string }).sessionId ?? 'default';
+  const turnId = opts.turnId ?? (event as { turnId?: string }).turnId;
 
   const ring = ringAccessor(sessionId, turnId);
   const diffTs = new Date().toISOString();
@@ -536,7 +544,31 @@ export async function judgeWithBands(
   const matchedSpan = diff.slice(0, 200);
 
   for (const rule of rules) {
-    const prob = scores[rule.id] ?? 0;
+    // V-036: an absent score is NOT a zero. `?? 0` silently produced band `clear` for a rule the
+    // judge never answered — a fail-open fabrication on the judge path. Absent => a LOGGED skip.
+    const scoreForRule = scores[rule.id];
+    // V-046: a FINITE number is required. `typeof NaN === 'number'` and `Infinity` is a number too, so
+    // the old guard let both through: NaN fell through BOTH threshold comparisons into band 'clear'
+    // (a non-answer reported as clean), and Infinity cleared the act threshold (a non-answer FIRING the
+    // gate). Neither is an answer. Both are skips.
+    if (typeof scoreForRule !== 'number' || !Number.isFinite(scoreForRule)) {
+      recordFiring({
+        rule: rule.id,
+        buffer: 'tool-result',
+        band: 'skip',
+        probability: null,
+        verdict:
+          typeof scoreForRule !== 'number'
+            ? `judge returned no answer for rule "${rule.id}"`
+            : `judge returned a non-finite score (${String(scoreForRule)}) for rule "${rule.id}"`,
+        jev_called: true,
+        ms: Math.round(performance.now() - started),
+        matched_span: null,
+        skip_reason: 'no-answer',
+      });
+      continue;
+    }
+    const prob = scoreForRule;
     const band = computeBand(prob);
     const ts = new Date().toISOString();
     const verdict = rule.text.trim().replace(/\s+/g, ' ').slice(0, 220);
@@ -674,6 +706,8 @@ export interface KernelJudgeHandle {
   judge: (event: OmpToolResultEvent) => Promise<JudgeBandResult>;
   /** Reset the per-turn ring (for testing). */
   reset: (sessionId?: string, turnId?: string) => void;
+  /** Advance the turn counter — the host calls this at each turn boundary (agent_end). */
+  setTurn: (turn: number) => void;
 }
 
 /**
@@ -689,8 +723,15 @@ export function kernelJudge(opts: JudgeOpts = {}): KernelJudgeHandle {
   // so tests can isolate sessions/turns without cross-talk.
   const rings = new Map<string, TurnRing>();
 
+  // V-040: the ring must be PER TURN, but the omp tool_result payload carries NO session/turn ids
+  // (measured: {type, toolName, toolCallId, input}). The previous code keyed the ring on the
+  // CONSTRUCTOR opts, which are unset in production — so the key was constant for the process and
+  // MAX_ACT_APPENDS_PER_RULE_PER_TURN degenerated into a PERMANENT cap: after 2 act appends a rule
+  // was flag-only FOREVER, and the repair channel (this layer's whole point) fell silent.
+  // `currentTurn` is advanced by the host at the turn boundary (agent_end) via `setTurn()`.
+  let currentTurn = 0;
   const ringAccessor: RingAccessor = (sessionId, turnId) => {
-    const key = `${sessionId ?? 'default'}::${turnId ?? 'turn'}`;
+    const key = `${sessionId ?? 'default'}::${turnId ?? 'T' + currentTurn}`;
     let ring = rings.get(key);
     if (!ring) {
       ring = { sessionId: sessionId ?? 'default', turnId: turnId ?? 'default', entries: [] };
@@ -752,7 +793,7 @@ export function kernelJudge(opts: JudgeOpts = {}): KernelJudgeHandle {
     });
   }
 
-  return { register, judge, reset };
+  return { register, judge, reset, setTurn: (turn: number) => { currentTurn = turn; } };
 }
 
 // ── EXPORT THE BAND FUNCTION FOR TESTS ────────────────────────────────────

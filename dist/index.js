@@ -2882,8 +2882,20 @@ import { readFileSync as readFileSync4, existsSync as existsSync5 } from "fs";
 import { appendFileSync as appendFileSync5, readFileSync as readFileSync3, mkdirSync as mkdirSync4, existsSync as existsSync4 } from "fs";
 import { join as join6 } from "path";
 function ledgerDir() {
-  return process.env.ABIDE_DIR ?? ".abide";
+  const raw = process.env.ABIDE_DIR;
+  if (raw === undefined || raw === "" || raw === "undefined" || raw === "null") {
+    if (raw !== undefined && raw !== "" && !warnedSentinelDir) {
+      warnedSentinelDir = true;
+      try {
+        process.stderr.write(`[omp-ct] ABIDE_DIR was set to the sentinel ${JSON.stringify(raw)} (a broken value, not a ` + `path) \u2014 resolving to '.abide' instead of writing audit rows into ./${raw}/. Fix the caller.
+`);
+      } catch {}
+    }
+    return ".abide";
+  }
+  return raw;
 }
+var warnedSentinelDir = false;
 function ledgerPath() {
   return join6(ledgerDir(), "events.jsonl");
 }
@@ -2905,13 +2917,22 @@ function recordFiring(input) {
   };
   const dir = ledgerDir();
   const file = ledgerPath();
-  if (!existsSync4(dir)) {
-    mkdirSync4(dir, { recursive: true });
-  }
-  const line = JSON.stringify(row) + `
+  let writeError = null;
+  try {
+    if (!existsSync4(dir)) {
+      mkdirSync4(dir, { recursive: true });
+    }
+    const line = JSON.stringify(row) + `
 `;
-  appendFileSync5(file, line, "utf8");
-  return { row };
+    appendFileSync5(file, line, "utf8");
+  } catch (e) {
+    writeError = e instanceof Error ? e.message : String(e);
+    try {
+      process.stderr.write(`[omp-ct] LEDGER WRITE FAILED (${file}): ${writeError} \u2014 the firing is NOT recorded; ` + `the edit/claim proceeds (fail-open). Fix the ledger path or permissions.
+`);
+    } catch {}
+  }
+  return { row, writeError };
 }
 
 // src/ext/kernel-judge.ts
@@ -3012,10 +3033,8 @@ async function defaultJudge(rules, state, apiKey) {
     const scores = {};
     for (const rule of rules) {
       const answer = result.answers?.[rule.id];
-      if (answer && typeof answer.probability === "number") {
+      if (answer && typeof answer.probability === "number" && Number.isFinite(answer.probability)) {
         scores[rule.id] = Math.min(1, Math.max(0, answer.probability));
-      } else {
-        scores[rule.id] = 0;
       }
     }
     return scores;
@@ -3062,8 +3081,8 @@ async function judgeWithBands(event, opts, ringAccessor) {
   const originalContent = event.content;
   const diff = excerptDiff(event);
   const file = typeof event.input.file_path === "string" ? event.input.file_path : "unknown";
-  const sessionId = opts.sessionId ?? "default";
-  const turnId = opts.turnId ?? "turn";
+  const sessionId = opts.sessionId ?? event.sessionId ?? "default";
+  const turnId = opts.turnId ?? event.turnId;
   const ring = ringAccessor(sessionId, turnId);
   const diffTs = new Date().toISOString();
   ring.entries.push({
@@ -3181,7 +3200,22 @@ async function judgeWithBands(event, opts, ringAccessor) {
   let flagNotices = 0;
   const matchedSpan = diff.slice(0, 200);
   for (const rule of rules) {
-    const prob = scores[rule.id] ?? 0;
+    const scoreForRule = scores[rule.id];
+    if (typeof scoreForRule !== "number" || !Number.isFinite(scoreForRule)) {
+      recordFiring({
+        rule: rule.id,
+        buffer: "tool-result",
+        band: "skip",
+        probability: null,
+        verdict: typeof scoreForRule !== "number" ? `judge returned no answer for rule "${rule.id}"` : `judge returned a non-finite score (${String(scoreForRule)}) for rule "${rule.id}"`,
+        jev_called: true,
+        ms: Math.round(performance.now() - started),
+        matched_span: null,
+        skip_reason: "no-answer"
+      });
+      continue;
+    }
+    const prob = scoreForRule;
     const band = computeBand(prob);
     const ts = new Date().toISOString();
     const verdict = rule.text.trim().replace(/\s+/g, " ").slice(0, 220);
@@ -3292,8 +3326,9 @@ async function judgeWithBands(event, opts, ringAccessor) {
 }
 function kernelJudge(opts = {}) {
   const rings = new Map;
+  let currentTurn = 0;
   const ringAccessor = (sessionId, turnId) => {
-    const key = `${sessionId ?? "default"}::${turnId ?? "turn"}`;
+    const key = `${sessionId ?? "default"}::${turnId ?? "T" + currentTurn}`;
     let ring = rings.get(key);
     if (!ring) {
       ring = { sessionId: sessionId ?? "default", turnId: turnId ?? "default", entries: [] };
@@ -3341,7 +3376,9 @@ function kernelJudge(opts = {}) {
       }
     });
   }
-  return { register, judge, reset };
+  return { register, judge, reset, setTurn: (turn) => {
+    currentTurn = turn;
+  } };
 }
 
 // src/ext/claim-bind.ts
@@ -3349,7 +3386,7 @@ function parseClaimAtoms(text) {
   if (!text || !text.trim())
     return [];
   const atoms = [];
-  const statusRe = /\b(?:the\s+)?(\w+(?:\s+\w+)*)\s+is\s+(running|working|live|complete|done|verified|pass(?:es|ed)?|green|all\s+green)\b/gi;
+  const statusRe = /\b(?:the\s+)?(\w+(?:\s+\w+){0,6})\s+is\s+(running|working|live|complete|done|verified|pass(?:es|ed)?|green|all\s+green)\b/gi;
   let m;
   while ((m = statusRe.exec(text)) !== null) {
     atoms.push({ kind: "status", text: m[0] });
@@ -3451,6 +3488,26 @@ function bindAtoms(atoms, ring, opts = {}) {
             jr = null;
           }
           jevCalled = true;
+          if (jr && typeof jr.then === "function") {
+            recordFiring({
+              rule: "claim-bind",
+              buffer: "agent-text",
+              band: "skip",
+              probability: null,
+              verdict: "FAIL_CLOSED",
+              jev_called: true,
+              ms: 0,
+              matched_span: atom.text,
+              skip_reason: "judge returned a Promise \u2014 JudgeFn is SYNCHRONOUS; the async judge was not awaited"
+            });
+            return {
+              verdict: "FAIL_CLOSED",
+              jev_called: true,
+              boundSpan: null,
+              missingAtoms: [],
+              reason: `judge returned a Promise for atom "${atom.text}" \u2014 JudgeFn is synchronous, the async judge was never awaited`
+            };
+          }
           if (jr) {
             if (jr.verdict === "support") {
               if (!boundSpan)
@@ -3568,7 +3625,7 @@ function textMatchesAtom(atom, spanText) {
       ];
       for (const v of statusVerbs) {
         if (span.includes(v)) {
-          const subjectMatch = text.match(/(?:the\s+)?(\w+(?:\s+\w+)*)\s+is\s+/i);
+          const subjectMatch = text.match(/(?:the\s+)?(\w+(?:\s+\w+){0,6})\s+is\s+/i);
           if (subjectMatch) {
             const subjWords = subjectMatch[1].toLowerCase().split(/\s+/);
             if (subjWords.every((w) => span.includes(w)))
@@ -3641,7 +3698,12 @@ function ctExtension(pi) {
     pi.appendEntry("com.ct.state", { loaded: true, version: "2.0.0", ts: host.now() });
     host.log("INFO", "omp-ct", "extension loaded \u2014 container-testing first-class");
   });
+  let turnCounter = 0;
   const settledHandler = (event, c) => {
+    turnCounter += 1;
+    try {
+      judge.setTurn(turnCounter);
+    } catch {}
     currentCtx = c;
     try {
       const msgs = Array.isArray(event?.messages) ? event.messages : [];

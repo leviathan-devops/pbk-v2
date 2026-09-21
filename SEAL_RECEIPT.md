@@ -136,3 +136,23 @@ auth-rejected. Resume: `bun omp-ct-v2/scripts/verify-key-path.mjs` (exit 0 = the
 
 **A seal receipt that overstated its own gates would be the exact defect this project exists to catch.
 This addendum exists so it cannot.**
+
+## ADDENDUM 3 — 2026-09-21 08:40  — the judge-path hardening round, closed
+
+| gate | state |
+|---|---|
+| the six probes (L0 `decide()`) | **6 pass / 0 fail** |
+| the live claim refusal | **PROVEN** — `FABRICATED` (empty ring) + `FAIL_CLOSED` (no supporting span), each naming the atom and the reason |
+| the live edit judge | fires on every real write; the band PLUMBING works (labelled stub: act/0.9/jev_called) |
+| the census | firings below the 27 baseline at **100% span-resolution** |
+| the four SKIP CLASSES | **4/4** — `no-key` · `no-answer` · `judge-error` (provider error) · `timeout`, each with a ledger row |
+| the trees | fork `tsc 0 · 192 tests / 23 files / 0 fail` · project `tsc 0 · 439 pass / 0 fail` |
+| the fork checkpoint | `v2-judge-path-hardened` — self-verifies the same 192 tests from its own contents |
+
+**Defects this round found and fixed (V-036 … V-040), each pinned by a probe-derived test:**
+the judge invented probability 0 for an unanswered rule · a diagnostic naming the wrong cause · my census
+silently dropping unreadable rows · catastrophic regex backtracking (2.3s → 19ms) plus the class sweep ·
+the per-turn cap being a PERMANENT cap that silenced the repair channel.
+
+**The one block stands:** `TYPESAFE_AI_API_KEY` — proven wired to the auth boundary (no key → `no-key`;
+bogus key → `HTTP 401` in 719 ms). Resume: `bun scripts/verify-key-path.mjs`.

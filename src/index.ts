@@ -101,7 +101,14 @@ export default function ctExtension(pi: ExtensionAPI): void {
   // registration used "agent-end" (hyphen), which never fires — so the claim arming AND
   // the L2 claim bind were silently dead. Register under the real names (the hyphen form
   // is kept for compatibility with any host that does emit it).
+  // V-040: the L1 judge's per-turn cap needs a TURN IDENTITY, and the tool_result payload carries
+  // none. The turn boundary is exactly this handler (agent_end / message_end), so it advances the
+  // judge's turn counter — without it, MAX_ACT_APPENDS_PER_RULE_PER_TURN was a permanent cap and the
+  // repair channel went silent after 2 firings per rule, for the whole process.
+  let turnCounter = 0;
   const settledHandler = (event: { messages?: unknown[] }, c: OmpExtensionContext) => {
+    turnCounter += 1;
+    try { judge.setTurn(turnCounter); } catch { /* the judge is declared below; it exists by first call */ }
     currentCtx = c;
     try {
       const msgs = Array.isArray(event?.messages) ? (event.messages as Array<{ role?: unknown; content?: unknown }>) : [];

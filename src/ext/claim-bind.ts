@@ -66,6 +66,11 @@ export interface BindResult {
  * Returns null when no ring span supports the atom (the caller
  * treats null as FAIL_CLOSED, never a pass).
  */
+/**
+ * SYNCHRONOUS by contract. An `async` judge is a natural mistake (the real TypeSafe call is async) and
+ * returns a Promise whose `.verdict` is undefined; V-037 makes that case report itself instead of
+ * masquerading as a judge rejection. If you need the real judge, wrap it and resolve BEFORE calling.
+ */
 export type JudgeFn = (atom: ClaimAtom, span: RingSpan) => JudgeResult | null;
 
 // ── Options ─────────────────────────────────────────────────────────────────
@@ -92,7 +97,7 @@ export function parseClaimAtoms(text: string): ClaimAtom[] {
   const atoms: ClaimAtom[] = [];
 
   // Status assertions: "the daemon is running", "it works", "build is complete"
-  const statusRe = /\b(?:the\s+)?(\w+(?:\s+\w+)*)\s+is\s+(running|working|live|complete|done|verified|pass(?:es|ed)?|green|all\s+green)\b/gi;
+  const statusRe = /\b(?:the\s+)?(\w+(?:\s+\w+){0,6})\s+is\s+(running|working|live|complete|done|verified|pass(?:es|ed)?|green|all\s+green)\b/gi;
   let m: RegExpExecArray | null;
   while ((m = statusRe.exec(text)) !== null) {
     atoms.push({ kind: 'status', text: m[0] });
@@ -231,6 +236,32 @@ export function bindAtoms(
             jr = null;
           }
           jevCalled = true;
+          // V-037 DIAGNOSTIC HONESTY: JudgeFn is SYNCHRONOUS, but supplying an `async` judge is a
+          // natural mistake (the real TypeSafe call IS async). An async judge returns a Promise,
+          // whose `.verdict` is undefined — which used to fall through to the reject branch and
+          // report `judge rejected atom "…"`, a LIE about the cause. This project's hardest lesson
+          // was hours lost to a diagnostic that named the wrong cause; the reason now names the
+          // real one. The BEHAVIOUR stays fail-closed (reject), which is the safe direction.
+          if (jr && typeof (jr as unknown as { then?: unknown }).then === 'function') {
+            recordFiring({
+              rule: 'claim-bind',
+              buffer: 'agent-text',
+              band: 'skip',
+              probability: null,
+              verdict: 'FAIL_CLOSED',
+              jev_called: true,
+              ms: 0,
+              matched_span: atom.text,
+              skip_reason: 'judge returned a Promise — JudgeFn is SYNCHRONOUS; the async judge was not awaited',
+            });
+            return {
+              verdict: 'FAIL_CLOSED',
+              jev_called: true,
+              boundSpan: null,
+              missingAtoms: [],
+              reason: `judge returned a Promise for atom "${atom.text}" — JudgeFn is synchronous, the async judge was never awaited`,
+            };
+          }
           if (jr) {
             if (jr.verdict === 'support') {
               if (!boundSpan) boundSpan = atom.text;
@@ -360,7 +391,7 @@ function textMatchesAtom(atom: ClaimAtom, spanText: string): boolean {
       for (const v of statusVerbs) {
         if (span.includes(v)) {
           // Extract subject from "the X is Y" or "X is Y".
-          const subjectMatch = text.match(/(?:the\s+)?(\w+(?:\s+\w+)*)\s+is\s+/i);
+          const subjectMatch = text.match(/(?:the\s+)?(\w+(?:\s+\w+){0,6})\s+is\s+/i);
           if (subjectMatch) {
             const subjWords = subjectMatch[1].toLowerCase().split(/\s+/);
             if (subjWords.every(w => span.includes(w))) return true;

@@ -44,7 +44,13 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  process.env.ABIDE_DIR = realAbide;
+  // V-047: assigning `undefined` to process.env stores the STRING "undefined" and
+
+  // `?? ` would NOT fall back — the ledger silently moved to ./undefined/. Restore the ABSENCE.
+
+  if (realAbide === undefined) delete process.env.ABIDE_DIR;
+
+  else process.env.ABIDE_DIR = realAbide;
   if (existsSync(TMP)) rmSync(TMP, { recursive: true, force: true });
 });
 
@@ -316,6 +322,47 @@ describe('bands-edge: threshold boundaries', () => {
 });
 
 // ── GROUP 3: cap — at most 2 act appends per rule per turn, then flag ──────
+// V-046 — PROBED 2026-09-21. `typeof NaN === 'number'`, so the no-answer guard let NaN through, and
+// BOTH threshold comparisons are false for NaN -> computeBand returned 'clear': a judge that produced
+// no usable number was reported as a CLEAN rule. The V-036 defect class, one type-check deeper.
+// Infinity is the mirror image: it cleared the act threshold and FIRED the gate on a non-answer.
+// ADVERSARIAL FIRST: every non-finite / non-numeric shape, then the real numbers as the control.
+describe('bands-edge: a NON-FINITE score is a skip, never a band', () => {
+  const cases: Array<[string, unknown]> = [
+    ['NaN', NaN],
+    ['Infinity', Infinity],
+    ['-Infinity', -Infinity],
+    ['a numeric string', '0.99'],
+  ];
+  for (const [label, value] of cases) {
+    test(`${label} -> band=skip with skip_reason=no-answer (never clear, never act)`, async () => {
+      const opts = optsWithRules([EDIT_MODEL_RULE], {
+        apiKey: 'fake',
+        judge: (async () => ({ r: value })) as never,
+      });
+      const result = await kernelJudge(opts).judge(editEvent());
+
+      expect(result.actAppends).toBe(0);   // a non-answer must never FIRING the gate
+      expect(result.flagNotices).toBe(0);
+
+      const rows = readAllRows().filter((r) => r.rule === 'w-test-edit-rule');
+      expect(rows.length).toBe(1);
+      expect(rows[0]!.band).toBe('skip');            // NOT 'clear' — the whole point
+      expect(rows[0]!.skip_reason).toBe('no-answer');
+      expect(rows[0]!.probability).toBeNull();
+    });
+  }
+
+  test('CONTROL: a real 0.99 still bands act (the fix did not break the happy path)', async () => {
+    const opts = optsWithRules([EDIT_MODEL_RULE], { apiKey: 'fake', judge: stubJudge(0.99) });
+    const result = await kernelJudge(opts).judge(editEvent());
+    expect(result.actAppends).toBe(1);
+    const rows = readAllRows().filter((r) => r.rule === 'w-test-edit-rule');
+    expect(rows[0]!.band).toBe('act');
+    expect(rows[0]!.skip_reason).toBeNull();
+  });
+});
+
 describe('bands-edge: act cap (2 then flag)', () => {
   test('3 same-rule act candidates → 2 act appends then flag on 3rd', async () => {
     const opts = optsWithRules([EDIT_MODEL_RULE], {

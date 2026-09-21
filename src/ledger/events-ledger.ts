@@ -25,8 +25,29 @@ import { join } from 'node:path';
 // (A module-load-time const would freeze the path and poison isolation.)
 
 export function ledgerDir(): string {
-  return process.env.ABIDE_DIR ?? '.abide';
+  const raw = process.env.ABIDE_DIR;
+  // V-047: `process.env.X = undefined` stores the STRING "undefined" (node coerces), and `?? ` does NOT
+  // fall back for it — the broken value WINS. Measured consequence: every firing after such an
+  // assignment landed in ./undefined/events.jsonl, a path NOTHING reads (the census reads
+  // .abide/events.jsonl), so the audit rows were misplaced into the void. A 39 KB file proved it.
+  // A sentinel is never a directory: resolve the default and NAME the anomaly (loud, once).
+  if (raw === undefined || raw === '' || raw === 'undefined' || raw === 'null') {
+    if (raw !== undefined && raw !== '' && !warnedSentinelDir) {
+      warnedSentinelDir = true;
+      try {
+        process.stderr.write(
+          `[omp-ct] ABIDE_DIR was set to the sentinel ${JSON.stringify(raw)} (a broken value, not a ` +
+            `path) — resolving to '.abide' instead of writing audit rows into ./${raw}/. Fix the caller.\n`,
+        );
+      } catch { /* stderr can fail; never throw from a logger */ }
+    }
+    return '.abide';
+  }
+  return raw;
 }
+
+/** V-047: warn once per process, not once per firing. */
+let warnedSentinelDir = false;
 
 export function ledgerPath(): string {
   return join(ledgerDir(), 'events.jsonl');
@@ -177,6 +198,11 @@ export interface RecordFiringInput {
 export interface RecordFiringResult {
   /** The full row that was written. */
   row: FiringEvent;
+  /**
+   * V-044: non-null when the write FAILED (EACCES/ENOSPC/read-only dir). The row was NOT persisted;
+   * the caller still proceeds (fail-open), but the degradation is named so it cannot pass for healthy.
+   */
+  writeError?: string | null;
 }
 
 /**
@@ -211,17 +237,34 @@ export function recordFiring(input: RecordFiringInput): RecordFiringResult {
     skip_reason: input.skip_reason ?? null,
   };
 
-  // Ensure the dir exists (mkdirSync recursive is safe + idempotent).
+  // V-044: THE AUDIT WRITE MUST NEVER THROW. Measured: with an unwritable ledger dir (read-only
+  // mount, EACCES, ENOSPC, a full disk) the raw mkdirSync/appendFileSync threw EACCES straight out of
+  // the judge -> the tool_result handler threw -> the runtime surfaced an EXTENSION ERROR on the
+  // agent's edit. That violates the fail-open law: "the write is NEVER blocked". An audit trail that
+  // can break the work it audits has the polarity backwards.
+  //
+  // The failure is NOT swallowed: it is counted, reported on stderr, and exposed on the result, so a
+  // degraded ledger is impossible to mistake for a healthy one (the V-038 lesson applied).
   const dir = ledgerDir();
   const file = ledgerPath();
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
+  let writeError: string | null = null;
+  try {
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
+    const line = JSON.stringify(row) + '\n';
+    appendFileSync(file, line, 'utf8');
+  } catch (e: unknown) {
+    writeError = e instanceof Error ? e.message : String(e);
+    try {
+      process.stderr.write(
+        `[omp-ct] LEDGER WRITE FAILED (${file}): ${writeError} — the firing is NOT recorded; ` +
+          `the edit/claim proceeds (fail-open). Fix the ledger path or permissions.\n`,
+      );
+    } catch { /* stderr itself can fail; never throw from a logger */ }
   }
 
-  const line = JSON.stringify(row) + '\n';
-  appendFileSync(file, line, 'utf8');
-
-  return { row };
+  return { row, writeError };
 }
 
 // ── READER (recoverSpan — the auditability proof) ─────────────────────────

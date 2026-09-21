@@ -44,7 +44,13 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  process.env.ABIDE_DIR = realAbide;
+  // V-047: assigning `undefined` to process.env stores the STRING "undefined" and
+
+  // `?? ` would NOT fall back — the ledger silently moved to ./undefined/. Restore the ABSENCE.
+
+  if (realAbide === undefined) delete process.env.ABIDE_DIR;
+
+  else process.env.ABIDE_DIR = realAbide;
   if (existsSync(TMP)) rmSync(TMP, { recursive: true, force: true });
 });
 
@@ -245,5 +251,59 @@ describe('role-filter (FIRE-ON-HOST-TEXT)', () => {
     // handles quotation awareness; classifyBuffer only handles structural
     // envelope/code. This documents the boundary.
     expect(classifyBuffer(text, 'agent').kind).toBe('agent-text');
+  });
+});
+
+// ═══ V-047 THE SENTINEL PATH (probed 2026-09-21) ═══════════════════════════════════════════════════
+// `process.env.X = undefined` stores the STRING "undefined" (node coerces) and `?? ` does NOT fall back
+// for it — the broken value WINS. The test-restore pattern in four files did exactly that, so every
+// firing after such a test landed in ./undefined/events.jsonl — a path NOTHING reads. A 39 KB file of
+// misplaced audit rows was the proof. The ledger resolver must refuse a sentinel and name it.
+describe('V-047 a sentinel ABIDE_DIR never becomes a directory', () => {
+  test("ADVERSARIAL: the string 'undefined' resolves to .abide, never ./undefined/", () => {
+    const before = process.env.ABIDE_DIR;
+    process.env.ABIDE_DIR = 'undefined';
+    try {
+      expect(ledgerDir()).toBe('.abide');
+      expect(ledgerPath()).toBe(join('.abide', 'events.jsonl'));
+      expect(ledgerDir()).not.toContain('undefined');
+    } finally {
+      if (before === undefined) delete process.env.ABIDE_DIR; else process.env.ABIDE_DIR = before;
+    }
+  });
+
+  test("the 'null' sentinel and the empty string are refused too", () => {
+    const before = process.env.ABIDE_DIR;
+    try {
+      process.env.ABIDE_DIR = 'null';
+      expect(ledgerDir()).toBe('.abide');
+      process.env.ABIDE_DIR = '';
+      expect(ledgerDir()).toBe('.abide');
+    } finally {
+      if (before === undefined) delete process.env.ABIDE_DIR; else process.env.ABIDE_DIR = before;
+    }
+  });
+
+  test('CONTROL: a REAL path is honoured (the guard is not swallowing everything)', () => {
+    const before = process.env.ABIDE_DIR;
+    process.env.ABIDE_DIR = '/tmp/a-real-abide-dir';
+    try {
+      expect(ledgerDir()).toBe('/tmp/a-real-abide-dir');
+    } finally {
+      if (before === undefined) delete process.env.ABIDE_DIR; else process.env.ABIDE_DIR = before;
+    }
+  });
+
+  test('the node coercion that caused it is a fact, not a guess', () => {
+    const before = process.env.SENTINEL_PROBE;
+    process.env.SENTINEL_PROBE = undefined as unknown as string;
+    try {
+      expect(typeof process.env.SENTINEL_PROBE).toBe('string');       // a string, not a value
+      expect(process.env.SENTINEL_PROBE).toBe('undefined');           // the literal word
+      expect(process.env.SENTINEL_PROBE ?? 'DEFAULT').toBe('undefined'); // ?? does NOT save you
+    } finally {
+      delete process.env.SENTINEL_PROBE;
+      void before;
+    }
   });
 });

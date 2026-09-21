@@ -57,4 +57,26 @@ describe("the census instrument", () => {
     expect(out).toContain("no ledger at");
     expect(out).toContain("CURRENT: 0");
   });
+
+  // V-045 — PROBED 2026-09-21: the absent-ledger case above is guarded by existsSync, but a DIRECTORY
+  // at the ledger path (EISDIR) or any unreadable file threw a RAW NODE STACK out of the census. A
+  // measurement tool that crashes instead of reporting is the same failure class as the silent drop
+  // (V-038): it fails to measure and says nothing useful. An unreadable ledger is a FINDING.
+  test("ADVERSARIAL: a DIRECTORY at the ledger path is reported, never a raw crash", () => {
+    const dir = mkdtempSync(join(tmpdir(), "census-eisdir-"));
+    const out = execFileSync("node", [CENSUS, "--ledger", dir], { encoding: "utf8" });
+    expect(out).toContain("cannot read the ledger");
+    expect(out).toContain("EISDIR");
+    expect(out).not.toContain("Node.js v");        // no stack dump
+    expect(out).toContain("n/a (no readable ledger)");
+  });
+
+  test("CONTROL: a garbage line is COUNTED as unparseable, never silently dropped", () => {
+    const dir = mkdtempSync(join(tmpdir(), "census-garbage-"));
+    const ledger = join(dir, "events.jsonl");
+    writeFileSync(ledger, JSON.stringify(row()) + "\ngarbage{{{\n");
+    const out = execFileSync("node", [CENSUS, "--ledger", ledger], { encoding: "utf8" });
+    expect(out).toContain("UNPARSEABLE LINES 1");
+    expect(out).toContain("SPAN-RESOLUTION 100.0%");
+  });
 });

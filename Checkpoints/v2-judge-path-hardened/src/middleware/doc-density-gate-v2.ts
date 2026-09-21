@@ -1,0 +1,352 @@
+/**
+ * doc-density-gate v2.0 — the quality-forcing fork (2026-09-17)
+ *
+ * FORKED FROM: ct v4 doc-density-state.ts (paragon-cache-autopsy-cleaned,
+ * src/tools/doc-density-state.ts 458L) — the state machine (UNTRACKED →
+ * DRAFTING → BUILDING → COMPLETE → VERIFIED, INCONCLUSIVE fail-state), the
+ * accumulated-state rule (the floor binds on the FILE, never the write), the
+ * ordered resolution (L1 path → L2 name → L3 content), the chunked-protocol
+ * non-throw path, the DOC-COMPLETE marker.
+ *
+ * WHAT v2 ADDS (the operator: "extensions is still a prototype so dont port it
+ * but observe it... see how we can improve this to better detect theatrical
+ * shitty toiletplate doc writes and force quality generations"):
+ *
+ *  1. THE TOILETPLATE LEXICON (L7-new): Order-2 structural detectors for the
+ *     repeated-filler class the v1 line-count floor REWARDS — a 3000-line
+ *     document of restated boilerplate passes v1. v2 scores toiletplate
+ *     density (repeated paragraphs, marketing filler, anchorless claims,
+ *     section-less walls) and BLOCKS high-slop documents even over floor.
+ *  2. THE ANCHOR-DENSITY CONTRACT: engineering claims require file:line
+ *     anchors or command receipts — the ratio anchors/claims is measured
+ *     (Order-2: regex components in a structural judgment), not guessed.
+ *  3. THE HEADING-HIERARCHY MATCHER (Order-2): a spec without a heading
+ *     hierarchy (the # / ## tree) is structureless — v1 only checked regex
+ *     markers.
+ *  4. THE FACTS-ONCE CHECK (v4's own doctrine made mechanical): duplicated
+ *     identical paragraphs are counted and penalized.
+ *  5. THE EVIDENCE TRIAD: every block/allow carries {detector hits, state,
+ *     measured numbers} — Lexicon bible §3.1 evidence layer.
+ *
+ * The v1 separation law HOLDS: the matchers are pure DETECTION; the state
+ * machine + the ordered verdict are the DECISION; the message names the
+ * shortfall + the remedy.
+ */
+import { BeforeGate } from "./chain";
+import type { EngineHost } from "../host";
+
+// ─── floors (forked verbatim from v4 / hook-chain warhead-7 table) ───
+
+export type DocType =
+  | "SPEC" | "COMPLETION" | "ARCHITECTURE" | "REPORT"
+  | "AUDIT" | "LOG" | "OVERVIEW" | "GENERIC";
+
+export const DOC_FLOORS: Record<DocType, number> = {
+  SPEC: 3000,
+  COMPLETION: 2000,
+  ARCHITECTURE: 1000,
+  REPORT: 500,
+  AUDIT: 100,
+  LOG: 100,
+  OVERVIEW: 300,
+  GENERIC: 200,
+};
+
+export const EXEMPT_PATHS = [
+  "/generated_artifacts/",
+  "/skills/",
+  "/node_modules/",
+  "ct-tmp",
+  "/tmp/opencode",
+  ".ct/wave-",
+];
+
+// ─── DETECTION LAYER (pure matchers — never decide) ───
+
+/** Order-1: path/name → type (forked from v4's L1/L2, simplified to the OMP surface). */
+export function classifyDocType(filePath: string): DocType {
+  const lower = filePath.toLowerCase();
+  if (/\/context_management\//.test(lower)) {
+    if (/spec|plan|post-compaction/.test(lower)) return "SPEC";
+    if (/build_report|completion/.test(lower)) return "COMPLETION";
+  }
+  if (/ship_packages|ship_package/.test(lower)) {
+    if (/build_report|full_build_context/.test(lower)) return "COMPLETION";
+    if (/debug_log/.test(lower)) return "LOG";
+    if (/readme|master_index|manifest/.test(lower)) return "OVERVIEW";
+    if (/package_audit/.test(lower)) return "AUDIT";
+  }
+  if (/audit|zero_trust/.test(lower)) return "AUDIT";
+  if (/debug_log|changelog/.test(lower)) return "LOG";
+  if (/spec|dpl1|plan\b/.test(lower)) return "SPEC";
+  if (/completion|definition_of_done/.test(lower)) return "COMPLETION";
+  if (/architect|overhaul|breakdown|blueprint/.test(lower)) return "ARCHITECTURE";
+  if (/report|review|findings/.test(lower)) return "REPORT";
+  if (/readme|index|overview/.test(lower)) return "OVERVIEW";
+  return "GENERIC";
+}
+
+export interface SlopHit {
+  signature: string;
+  hits: number;
+  evidence: string;
+}
+
+/** Order-2 detectors: the regex components in a structural judgment (Lexicon §3.3). */
+
+/** TOILET-1 repeated paragraphs: identical non-trivial paragraphs counted twice+. */
+export function detectRepeatedParagraphs(content: string): SlopHit {
+  const paras = content
+    .split(/\n{2,}|\n(?=[A-Z"'])/)
+    .map((p) => p.trim())
+    .filter((p) => p.length >= 120); // non-trivial paragraphs only
+  const counts = new Map<string, number>();
+  for (const p of paras) counts.set(p, (counts.get(p) ?? 0) + 1);
+  const dupes = [...counts.entries()].filter(([, n]) => n > 1);
+  const worst = dupes.sort((a, b) => b[1] - a[1])[0];
+  return {
+    signature: "REPEATED_PARAGRAPH",
+    hits: dupes.reduce((acc, [, n]) => acc + (n - 1), 0),
+    evidence: worst ? `identical paragraph repeated ${worst[1]}x: "${worst[0].slice(0, 80)}…"` : "none",
+  };
+}
+
+/** TOILET-2 marketing filler: the buzzword density per 100 lines. */
+const FILLER_RE =
+  /\b(seamless|seamlessly|leverage|leveraging|utilize|utilizing|cutting[- ]edge|state[- ]of[- ]the[- ]art|robust|comprehensive|holistic|synerg|paradigm|best[- ]in[- ]class|world[- ]class|enterprise[- ]grade|blazingly fast|game[- ]chang)\b/gi;
+
+export function detectFillerDensity(content: string): SlopHit {
+  const lines = Math.max(1, content.split("\n").length);
+  const fillerHits = [...content.matchAll(FILLER_RE)].length;
+  const per100 = (fillerHits / lines) * 100;
+  return {
+    signature: "MARKETING_FILLER",
+    hits: fillerHits,
+    evidence: `${fillerHits} filler terms across ${lines} lines (${per100.toFixed(1)}/100 lines)`,
+  };
+}
+
+/** TOILET-3 anchorless engineering prose: claims w/o file:line or command receipts. */
+export function detectAnchorlessClaims(content: string): SlopHit {
+  // PARAGRAPH-level judgment, not sentence-level: a claim and its anchor often
+  // split across a sentence boundary ("...the handler enforces the schema. SEE
+  // path/to/a.ts:48.") — sentence-splitting orphans the anchor from the claim
+  // and flags every anchored paragraph anchorless (the live diag: 80/80 on a
+  // fully-anchored spec). A PARAGRAPH carrying an engineering verb must carry
+  // an anchor somewhere in the same paragraph.
+  const anchorRe = /[:\d]\d+\b|file:line|:[0-9]{2,}|`[a-z0-9_/-]+\.(ts|md|ya?ml|json)`|output:|verification:|SEE /i;
+  const verbRe = /\b(implements|handles|writes|reads|routes|dispatch|enforce|verif|returns?|loads?|parses?|blocks?|allows?)\b/i;
+  const paragraphs = content.split(/\n{2,}|\n(?=[A-Z"'])/).map((p) => p.trim()).filter((p) => p.length > 60);
+  let anchorless = 0;
+  let total = 0;
+  let firstBad = "";
+  for (const para of paragraphs) {
+    if (/^#\s/.test(para) && !verbRe.test(para)) continue; // bare heading
+    if (!verbRe.test(para)) continue;
+    total += 1;
+    if (!anchorRe.test(para)) {
+      anchorless += 1;
+      if (!firstBad) firstBad = para.slice(0, 80);
+    }
+  }
+  const ratio = total > 0 ? anchorless / total : 0;
+  return {
+    signature: "ANCHORLESS_CLAIMS",
+    hits: anchorless,
+    evidence: `${anchorless}/${total} engineering paragraphs carry no file:line/anchor/receipt (${(ratio * 100).toFixed(0)}%)${firstBad ? ' — e.g. "' + firstBad + '…"' : ""}`,
+  };
+}
+
+/** TOILET-4 structureless wall: no heading hierarchy in a long document. */
+export function detectMissingHierarchy(content: string): SlopHit {
+  const lines = content.split("\n").length;
+  const h1 = (content.match(/^# /gm) ?? []).length;
+  const h2 = (content.match(/^## /gm) ?? []).length;
+  const hasTree = h1 + h2 >= 2; // any heading tree counts — h2-only specs are structured
+  return {
+    signature: "NO_HEADING_HIERARCHY",
+    hits: hasTree ? 0 : 1,
+    evidence: hasTree ? `h1=${h1} h2=${h2}` : `${lines} lines with h1=${h1} h2=${h2} — structureless wall`,
+  };
+}
+
+/** TOILET-5 placeholder debris: unfilled slots and continuation debris. */
+export function detectPlaceholderDebris(content: string): SlopHit {
+  const weaves = (content.match(/\[WEAVE: /g) ?? []).length;
+  const fills = (content.match(/\[FILL:/g) ?? []).length;
+  const todos = (content.match(/\b(TODO|TBD|FIXME|to be continued)\b/gi) ?? []).length;
+  const hits = weaves + fills + todos;
+  return {
+    signature: "PLACEHOLDER_DEBRIS",
+    hits,
+    evidence: `[WEAVE:]×${weaves} [FILL:]×${fills} TODO/TBD×${todos}`,
+  };
+}
+
+export interface SlopReport {
+  hits: SlopHit[];
+  /** 0 (clean) — 100 (pure toiletplate) */
+  slopScore: number;
+  verdictFlags: string[];
+}
+
+/**
+ * The composite slop score (the weighted sum, the named calibration):
+ *   REPEATED_PARAGRAPH 12/dupe | MARKETING_FILLER ≤25 over 3/100 lines
+ *   ANCHORLESS_CLAIMS ≤30 (ratio-scaled, ≥5 claims to judge)
+ *   NO_HEADING_HIERARCHY 25 flat | PLACEHOLDER_DEBRIS 8/hit
+ * BLOCK-QUALITY at slopScore >= 40 (the floor alone no longer saves it).
+ * Named + rationaled — the anti Magic-Ladder law (Lexicon bible §3.2 SLOP-SIG-3).
+ */
+export function computeSlop(content: string): SlopReport {
+  const hits: SlopHit[] = [
+    detectRepeatedParagraphs(content),
+    detectFillerDensity(content),
+    detectAnchorlessClaims(content),
+    detectMissingHierarchy(content),
+    detectPlaceholderDebris(content),
+  ];
+  let score = 0;
+  const flags: string[] = [];
+  for (const h of hits) {
+    if (h.hits === 0) continue;
+    switch (h.signature) {
+      case "REPEATED_PARAGRAPH": score += h.hits * 12; break;
+      case "MARKETING_FILLER": {
+        const lines = Math.max(1, content.split("\n").length);
+        const per100 = (h.hits / lines) * 100;
+        if (per100 > 3) score += Math.min(25, (per100 - 3) * 5);
+        break;
+      }
+      case "ANCHORLESS_CLAIMS": {
+        const m = h.evidence.match(/(\d+)\/(\d+)/);
+        if (m && Number(m[2]) >= 5) {
+          const ratio = Number(m[1]) / Number(m[2]);
+          if (ratio > 0.6) score += Math.round(ratio * 30);
+        }
+        break;
+      }
+      case "NO_HEADING_HIERARCHY": score += 25; break;
+      case "PLACEHOLDER_DEBRIS": score += h.hits * 8; break;
+    }
+    flags.push(`${h.signature}: ${h.evidence}`);
+  }
+  return { hits, slopScore: Math.min(100, Math.round(score)), verdictFlags: flags };
+}
+
+// ─── DECISION LAYER (the state machine + the ordered verdict) ───
+
+export const DOC_COMPLETE_MARKER = "<!-- DOC-COMPLETE -->";
+export const DRAFT_MIN_LINES = 20;
+
+export interface DocDensityV2Verdict {
+  action: "allow" | "block";
+  gate: string;
+  reason?: string;
+  evidence: {
+    docType: DocType;
+    floor: number;
+    lines: number;
+    isFinalize: boolean;
+    isDraft: boolean;
+    slopScore: number;
+    slopFlags: string[];
+  };
+}
+
+export function evaluateDocDensityV2(input: {
+  filePath: string;
+  content: string;
+  existing?: string | null;
+}): DocDensityV2Verdict {
+  if (EXEMPT_PATHS.some((e) => input.filePath.includes(e))) {
+    return {
+      action: "allow",
+      gate: "doc-density-v2",
+      evidence: { docType: "GENERIC", floor: 0, lines: 0, isFinalize: false, isDraft: false, slopScore: 0, slopFlags: ["exempt-path"] },
+    };
+  }
+  const docType = classifyDocType(input.filePath);
+  const floor = DOC_FLOORS[docType];
+  const existing = input.existing ?? null;
+  const isEdit = input.content.length === 0 && existing !== null;
+
+  // POST-STATE reconstruction (the v4 accumulated-state rule): the gate judges
+  // the file AFTER the write/edit lands, never the single write.
+  const postState = isEdit ? existing ?? "" : input.content;
+
+  const isFinalize = postState.includes(DOC_COMPLETE_MARKER) || (!isEdit && input.content.length > 0);
+  const isDraftMarked = postState.startsWith("DRAFT") || postState.includes("<!-- DRAFT -->");
+  const lines = postState.split("\n").length;
+
+  // DRAFT path (the chunked protocol unbroken): the 20-line sanity floor only,
+  // PLUS the slop screen (a 200-line toiletplate draft is still slop).
+  if (!isFinalize || isDraftMarked) {
+    if (lines < DRAFT_MIN_LINES && !isEdit) {
+      return {
+        action: "block",
+        gate: "doc-density-v2",
+        reason: `[DOC DENSITY GATE v2] ${docType} draft under-specified: ${lines} lines (min ${DRAFT_MIN_LINES} — even a DRAFT carries real content). Write the skeleton as a draft, then chunk-edit to the ${docType} floor (${floor}+), then finalize with ${DOC_COMPLETE_MARKER}.`,
+        evidence: { docType, floor, lines, isFinalize: false, isDraft: isDraftMarked, slopScore: 0, slopFlags: [] },
+      };
+    }
+    const draftSlop = computeSlop(postState);
+    if (draftSlop.slopScore >= 60) {
+      return {
+        action: "block",
+        gate: "doc-density-v2",
+        reason: `[DOC DENSITY GATE v2] DRAFT is toiletplate (slop ${draftSlop.slopScore}/100): ${draftSlop.verdictFlags.join("; ")}. Rewrite with real engineering content.`,
+        evidence: { docType, floor, lines, isFinalize: false, isDraft: true, slopScore: draftSlop.slopScore, slopFlags: draftSlop.verdictFlags },
+      };
+    }
+    return {
+      action: "allow",
+      gate: "doc-density-v2",
+      evidence: { docType, floor, lines, isFinalize: false, isDraft: isDraftMarked, slopScore: draftSlop.slopScore, slopFlags: draftSlop.verdictFlags },
+    };
+  }
+
+  // FINALIZE path: floor + slop screen on the POST-STATE.
+  const slop = computeSlop(postState);
+  if (lines < floor) {
+    return {
+      action: "block",
+      gate: "doc-density-v2",
+      reason: `[DOC DENSITY GATE v2] ${docType} finalize under-specified: ${lines} lines (min ${floor} — the ${docType} floor). Continue chunk-editing to the floor, then finalize with ${DOC_COMPLETE_MARKER}.`,
+      evidence: { docType, floor, lines, isFinalize: true, isDraft: false, slopScore: slop.slopScore, slopFlags: slop.verdictFlags },
+    };
+  }
+  if (slop.slopScore >= 40) {
+    return {
+      action: "block",
+      gate: "doc-density-v2",
+      reason: `[DOC DENSITY GATE v2] ${docType} meets the ${floor}-line floor but is TOILETPLATE (slop ${slop.slopScore}/100): ${slop.verdictFlags.join("; ")}. Replace filler with real engineering content (interfaces, file:line anchors, data flows, failure modes, evidence) — density is DATA, not line count.`,
+      evidence: { docType, floor, lines, isFinalize: true, isDraft: false, slopScore: slop.slopScore, slopFlags: slop.verdictFlags },
+    };
+  }
+  return {
+    action: "allow",
+    gate: "doc-density-v2",
+    evidence: { docType, floor, lines, isFinalize: true, isDraft: false, slopScore: slop.slopScore, slopFlags: slop.verdictFlags },
+  };
+}
+
+/**
+ * The OMP BeforeGate wiring (wire later per the operator: "wired into omp
+ * later"). Exemptions: non-.md, the EXEMPT_PATHS set.
+ */
+export function docDensityGateV2(host: EngineHost): BeforeGate {
+  return async (ctx) => {
+    if (!["write", "edit"].includes(ctx.toolName)) return undefined;
+    const path = String(ctx.input.path ?? ctx.input.filePath ?? "");
+    if (!path.toLowerCase().endsWith(".md")) return undefined;
+    if (EXEMPT_PATHS.some((e) => path.includes(e))) return undefined;
+    const content = String(ctx.input.content ?? ctx.input.newString ?? "");
+    const existing = ctx.toolName === "edit" ? host.readFileSync(path) : null;
+    const verdict = evaluateDocDensityV2({ filePath: path, content, existing });
+    if (verdict.action === "block") {
+      return { action: "block", gate: verdict.gate, reason: verdict.reason ?? "[DOC DENSITY GATE v2] doc-density floor violated" };
+    }
+    return undefined;
+  };
+}

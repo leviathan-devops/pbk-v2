@@ -25,10 +25,25 @@ if (!existsSync(LEDGER)) {
   process.exit(0);
 }
 
-const rows = readFileSync(LEDGER, "utf8")
+let unparseable = 0;
+// V-045: a DIRECTORY at the ledger path (EISDIR) or an unreadable file threw a raw node stack out of
+// the census. A measurement tool that crashes instead of REPORTING is the same failure class as the
+// silent drop (V-038): it fails to measure and says nothing useful. An unreadable ledger is a FINDING
+// ("there is no ledger here"), not a crash.
+let ledgerText = "";
+try {
+  ledgerText = readFileSync(LEDGER, "utf8");
+} catch (e) {
+  const reason = e && e.code ? e.code : String(e && e.message);
+  console.log(`CENSUS: cannot read the ledger at ${LEDGER} (${reason}) — reported, not crashed.`);
+  console.log(`BASELINE: ${BASELINE} · CURRENT: 0 · BELOW BASELINE: n/a (no readable ledger)`);
+  process.exit(0);
+}
+
+const rows = ledgerText
   .split("\n")
   .filter((l) => l.trim())
-  .map((l) => { try { return JSON.parse(l); } catch { return null; } })
+  .map((l) => { try { return JSON.parse(l); } catch { unparseable += 1; return null; } })
   .filter(Boolean);
 
 const byBand = {};
@@ -48,10 +63,12 @@ const resolution = needSpan === 0 ? 1 : haveSpan / needSpan;
 const firings = rows.filter((r) => r.band === "act" || r.band === "flag").length;
 
 if (jsonOut) {
-  console.log(JSON.stringify({ ledger: LEDGER, total_rows: rows.length, firings, by_band: byBand, by_rule: byRule, judge_calls: judgeCalls, skips, span_resolution: resolution, baseline: BASELINE, below_baseline: firings < BASELINE }, null, 2));
+  console.log(JSON.stringify({ ledger: LEDGER, total_rows: rows.length, unparseable, firings, by_band: byBand, by_rule: byRule, judge_calls: judgeCalls, skips, span_resolution: resolution, baseline: BASELINE, below_baseline: firings < BASELINE }, null, 2));
 } else {
   console.log(`CENSUS ${LEDGER}`);
   console.log(`  rows ${rows.length} · firings ${firings} · judge_calls ${judgeCalls} · skips ${skips}`);
+  // V-038: an instrument that DROPS unparseable rows reports a clean ledger that is not one.
+  if (unparseable > 0) console.log(`  UNPARSEABLE LINES ${unparseable}  <- rows the census could not read (never silently dropped)`);
   console.log(`  bands ${JSON.stringify(byBand)}`);
   console.log(`  SPAN-RESOLUTION ${(resolution * 100).toFixed(1)}% (${haveSpan}/${needSpan} banded rows carry a matched_span)`);
   console.log(`  BASELINE ${BASELINE} · CURRENT ${firings} · BELOW BASELINE: ${firings < BASELINE ? "yes" : "NO"}`);
