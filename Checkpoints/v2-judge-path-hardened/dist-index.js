@@ -3475,6 +3475,68 @@ function kernelJudge(opts = {}) {
 }
 
 // src/ext/claim-bind.ts
+var CLAIM_JUDGE_TIMEOUT_MS = 8000;
+async function judgeClaimViaTypeSafe(atom, span, apiKey = process.env.TYPESAFE_AI_API_KEY) {
+  if (!apiKey)
+    return null;
+  const body = JSON.stringify({
+    state: { claim: atom.text, evidence: span.text },
+    model: "jev-latest",
+    questions: {
+      "claim-supported": {
+        type: "boolean",
+        instructions: "Does the EVIDENCE text actually support the CLAIM text? Answer true only if the evidence, read " + "literally, establishes the claim. A different turn, an unrelated line, or a paraphrase that " + "overstates the evidence is false."
+      }
+    }
+  });
+  const controller = new AbortController;
+  const timeoutId = setTimeout(() => controller.abort(), CLAIM_JUDGE_TIMEOUT_MS);
+  try {
+    const resp = await fetch("https://api.typesafe.ai/v1/systemone", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+      body,
+      signal: controller.signal
+    });
+    if (!resp.ok) {
+      recordFiring({
+        rule: "claim-bind",
+        buffer: "agent-text",
+        band: "skip",
+        probability: null,
+        verdict: "FAIL_CLOSED",
+        jev_called: true,
+        ms: 0,
+        matched_span: atom.text,
+        skip_reason: `claim judge HTTP ${resp.status}`
+      });
+      return null;
+    }
+    const j = await resp.json();
+    const p = j.answers?.["claim-supported"]?.probability;
+    if (typeof p !== "number" || !Number.isFinite(p))
+      return null;
+    return { verdict: p >= 0.5 ? "support" : "reject", probability: p };
+  } catch (err) {
+    recordFiring({
+      rule: "claim-bind",
+      buffer: "agent-text",
+      band: "skip",
+      probability: null,
+      verdict: "FAIL_CLOSED",
+      jev_called: true,
+      ms: 0,
+      matched_span: atom.text,
+      skip_reason: `claim judge error: ${err instanceof Error ? err.message : String(err)}`
+    });
+    return null;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+function claimJudgeKey(atom, span) {
+  return `${atom.text}\x00${span.ts}\x00${span.text.slice(0, 60)}`;
+}
 function parseClaimAtoms(text) {
   if (!text || !text.trim())
     return [];
@@ -4098,7 +4160,7 @@ function ctExtension(pi) {
     host.log("INFO", "omp-ct", "extension loaded \u2014 container-testing first-class");
   });
   let turnCounter = 0;
-  const settledHandler = (event, c) => {
+  const settledHandler = async (event, c) => {
     currentCtx = c;
     if (event?.willContinue === true || event?.isTerminal === false)
       return;
@@ -4128,7 +4190,21 @@ function ctExtension(pi) {
             const atoms = parseClaimAtoms(text);
             if (atoms.length > 0) {
               const ring = ringFromLedger();
-              const res = bindAtoms(atoms, ring, { currentTurn: ring.length > 0 ? ring[ring.length - 1].ts : undefined });
+              const currentTurn = ring.length > 0 ? ring[ring.length - 1].ts : undefined;
+              const pre = new Map;
+              for (const atom of atoms) {
+                const span = ring.find((s) => s.ts === currentTurn && textMatchesAtom(atom, s.text));
+                if (!span)
+                  continue;
+                const k = claimJudgeKey(atom, span);
+                if (pre.has(k))
+                  continue;
+                pre.set(k, await judgeClaimViaTypeSafe(atom, span));
+              }
+              const res = bindAtoms(atoms, ring, {
+                currentTurn,
+                ...pre.size > 0 ? { judge: (atom, span) => pre.get(claimJudgeKey(atom, span)) ?? null } : {}
+              });
               host.log(res.verdict === "PASS" ? "INFO" : "WARN", "omp-ct", `[CT CLAIM] ${res.verdict} \u2014 ${res.reason ?? "claim bound to this turn's evidence"}`);
             }
           } catch {}

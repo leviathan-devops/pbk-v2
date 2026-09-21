@@ -17,7 +17,7 @@ import { guardianGate } from "./hooks/guardian-hook";
 import { registerCtTools } from "./tools/ct-registry";
 import { existsSync, readFileSync } from "node:fs";
 import { kernelJudge } from "./ext/kernel-judge";
-import { bindAtoms, parseClaimAtoms, type RingSpan } from "./ext/claim-bind";
+import { bindAtoms, parseClaimAtoms, textMatchesAtom, judgeClaimViaTypeSafe, claimJudgeKey, type RingSpan } from "./ext/claim-bind";
 // V-048: the L0 (W3's six kernels + role filter + quote exclusion + ST-7 escalation) was imported by
 // NOTHING outside its own directory — three test files were its only consumers, so it never ran in the
 // deployed extension. "A gate that cannot fire is not a layer." It is wired here, at the settled
@@ -112,7 +112,9 @@ export default function ctExtension(pi: ExtensionAPI): void {
   // judge's turn counter — without it, MAX_ACT_APPENDS_PER_RULE_PER_TURN was a permanent cap and the
   // repair channel went silent after 2 firings per rule, for the whole process.
   let turnCounter = 0;
-  const settledHandler = (event: { messages?: unknown[]; message?: { role?: unknown; content?: unknown }; willContinue?: boolean; isTerminal?: boolean }, c: OmpExtensionContext) => {
+  // V-056: async, because the claim judge's verdicts must be RESOLVED BEFORE bindAtoms (JudgeFn is
+// synchronous by contract). The handler was sync when it passed no judge — the two facts are related.
+const settledHandler = async (event: { messages?: unknown[]; message?: { role?: unknown; content?: unknown }; willContinue?: boolean; isTerminal?: boolean }, c: OmpExtensionContext) => {
     currentCtx = c;
     // ── V-049: HONOUR THE HOST'S OWN TERMINAL-SETTLE CONTRACT ──────────────────────────────────
     // The installed package's type doc is explicit
@@ -172,7 +174,29 @@ export default function ctExtension(pi: ExtensionAPI): void {
             const atoms = parseClaimAtoms(text);
             if (atoms.length > 0) {
               const ring = ringFromLedger();
-              const res = bindAtoms(atoms, ring, { currentTurn: ring.length > 0 ? ring[ring.length - 1].ts : undefined });
+              const currentTurn = ring.length > 0 ? ring[ring.length - 1].ts : undefined;
+              // ── V-056: SUPPLY THE JUDGE, OR THE PASS CANNOT HAPPEN ─────────────────────────────
+              // MEASURED: this call passed `{ currentTurn }` and NO judge, so per claim-bind's own
+              // contract every this-turn span fell to "no judge supplied -> atom unbound (FAIL_CLOSED)".
+              // The bound-claim PASS the goal's stop condition names was unreachable BY CONSTRUCTION,
+              // key or no key — the V-048 class (the seam exists; the live path omits the piece).
+              // JudgeFn is SYNCHRONOUS, so the real verdicts are awaited FIRST (one call per atom-span)
+              // and handed over as a sync lookup. Without a key the map is empty, NO judge is passed, and
+              // the behaviour is exactly the old fail-closed one.
+              const pre = new Map<string, Awaited<ReturnType<typeof judgeClaimViaTypeSafe>>>();
+              for (const atom of atoms) {
+                const span = ring.find((s) => s.ts === currentTurn && textMatchesAtom(atom, s.text));
+                if (!span) continue;
+                const k = claimJudgeKey(atom, span);
+                if (pre.has(k)) continue;
+                pre.set(k, await judgeClaimViaTypeSafe(atom, span));
+              }
+              const res = bindAtoms(atoms, ring, {
+                currentTurn,
+                ...(pre.size > 0
+                  ? { judge: (atom, span) => pre.get(claimJudgeKey(atom, span)) ?? null }
+                  : {}),
+              });
               host.log(res.verdict === "PASS" ? "INFO" : "WARN", "omp-ct", `[CT CLAIM] ${res.verdict} — ${res.reason ?? "claim bound to this turn's evidence"}`);
             }
           } catch { /* the claim gate is non-fatal; the arming above still stands */ }

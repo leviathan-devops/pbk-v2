@@ -73,6 +73,75 @@ export interface BindResult {
  */
 export type JudgeFn = (atom: ClaimAtom, span: RingSpan) => JudgeResult | null;
 
+// ── V-056: THE REAL CLAIM JUDGE (the live path supplied NONE) ───────────────────────────────────────
+// The live call site passed `{ currentTurn }` and no judge, so per this module's own contract every
+// this-turn span fell to "no judge supplied -> atom unbound (FAIL_CLOSED)". The bound-claim PASS that
+// the goal's stop condition names was therefore UNREACHABLE BY CONSTRUCTION — key or no key. This is the
+// V-048 class again: the seam exists, the machinery exists, and the live path never supplies the piece
+// that makes it work.
+//
+// The judge is SYNCHRONOUS by contract ("wrap it and resolve BEFORE calling"), so this is the ASYNC half:
+// resolve the verdicts first, then hand the caller a sync lookup. Without a key it returns null — which
+// leaves the caller with no judge and therefore the existing FAIL_CLOSED behaviour, unchanged.
+export const CLAIM_JUDGE_TIMEOUT_MS = 8000;
+
+export async function judgeClaimViaTypeSafe(
+  atom: ClaimAtom,
+  span: RingSpan,
+  apiKey: string | undefined = process.env.TYPESAFE_AI_API_KEY,
+): Promise<JudgeResult | null> {
+  if (!apiKey) return null; // no key -> no verdict -> the caller stays fail-closed (as before)
+  const body = JSON.stringify({
+    state: { claim: atom.text, evidence: span.text },
+    model: 'jev-latest',
+    questions: {
+      'claim-supported': {
+        type: 'boolean',
+        instructions:
+          'Does the EVIDENCE text actually support the CLAIM text? Answer true only if the evidence, read ' +
+          'literally, establishes the claim. A different turn, an unrelated line, or a paraphrase that ' +
+          'overstates the evidence is false.',
+      },
+    },
+  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), CLAIM_JUDGE_TIMEOUT_MS);
+  try {
+    const resp = await fetch('https://api.typesafe.ai/v1/systemone', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body,
+      signal: controller.signal,
+    });
+    if (!resp.ok) {
+      recordFiring({
+        rule: 'claim-bind', buffer: 'agent-text', band: 'skip', probability: null,
+        verdict: 'FAIL_CLOSED', jev_called: true, ms: 0, matched_span: atom.text,
+        skip_reason: `claim judge HTTP ${resp.status}`,
+      });
+      return null;
+    }
+    const j = (await resp.json()) as { answers?: Record<string, { probability?: number }> };
+    const p = j.answers?.['claim-supported']?.probability;
+    if (typeof p !== 'number' || !Number.isFinite(p)) return null;   // V-046's guard, applied here too
+    return { verdict: p >= 0.5 ? 'support' : 'reject', probability: p } as JudgeResult;
+  } catch (err) {
+    recordFiring({
+      rule: 'claim-bind', buffer: 'agent-text', band: 'skip', probability: null,
+      verdict: 'FAIL_CLOSED', jev_called: true, ms: 0, matched_span: atom.text,
+      skip_reason: `claim judge error: ${err instanceof Error ? err.message : String(err)}`,
+    });
+    return null;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+/** The lookup key a pre-resolved sync judge uses (atom + span identity). */
+export function claimJudgeKey(atom: ClaimAtom, span: RingSpan): string {
+  return `${atom.text}\u0000${span.ts}\u0000${span.text.slice(0, 60)}`;
+}
+
 // ── Options ─────────────────────────────────────────────────────────────────
 
 export interface BindOptions {
@@ -367,7 +436,7 @@ export function bindAtoms(
  *   - count:  the atom text (substring) appears in the span.
  * All matches are case-insensitive.
  */
-function textMatchesAtom(atom: ClaimAtom, spanText: string): boolean {
+export function textMatchesAtom(atom: ClaimAtom, spanText: string): boolean {
   if (!spanText || !atom.text) return false;
   const span = spanText.toLowerCase();
   const text = atom.text.toLowerCase();

@@ -53,40 +53,40 @@ describe("the extension seam — behaviour through the REAL registered handlers"
   });
 
   // ── V-049 ────────────────────────────────────────────────────────────────
-  test("V-049 ADVERSARIAL: willContinue is NOT a settle (no claim judgement)", () => {
+  test("V-049 ADVERSARIAL: willContinue is NOT a settle (no claim judgement)", async () => {
     const from = logs.length;
-    onAgentEnd!({ type: "agent_end", messages: msg(CLAIM), willContinue: true }, { sessionID: "s" });
+    await onAgentEnd!({ type: "agent_end", messages: msg(CLAIM), willContinue: true }, { sessionID: "s" });
     expect(claims(logs, from)).toBe(0);
   });
 
-  test("V-049 ADVERSARIAL: isTerminal === false is not a settle either", () => {
+  test("V-049 ADVERSARIAL: isTerminal === false is not a settle either", async () => {
     const from = logs.length;
-    onAgentEnd!({ type: "agent_end", messages: msg(CLAIM), isTerminal: false }, { sessionID: "s" });
+    await onAgentEnd!({ type: "agent_end", messages: msg(CLAIM), isTerminal: false }, { sessionID: "s" });
     expect(claims(logs, from)).toBe(0);
   });
 
-  test("V-049 CONTROL: a REAL settle DOES judge the claim", () => {
+  test("V-049 CONTROL: a REAL settle DOES judge the claim", async () => {
     const from = logs.length;
-    onAgentEnd!({ type: "agent_end", messages: msg(CLAIM) }, { sessionID: "s" });
+    await onAgentEnd!({ type: "agent_end", messages: msg(CLAIM) }, { sessionID: "s" });
     expect(claims(logs, from)).toBeGreaterThan(0);
   });
 
   // ── V-051 ────────────────────────────────────────────────────────────────
-  test("V-051: a message_end still PROCESSES its message (the fallback stays useful)", () => {
+  test("V-051: a message_end still PROCESSES its message (the fallback stays useful)", async () => {
     const from = logs.length;
-    onMessageEnd!({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: CLAIM }] } }, { sessionID: "s" });
+    await onMessageEnd!({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: CLAIM }] } }, { sessionID: "s" });
     expect(claims(logs, from)).toBeGreaterThan(0);
   });
 
-  test("V-051 CONTROL: the plural agent_end shape is processed too", () => {
+  test("V-051 CONTROL: the plural agent_end shape is processed too", async () => {
     const from = logs.length;
-    onAgentEnd!({ type: "agent_end", messages: msg(CLAIM) }, { sessionID: "s" });
+    await onAgentEnd!({ type: "agent_end", messages: msg(CLAIM) }, { sessionID: "s" });
     expect(claims(logs, from)).toBeGreaterThan(0);
   });
 
-  test("V-051: a message_end with NO assistant text is inert (no claim, no crash)", () => {
+  test("V-051: a message_end with NO assistant text is inert (no claim, no crash)", async () => {
     const from = logs.length;
-    onMessageEnd!({ type: "message_end", message: { role: "user", content: [{ type: "text", text: CLAIM }] } }, { sessionID: "s" });
+    await onMessageEnd!({ type: "message_end", message: { role: "user", content: [{ type: "text", text: CLAIM }] } }, { sessionID: "s" });
     expect(claims(logs, from)).toBe(0);
   });
 });
