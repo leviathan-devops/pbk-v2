@@ -62,3 +62,44 @@ describe("V-040 the act cap is PER TURN (not permanent)", () => {
     }
   });
 });
+
+// ═══ V-051: THE TURN IDENTITY IS LOAD-BEARING — AND IT WAS BEING ROTATED BY A MESSAGE ══════════════
+// PROBED 2026-09-21 (extending V-040's work). The two host events are unambiguous:
+//   agent_end   -> messages: AgentMessage[]   (PLURAL, the whole loop)   = the TURN boundary
+//   message_end -> message:  AgentMessage     (SINGULAR, one record)     = a MESSAGE
+// and message_end is emitted PER RECORD (session/agent-session.ts:946-952). The settled handler advanced
+// `turnCounter` on EVERY registered event, so a turn with N messages rotated the judge's turn identity
+// N+1 times — and the ring key is `sessionId::T<currentTurn>` (kernel-judge.ts:734), so each rotation
+// handed the rule a FRESH EMPTY RING. V-040's cap was undone one layer up.
+//
+// This test pins the MECHANISM (the cap's total dependence on the turn identity). The wiring pin — that
+// the handler advances only on a turn-carrying event — is in v051-turn-identity.test.ts.
+describe("V-051 the cap is only as good as the turn identity", () => {
+  test("ADVERSARIAL: rotating the turn between edits DEFEATS the cap (the damage V-051 caused)", async () => {
+    const rubricPath = tempRubric();
+    try {
+      const j = kernelJudge({ judge: async (rs) => Object.fromEntries(rs.map((r) => [r.id, 0.95])), rubricPath });
+      let actRounds = 0;
+      for (let i = 0; i < 5; i++) {
+        j.setTurn(1000 + i);                 // exactly what a per-MESSAGE rotation did
+        if ((await j.judge(ev(i))).actAppends > 0) actRounds += 1;
+      }
+      expect(actRounds).toBe(5);             // 5 rotations -> 5 acts: the cap cannot hold
+    } finally {
+      rmSync(join(rubricPath, ".."), { recursive: true, force: true });
+    }
+  });
+
+  test("CONTROL: the SAME five edits inside ONE turn cap at 2 (the cap works when the identity is right)", async () => {
+    const rubricPath = tempRubric();
+    try {
+      const j = kernelJudge({ judge: async (rs) => Object.fromEntries(rs.map((r) => [r.id, 0.95])), rubricPath });
+      j.setTurn(7);
+      let actRounds = 0;
+      for (let i = 0; i < 5; i++) if ((await j.judge(ev(20 + i))).actAppends > 0) actRounds += 1;
+      expect(actRounds).toBe(MAX_ACT_APPENDS_PER_RULE_PER_TURN);
+    } finally {
+      rmSync(join(rubricPath, ".."), { recursive: true, force: true });
+    }
+  });
+});

@@ -112,7 +112,7 @@ export default function ctExtension(pi: ExtensionAPI): void {
   // judge's turn counter — without it, MAX_ACT_APPENDS_PER_RULE_PER_TURN was a permanent cap and the
   // repair channel went silent after 2 firings per rule, for the whole process.
   let turnCounter = 0;
-  const settledHandler = (event: { messages?: unknown[]; willContinue?: boolean; isTerminal?: boolean }, c: OmpExtensionContext) => {
+  const settledHandler = (event: { messages?: unknown[]; message?: { role?: unknown; content?: unknown }; willContinue?: boolean; isTerminal?: boolean }, c: OmpExtensionContext) => {
     currentCtx = c;
     // ── V-049: HONOUR THE HOST'S OWN TERMINAL-SETTLE CONTRACT ──────────────────────────────────
     // The installed package's type doc is explicit
@@ -131,10 +131,31 @@ export default function ctExtension(pi: ExtensionAPI): void {
     // continuations included. A continuation is not a new turn: the counter advanced twice for one
     // logical turn, and claims were judged before the turn had actually settled.
     if (event?.willContinue === true || event?.isTerminal === false) return;
-    turnCounter += 1;
-    try { judge.setTurn(turnCounter); } catch { /* the judge is declared below; it exists by first call */ }
+
+    // ── V-051: THE TURN IDENTITY ADVANCES ONLY ON THE EVENT THAT CARRIES THE TURN'S MESSAGE SET ──
+    // The host's two shapes are unambiguous (extensions/types.ts:789-792 vs shared-events.ts:193-196):
+    //   agent_end   -> `messages: AgentMessage[]`  (PLURAL — the whole loop)   = the TURN boundary
+    //   message_end -> `message: AgentMessage`     (SINGULAR — one record)     = a MESSAGE
+    // and `message_end` is emitted PER RECORD (`for (const record of records) { … emitExternalEvent(
+    // { type: "message_end", message: record }) }` — session/agent-session.ts:946-952).
+    //
+    // MEASURED DEFECT: the handler advanced `turnCounter` on EVERY registered event, so a turn with N
+    // messages rotated the judge's turn identity N+1 times. The per-turn ring is keyed by
+    // `sessionId::T<currentTurn>` (kernel-judge.ts:734), so each rotation handed the rule a FRESH, EMPTY
+    // ring: probed 2026-09-21 — 5 edits in ONE turn give 2 act-appends (the cap holds), but 5 edits with
+    // the turn rotated give 5 (the cap is defeated). V-040's cap was undone one layer up.
+    const isTurnBoundary = Array.isArray((event as { messages?: unknown })?.messages);
+    if (isTurnBoundary) {
+      turnCounter += 1;
+      try { judge.setTurn(turnCounter); } catch { /* the judge is declared below; it exists by first call */ }
+    }
     try {
-      const msgs = Array.isArray(event?.messages) ? (event.messages as Array<{ role?: unknown; content?: unknown }>) : [];
+      // Both shapes are processed: the plural array (agent_end) or the singular message (message_end) —
+      // so the fallback registration still does its job on a host that emits only one of them.
+      const ev = event as { messages?: unknown; message?: { role?: unknown; content?: unknown } };
+      const msgs = Array.isArray(ev?.messages)
+        ? (ev.messages as Array<{ role?: unknown; content?: unknown }>)
+        : ev?.message ? [ev.message] : [];
       for (const m of msgs) {
         if (m?.role !== "assistant") continue;
         const parts = Array.isArray(m.content) ? m.content : [{ type: "text", text: typeof m.content === "string" ? m.content : "" }];

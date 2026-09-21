@@ -54,42 +54,10 @@ function makeFakePi() {
 const CLAIM = "the task is done";           // an atom the claim firewall will judge
 const msg = (text: string) => [{ role: "assistant", content: [{ type: "text", text }] }];
 
-describe("V-049 the terminal-settle contract", () => {
-  // ONE init: ctExtension carries module-level state, so the extension is loaded once and each test
-  // observes its own slice of the log. (A second ctExtension(pi) call does not re-register — itself a
-  // fact worth knowing, but not what this file is pinning.)
-  const { pi, handlers, logs } = makeFakePi();
-  const before = logs.length;
-  let initError: unknown = null;
-  try { ctExtension(pi); } catch (e) { initError = e; }
-  const settle = handlers["agent_end"] as ((e: unknown, c: unknown) => unknown) | undefined;
-
-  const slice = () => logs.slice(before);
-
-  test("the extension registers the settled handler (precondition)", () => {
-    expect(initError).toBeNull();          // a throw before registration would hide the defect
-    expect(typeof settle).toBe("function");
-  });
-
-  test("ADVERSARIAL: a willContinue agent_end is NOT treated as a settle (no claim judgement)", () => {
-    const from = logs.length;
-    settle!({ messages: msg(CLAIM), willContinue: true }, { sessionID: "s" });
-    expect(logs.slice(from).filter((l) => l.includes("[CT CLAIM]")).length).toBe(0);
-  });
-
-  test("ADVERSARIAL: isTerminal === false is not a settle either (the host's own idiom)", () => {
-    const from = logs.length;
-    settle!({ messages: msg(CLAIM), isTerminal: false }, { sessionID: "s" });
-    expect(logs.slice(from).filter((l) => l.includes("[CT CLAIM]")).length).toBe(0);
-  });
-
-  test("CONTROL: a REAL settle DOES judge the claim (the guard is not swallowing everything)", () => {
-    const from = logs.length;
-    settle!({ messages: msg(CLAIM) }, { sessionID: "s" });
-    expect(logs.slice(from).filter((l) => l.includes("[CT CLAIM]")).length).toBeGreaterThan(0);
-  });
-
-  test("CONTROL: the guard is ORDERED before the turn advance (the defect was the ordering)", () => {
+describe("V-049 the terminal-settle guard (source-level pin)", () => {
+  // The BEHAVIOURAL half lives in extension-seam-behaviour.test.ts, because ctExtension registers its
+  // handlers once per process and only one file may own that init.
+  test("the guard is ORDERED before the turn advance (the defect was the ordering)", () => {
     const fs = require("node:fs");
     const path = require("node:path");
     const src = fs.readFileSync(path.join(import.meta.dir, "..", "src", "index.ts"), "utf8");
@@ -98,6 +66,5 @@ describe("V-049 the terminal-settle contract", () => {
     expect(guard).toBeGreaterThan(-1);
     expect(advance).toBeGreaterThan(-1);
     expect(guard).toBeLessThan(advance);
-    void slice;
   });
 });

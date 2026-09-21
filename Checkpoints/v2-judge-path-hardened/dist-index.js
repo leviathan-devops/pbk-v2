@@ -4019,12 +4019,16 @@ function ctExtension(pi) {
     currentCtx = c;
     if (event?.willContinue === true || event?.isTerminal === false)
       return;
-    turnCounter += 1;
+    const isTurnBoundary = Array.isArray(event?.messages);
+    if (isTurnBoundary) {
+      turnCounter += 1;
+      try {
+        judge.setTurn(turnCounter);
+      } catch {}
+    }
     try {
-      judge.setTurn(turnCounter);
-    } catch {}
-    try {
-      const msgs = Array.isArray(event?.messages) ? event.messages : [];
+      const ev = event;
+      const msgs = Array.isArray(ev?.messages) ? ev.messages : ev?.message ? [ev.message] : [];
       for (const m of msgs) {
         if (m?.role !== "assistant")
           continue;
