@@ -547,7 +547,24 @@ export function buildContainerTestingTool(pi: ExtensionAPI, deps: CtDeps): OmpTo
         const off = Math.max(0, Number(params.offset ?? params.fromBytes ?? 0) || 0);
         const lim = Math.min(Math.max(Number(params.limit ?? 50) || 50, 1), 500);
         const size = Number(dockerExec(`wc -l < ${STREAM_FILE} 2>/dev/null || echo 0`).stdout.trim()) || 0;
-        const slice = dockerExec(`sed -n '${off + 1},$((off + lim))p' ${STREAM_FILE} 2>/dev/null`).stdout;
+        // V-015 FIX: the arithmetic was written as `$((off + lim))` INSIDE a JS template literal, which is
+        // NOT an interpolation — the identifiers `off` and `lim` reached sed LITERALLY, sed answered
+        // "unknown command: `(`", and `2>/dev/null` swallowed it. The result was a correct-looking header
+        // ("CT READ lines 1-12/190:") over an EMPTY body, three times, on two containers. Measured in the
+        // rig: `sed -n '1,$((off + lim))p'` -> `sed: unknown command: '('`; `sed -n '1,50p'` -> content.
+        const slice = dockerExec(`sed -n '${off + 1},${off + lim}p' ${STREAM_FILE} 2>/dev/null`).stdout;
+        // And the silent failure is now impossible: a header over an empty body is a FAILURE, not a reading.
+        // (read is the ONLY sanctioned observation channel once the containerGate blocks raw host-shell
+        // container verbs — a bodyless read leaves container-round adjudication with nothing to observe.)
+        if (size > 0 && off < size && !slice.trim()) {
+          return {
+            text:
+              `CT READ FAILED: ${STREAM_FILE} has ${size} line(s) but the slice ${off + 1}-${off + lim} came back EMPTY. ` +
+              `Nothing was observed — do NOT read this as an empty pane (V-015). Check the file and the range.`,
+            isError: true,
+            details: { offset: off, limit: lim, totalLines: size, empty: true },
+          };
+        }
         return { text: `CT READ lines ${off + 1}-${off + lim}/${size}:\n${slice.slice(0, 4000)}`, details: { offset: off, limit: lim, totalLines: size } };
       }
 
@@ -663,6 +680,45 @@ export function buildContainerTestingTool(pi: ExtensionAPI, deps: CtDeps): OmpTo
           : host.execSync(`docker exec ${name} mkdir -p ${target.replace(/\/[^/]*$/, "")} && docker cp ${local} ${name}:${target}`);
         if (r.code !== 0) return { text: `CT CP FAILED: ${(r.stderr || r.stdout).slice(0, 500)}`, isError: true };
         return { text: `CT CP: ${dir === "from" ? `${name}:${local} -> ${target}` : `${local} -> ${name}:${target}`}` };
+      }
+
+      if (action === "deploy") {
+        // V-016 FIX: `deploy` was declared in CT_ACTIONS but had NO dispatcher branch — the documented
+        // sync verb fell through to the "unhandled (loud)" return, so a freshly created rig could carry a
+        // dist that did not match the host's (measured: container 6ea49fb8aba2b821 vs deployed
+        // e1bd1dbad665d83f) and the ONLY way to repair the sha trio was a manual `action=cp`. This is that
+        // repair, sanctioned, with the verification the trio needs.
+        const local = String(params.distPath ?? params.src ?? "dist/index.js");
+        const target = String(params.dest ?? params.containerPath ?? "/root/.omp/agent/extensions/omp-ct/dist.js");
+        if (!local) return { text: "CT DEPLOY FAILED: distPath (or src) required", isError: true };
+        // The same cp-into-container guard the `cp` verb runs: a deploy must not become a way to write a
+        // protected opencode path.
+        if (!firewallOff.has(sid)) {
+          try {
+            const protectedHit = classifyCtExec("cp x " + target);
+            if (protectedHit.verdict === "BLOCK") return { text: buildCtConfigLockMessage(protectedHit), isError: true };
+          } catch { /* non-gate failure — the deploy proceeds */ }
+        }
+        const localSha = (host.execSync(`sha256sum ${shq(local)} 2>/dev/null`).stdout.trim().split(/\s+/)[0] ?? "");
+        if (!localSha) return { text: `CT DEPLOY FAILED: cannot read ${local} on the host`, isError: true };
+        const r = host.execSync(
+          `docker exec ${name} mkdir -p ${shq(target.replace(/\/[^/]*$/, ""))} && docker cp ${shq(local)} ${name}:${shq(target)}`,
+          { timeoutMs: 30000 },
+        );
+        if (r.code !== 0) return { text: `CT DEPLOY FAILED: ${(r.stderr || r.stdout).slice(0, 500)}`, isError: true };
+        const containerSha = (dockerExec(`sha256sum ${target} 2>/dev/null`).stdout.trim().split(/\s+/)[0] ?? "");
+        const match = containerSha === localSha;
+        return {
+          text:
+            `CT DEPLOY: ${local} -> ${name}:${target}\n` +
+            `  local     ${localSha.slice(0, 16)}\n` +
+            `  container ${containerSha.slice(0, 16) || "(unreadable)"}\n` +
+            (match
+              ? `  sha trio REPAIRED — the rig now carries the host's build.`
+              : `  MISMATCH — the rig does NOT carry the host's build; do not run a round against it.`),
+          isError: !match,
+          details: { localSha, containerSha, match, target },
+        };
       }
 
       if (action === "export") {

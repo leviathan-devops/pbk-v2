@@ -2555,7 +2555,14 @@ function buildContainerTestingTool(pi, deps) {
         const off = Math.max(0, Number(params.offset ?? params.fromBytes ?? 0) || 0);
         const lim = Math.min(Math.max(Number(params.limit ?? 50) || 50, 1), 500);
         const size = Number(dockerExec(`wc -l < ${STREAM_FILE} 2>/dev/null || echo 0`).stdout.trim()) || 0;
-        const slice = dockerExec(`sed -n '${off + 1},$((off + lim))p' ${STREAM_FILE} 2>/dev/null`).stdout;
+        const slice = dockerExec(`sed -n '${off + 1},${off + lim}p' ${STREAM_FILE} 2>/dev/null`).stdout;
+        if (size > 0 && off < size && !slice.trim()) {
+          return {
+            text: `CT READ FAILED: ${STREAM_FILE} has ${size} line(s) but the slice ${off + 1}-${off + lim} came back EMPTY. ` + `Nothing was observed \u2014 do NOT read this as an empty pane (V-015). Check the file and the range.`,
+            isError: true,
+            details: { offset: off, limit: lim, totalLines: size, empty: true }
+          };
+        }
         return { text: `CT READ lines ${off + 1}-${off + lim}/${size}:
 ${slice.slice(0, 4000)}`, details: { offset: off, limit: lim, totalLines: size } };
       }
@@ -2675,6 +2682,35 @@ ${r.stdout.slice(-6000)}` };
         if (r.code !== 0)
           return { text: `CT CP FAILED: ${(r.stderr || r.stdout).slice(0, 500)}`, isError: true };
         return { text: `CT CP: ${dir === "from" ? `${name}:${local} -> ${target}` : `${local} -> ${name}:${target}`}` };
+      }
+      if (action === "deploy") {
+        const local = String(params.distPath ?? params.src ?? "dist/index.js");
+        const target = String(params.dest ?? params.containerPath ?? "/root/.omp/agent/extensions/omp-ct/dist.js");
+        if (!local)
+          return { text: "CT DEPLOY FAILED: distPath (or src) required", isError: true };
+        if (!firewallOff.has(sid)) {
+          try {
+            const protectedHit = classifyCtExec("cp x " + target);
+            if (protectedHit.verdict === "BLOCK")
+              return { text: buildCtConfigLockMessage(protectedHit), isError: true };
+          } catch {}
+        }
+        const localSha = host.execSync(`sha256sum ${shq(local)} 2>/dev/null`).stdout.trim().split(/\s+/)[0] ?? "";
+        if (!localSha)
+          return { text: `CT DEPLOY FAILED: cannot read ${local} on the host`, isError: true };
+        const r = host.execSync(`docker exec ${name} mkdir -p ${shq(target.replace(/\/[^/]*$/, ""))} && docker cp ${shq(local)} ${name}:${shq(target)}`, { timeoutMs: 30000 });
+        if (r.code !== 0)
+          return { text: `CT DEPLOY FAILED: ${(r.stderr || r.stdout).slice(0, 500)}`, isError: true };
+        const containerSha = dockerExec(`sha256sum ${target} 2>/dev/null`).stdout.trim().split(/\s+/)[0] ?? "";
+        const match = containerSha === localSha;
+        return {
+          text: `CT DEPLOY: ${local} -> ${name}:${target}
+` + `  local     ${localSha.slice(0, 16)}
+` + `  container ${containerSha.slice(0, 16) || "(unreadable)"}
+` + (match ? `  sha trio REPAIRED \u2014 the rig now carries the host's build.` : `  MISMATCH \u2014 the rig does NOT carry the host's build; do not run a round against it.`),
+          isError: !match,
+          details: { localSha, containerSha, match, target }
+        };
       }
       if (action === "export") {
         const cpath = String(params.src ?? params.containerPath ?? "");
