@@ -112,10 +112,27 @@ export default function ctExtension(pi: ExtensionAPI): void {
   // judge's turn counter — without it, MAX_ACT_APPENDS_PER_RULE_PER_TURN was a permanent cap and the
   // repair channel went silent after 2 firings per rule, for the whole process.
   let turnCounter = 0;
-  const settledHandler = (event: { messages?: unknown[] }, c: OmpExtensionContext) => {
+  const settledHandler = (event: { messages?: unknown[]; willContinue?: boolean; isTerminal?: boolean }, c: OmpExtensionContext) => {
+    currentCtx = c;
+    // ── V-049: HONOUR THE HOST'S OWN TERMINAL-SETTLE CONTRACT ──────────────────────────────────
+    // The installed package's type doc is explicit
+    //   (node_modules/@oh-my-pi/pi-coding-agent/src/extensibility/shared-events.ts:196-201):
+    //   "When true, the session has already scheduled an automatic continuation (auto-retry,
+    //    empty/unexpected-stop retry, etc.). Subscribers MUST NOT treat this as a user-visible
+    //    terminal settle."
+    // willContinue:true is EMITTED (reachable, not hypothetical) at
+    //   src/session/agent-session.ts:3305 · :3327 · :3352 (compaction continuations).
+    // The runtime honours it itself: rpc-frame.ts:316 (`frame.willContinue !== true`) and
+    //   agent-session.ts:3156 (`isTerminal: !options?.willContinue`), and the host's own consumer
+    //   idiom is `event.isTerminal === false` (src/live/controller.ts:322).
+    //
+    // MEASURED DEFECT: this handler advanced the turn counter (V-040's TURN IDENTITY — the only thing
+    // that bounds MAX_ACT_APPENDS_PER_RULE_PER_TURN) and ran the claim bind + the L0 on EVERY agent_end,
+    // continuations included. A continuation is not a new turn: the counter advanced twice for one
+    // logical turn, and claims were judged before the turn had actually settled.
+    if (event?.willContinue === true || event?.isTerminal === false) return;
     turnCounter += 1;
     try { judge.setTurn(turnCounter); } catch { /* the judge is declared below; it exists by first call */ }
-    currentCtx = c;
     try {
       const msgs = Array.isArray(event?.messages) ? (event.messages as Array<{ role?: unknown; content?: unknown }>) : [];
       for (const m of msgs) {

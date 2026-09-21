@@ -4016,11 +4016,13 @@ function ctExtension(pi) {
   });
   let turnCounter = 0;
   const settledHandler = (event, c) => {
+    currentCtx = c;
+    if (event?.willContinue === true || event?.isTerminal === false)
+      return;
     turnCounter += 1;
     try {
       judge.setTurn(turnCounter);
     } catch {}
-    currentCtx = c;
     try {
       const msgs = Array.isArray(event?.messages) ? event.messages : [];
       for (const m of msgs) {
