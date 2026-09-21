@@ -43,7 +43,13 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  process.env.ABIDE_DIR = realAbide;
+  // V-047: assigning `undefined` to process.env stores the STRING "undefined" and
+
+  // `?? ` would NOT fall back — the ledger silently moved to ./undefined/. Restore the ABSENCE.
+
+  if (realAbide === undefined) delete process.env.ABIDE_DIR;
+
+  else process.env.ABIDE_DIR = realAbide;
   if (existsSync(TMP)) rmSync(TMP, { recursive: true, force: true });
 });
 
