@@ -110,7 +110,15 @@ export function attachChain(pi: {
     // Warmup: before the first user input the extension is still loading —
     // host-init tool calls (capability probes, shell detection) must pass.
     if (isReady && !isReady()) return undefined;
-    // Host-internal tool calls are NOT agent actions — enforcement applies to model-issued calls.
+    // V-050: THE EXEMPTION BELOW IS UNREACHABLE IN PRODUCTION — and that is now stated, not implied.
+    // The host's tool_call payload is exactly { type, toolName, toolCallId, input }
+    // (@oh-my-pi/pi-coding-agent extensions/wrapper.ts:211-224) and `grep -rn isAgentOrigin` over the
+    // whole installed package returns NOTHING. So `event.isAgentOrigin` is always undefined and this
+    // guard never fires: EVERY call is judged as agent-origin, including host-internal ones.
+    // The polarity is FAIL-SAFE (`?? true` below = unknown -> ENFORCE), so this is an unreachable
+    // exemption rather than a live misfire. Pinned by tests/v050-origin-exemption.test.ts, which drives
+    // THIS handler with the host's real payload shape. If a future host adds the field, the guard starts
+    // working and that test will say so.
     if (event.isAgentOrigin === false) return undefined;
     const scope = scopeOf(ctx.sessionManager.getSessionFile(), ctx);
     return chain
