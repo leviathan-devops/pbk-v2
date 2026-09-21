@@ -25,6 +25,11 @@ import { recordFiring, setLedgerSession, getLedgerSession  } from "./ledger/even
 // demands evidence. Its two defects (the positive-loaded negation tokens and the unreachable audit
 // exclusion) are fixed and pinned.
 import { isCompletionClaim, CLAIM_STRONG_PHRASE_RE, CLAIM_WORD_RE } from "./middleware/claim-lexicon";
+// WIRED (it was DEAD: its code was not in the shipped bundle, and its named consumer was the discarded
+// surgical mutator). Its dependencies are all live, and it holds the capability the system lacked:
+// **a claim is SLOP unless the evidence machine scores its subject LEGIT** — the degree-of-proof gates
+// the claim. A unit-only "verified" is slop; a container-grade one is legit.
+import { classifyMessageSpans } from "./firewalls/smoke-lexicon";
 import { kernelJudge } from "./ext/kernel-judge";
 import { bindAtoms, parseClaimAtoms, textMatchesAtom, judgeClaimViaTypeSafe, claimJudgeKey, type RingSpan } from "./ext/claim-bind";
 // V-048: the L0 (W3's six kernels + role filter + quote exclusion + ST-7 escalation) was imported by
@@ -232,6 +237,35 @@ const settledHandler = async (event: { messages?: unknown[]; message?: { role?: 
               });
               host.log("WARN", "omp-ct", `[CT CLAIM LEXICON] a verification claim with no atom — "${span.slice(0, 50)}"`);
             }
+
+            // ── THE SMOKE LEXICON WIRED: THE EVIDENCE VERDICT GATES THE CLAIM ──────────────────────
+            // The sentence-level detector scores each claim against the EVIDENCE MACHINE's verdict:
+            // LEGIT -> the claim stands; SMOKE / UNEVIDENCED / UNIT_ONLY -> the claim is SLOP (a claim
+            // whose proof is a unit run, or nothing, is the theatrical class this whole layer exists for).
+            // ADVISORY here (a flag row, never a block): the lexicon's own contract says the fail-open
+            // direction is NON_CLAIM, and a claim is not an edit — nothing is blocked on this path.
+            try {
+              const sidForLex = String((c as unknown as Record<string, unknown>).sessionID ?? "default");
+              for (const span of classifyMessageSpans(text, sidForLex)) {
+                if (span.kind !== "CLAIM_SLOP") continue;
+                const v = span.evidenceVerdict;
+                recordFiring({
+                  rule: "smoke-lexicon",
+                  buffer: "agent-text",
+                  band: "flag",
+                  matched_span: String(span.text ?? "").slice(0, 200) || text.slice(0, 60),
+                  verdict:
+                    `CLAIM_SLOP — the evidence machine scores the subject ${v ? v.verdict : "UNEVIDENCED"} ` +
+                    `(a claim whose proof is not container-grade). Subject: ${span.subject ?? "(dist-level)"}`,
+                  jev_called: false,
+                });
+                host.log(
+                  "WARN",
+                  "omp-ct",
+                  `[CT SLOP] "${String(span.text ?? "").slice(0, 50)}" — evidence: ${v ? v.verdict : "UNEVIDENCED"}`,
+                );
+              }
+            } catch { /* the lexicon is advisory; it never breaks the turn */ }
           } catch { /* the claim gate is non-fatal; the arming above still stands */ }
 
           // ── V-048: THE L0 LAYER (W3) — the six kernels, live.

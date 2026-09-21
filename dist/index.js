@@ -1147,6 +1147,7 @@ function pruneEvidenceRecords(cutoff) {
 // src/firewalls/evidence-tracker.ts
 import { existsSync as existsSync2 } from "fs";
 var EVIDENCE_RING_CAP = 50;
+var VERDICT_CACHE_TTL_MS = 5000;
 var EVIDENCE_RECORD_WINDOW_MS = 86400000;
 var EVIDENCE_ARTIFACT_REL_PATHS = [
   ".ct/container-test-results.json",
@@ -1280,6 +1281,81 @@ function ingestEvent(record, event) {
   }
   return record;
 }
+function countSmoke(record) {
+  let n = 0;
+  for (const e of record.events) {
+    if (e.kind === "smoke")
+      n++;
+  }
+  return n;
+}
+function subjectTaggedEvidenceExists(record, subject) {
+  for (const e of record.events) {
+    if (e.kind === "container" && e.hasEvidenceArtifact === true && e.subject === subject)
+      return true;
+  }
+  return false;
+}
+function queryVerdict(record, subject) {
+  if (record.distSha === null) {
+    return {
+      verdict: "UNEVIDENCED",
+      distSha: null,
+      lastContainerAt: null,
+      lastUnitAt: null,
+      smokeCount: countSmoke(record),
+      reason: "no dist recorded for the session \u2014 no evidence possible"
+    };
+  }
+  if (record.state === "CONTAINER_EVIDENCED") {
+    if (subject !== undefined && subjectTaggedEvidenceExists(record, subject)) {
+      return {
+        verdict: "LEGIT",
+        distSha: record.distSha,
+        lastContainerAt: record.lastContainerAt,
+        lastUnitAt: record.lastUnitAt,
+        smokeCount: countSmoke(record),
+        reason: `subject '${subject}' container-evidenced for dist ${record.distSha} at ${record.lastContainerAt}`
+      };
+    }
+    return {
+      verdict: "LEGIT",
+      distSha: record.distSha,
+      lastContainerAt: record.lastContainerAt,
+      lastUnitAt: record.lastUnitAt,
+      smokeCount: countSmoke(record),
+      reason: `container-evidenced for dist ${record.distSha} at ${record.lastContainerAt}`
+    };
+  }
+  if (record.state === "UNIT_EVIDENCED") {
+    return {
+      verdict: "UNIT_ONLY",
+      distSha: record.distSha,
+      lastContainerAt: record.lastContainerAt,
+      lastUnitAt: record.lastUnitAt,
+      smokeCount: countSmoke(record),
+      reason: `unit-only: the battery at ${record.lastUnitAt}, no container evidence for dist ${record.distSha}`
+    };
+  }
+  if (record.smokeOnly) {
+    return {
+      verdict: "SMOKE",
+      distSha: record.distSha,
+      lastContainerAt: null,
+      lastUnitAt: record.lastUnitAt,
+      smokeCount: countSmoke(record),
+      reason: `smoke-only: the smoke runs at ${record.lastSmokeAt}, no container evidence for dist ${record.distSha}`
+    };
+  }
+  return {
+    verdict: "UNEVIDENCED",
+    distSha: record.distSha,
+    lastContainerAt: null,
+    lastUnitAt: record.lastUnitAt,
+    smokeCount: countSmoke(record),
+    reason: `no evidence recorded for dist ${record.distSha}`
+  };
+}
 function loadEvidenceRecord(sessionId) {
   try {
     const row = loadEvidenceRow(sessionId);
@@ -1368,6 +1444,17 @@ function ingestEvidenceEvent(sessionId, event) {
     ctLog("WARN", "evidence-tracker", `event rejected (no transition) for ${sessionId}: kind=${event.kind} distSha=${event.distSha || "(empty)"}`);
   }
   return next;
+}
+function queryEvidenceVerdict(sessionId, subject) {
+  const key = `${sessionId}::${subject ?? "*"}`;
+  const cached = verdictCache.get(key);
+  const now = Date.now();
+  if (cached && now - cached.at < VERDICT_CACHE_TTL_MS)
+    return cached.verdict;
+  const record = loadEvidenceRecord(sessionId);
+  const verdict = queryVerdict(record, subject);
+  verdictCache.set(key, { verdict, at: now });
+  return verdict;
 }
 function locateEvidenceArtifact() {
   try {
@@ -3353,6 +3440,205 @@ function isCompletionClaim2(text) {
   return false;
 }
 
+// src/firewalls/smoke-lexicon.ts
+var WARHEAD_MAX_CHARS = 400;
+function selectWarheadLocal(v) {
+  const sha = v.distSha ?? "unknown";
+  let w;
+  if (v.verdict === "SMOKE") {
+    w = `[SSTF SMOKE] this claim is a SMOKE TEST \u2014 the evidence state for dist ${sha} is SMOKE_ONLY \u2014 the smoke runs (node -e/bun -e/grep-as-proof) never constitute the runtime proof. The container verification is the only evidence that satisfies this claim: run the container red-team (container-testing: the setup with a validated plan + the scenarios + the ContainerTestResult artifact).`;
+  } else if (v.verdict === "UNEVIDENCED") {
+    w = `[SSTF UNEVIDENCED] this claim has NO verification evidence for dist ${sha} \u2014 neither the unit gates nor the container suite have recorded a pass for this build. The verification first: the battery + the container red-team (the setup with a validated plan + the scenarios + the ContainerTestResult artifact).`;
+  } else {
+    w = `[SSTF UNIT-ONLY] this claim rests on the unit gates only (the battery/tsc) \u2014 the unit evidence is NOT the runtime proof. The container verification is required before this claim can stand: the container red-team (the setup with a validated plan + the scenarios + the ContainerTestResult artifact).`;
+  }
+  return w.length > WARHEAD_MAX_CHARS ? w.slice(0, WARHEAD_MAX_CHARS) + "..." : w;
+}
+function mkMember(id, kind, matcher, severity) {
+  return {
+    id,
+    kind,
+    matcher,
+    triggerCondition: (sentence) => matcher.test(sentence),
+    severity,
+    messageTemplate: `the slop claim matched by ${id} \u2014 the ContainerTestResult evidence is the only proof that satisfies this claim`,
+    remediationHook: (subject, verdict) => verdict.verdict === "LEGIT" ? { kind: "CLAIM_LEGIT", subject, evidenceVerdict: verdict, warhead: null } : { kind: "CLAIM_SLOP", subject, evidenceVerdict: verdict, warhead: selectWarheadLocal(verdict) }
+  };
+}
+var FORMAL_CLAIM_WORDS = [
+  mkMember("CLAIM-WORD-FORMAL-VERIFIED", "claim-word", /\b(?:verified|verifying|confirms?|confirmed|proven|proves)\b/i, "formal"),
+  mkMember("CLAIM-WORD-FORMAL-WORKS", "claim-word", /\b(?:works|working|passed|passes|succeeded|success)\b/i, "formal"),
+  mkMember("CLAIM-WORD-FORMAL-TESTED", "claim-word", /\b(?:tested|complete|done)\b/i, "formal")
+];
+var SLANG_CLAIM_WORDS = [
+  mkMember("CLAIM-WORD-SLANG-GREEN", "claim-word", /\b(?:green|all-green)\b/i, "slang"),
+  mkMember("CLAIM-WORD-SLANG-SYNCED", "claim-word", /\b(?:synced|in-sync)\b/i, "slang"),
+  mkMember("CLAIM-WORD-SLANG-READY", "claim-word", /\b(?:ready|all-ready)\b/i, "slang"),
+  mkMember("CLAIM-WORD-SLANG-SOLID", "claim-word", /\b(?:solid|rock[- ]solid|fully[- ]solid)\b/i, "slang"),
+  mkMember("CLAIM-WORD-SLANG-GOOD", "claim-word", /\b(?:all-good|good-to-go)\b/i, "slang"),
+  mkMember("CLAIM-WORD-SLANG-SHIP", "claim-word", /\b(?:ship-it|ship it|shipped)\b/i, "slang"),
+  mkMember("CLAIM-WORD-SLANG-CERTAIN", "claim-word", /\b(?:bet your life|bet-your-life|100-percent|no-issues)\b/i, "slang"),
+  mkMember("CLAIM-WORD-SLANG-CLEAN", "claim-word", /\b(?:clean|clean-run)\b/i, "slang")
+];
+var STRONG_PHRASES = [
+  mkMember("STRONG-PHRASE-ALL-WORKS", "strong-phrase", /\b(?:everything works|all tests p[a]ss|all good)\b/i, "slop"),
+  mkMember("STRONG-PHRASE-DEPLOY", "strong-phrase", /\b(?:ready for deploy|ready to deploy|ready for the host|ready for host)\b/i, "slop"),
+  mkMember("STRONG-PHRASE-CERTAIN", "strong-phrase", /\b(?:bet your life|it works|verified working|container tested)\b/i, "slop"),
+  mkMember("STRONG-PHRASE-SHIP", "strong-phrase", /\b(?:ship it|ship this|good to go)\b/i, "slop")
+];
+var CLAIM_NEGATION_WINDOW_CHARS = 24;
+var NEGATION_GUARD = mkMember("NEGATION-GUARD", "negation", /\b(?:not|never|un-|in-|pending|blocked|untested|unverified|TODO|WIP|to be|will)\b/i, "neutral");
+function negatesStrongPhrase(sentence, phrase) {
+  const m = sentence.match(phrase.matcher);
+  if (!m || m.index === undefined)
+    return false;
+  const before = sentence.slice(0, m.index).slice(-60);
+  return /\b(?:not|never|un-|in-|pending|blocked|untested|unverified|TODO|WIP)\b/i.test(before);
+}
+function negatesClaimLocally(sentence, negIndex) {
+  const from = Math.max(0, negIndex - CLAIM_NEGATION_WINDOW_CHARS);
+  const to = Math.min(sentence.length, negIndex + CLAIM_NEGATION_WINDOW_CHARS);
+  const window = sentence.slice(from, to);
+  return FORMAL_CLAIM_WORDS.some((m) => m.matcher.test(window)) || SLANG_CLAIM_WORDS.some((m) => m.matcher.test(window)) || STRONG_PHRASES.some((m) => m.matcher.test(window)) || UNIVERSAL_CLAIMS.some((m) => m.matcher.test(window));
+}
+function isNegated(sentence) {
+  const negs = Array.from(sentence.matchAll(new RegExp(NEGATION_GUARD.matcher.source, NEGATION_GUARD.matcher.flags + "g")));
+  if (negs.length === 0)
+    return false;
+  const strong = STRONG_PHRASES.find((p) => p.matcher.test(sentence) && !negatesStrongPhrase(sentence, p));
+  if (strong)
+    return false;
+  return negs.some((n) => negatesClaimLocally(sentence, n.index ?? 0));
+}
+var SUBJECT_DICTIONARY = [
+  { id: "SUBJECT-CONTAINER-TEST", matcher: /\b(?:container[- ]test|closeout-ct|the container)\b/i, subject: "container-test" },
+  { id: "SUBJECT-BATTERY", matcher: /\b(?:the battery|bun test|vitest|the tests|the suite)\b/i, subject: "battery" },
+  { id: "SUBJECT-REGISTRY", matcher: /\b(?:the registry|wave-registry|the wave dispatch)\b/i, subject: "registry" },
+  { id: "SUBJECT-GATE", matcher: /\b(?:the gate|the firewall|the SSTF)\b/i, subject: "gate" },
+  { id: "SUBJECT-WAVE-GEN", matcher: /\b(?:the wave generator|the generator)\b/i, subject: "wave-generator" },
+  { id: "SUBJECT-CONFIG-LOCK", matcher: /\b(?:the config lock|the config-lock)\b/i, subject: "config-lock" },
+  { id: "SUBJECT-PLUGIN", matcher: /\b(?:the plugin|the dist|the build|the ship)\b/i, subject: "ship" }
+];
+var UNIVERSAL_CLAIMS = [
+  mkMember("UNIVERSAL-EVERYTHING", "universal-claim", /\b(?:everything|all|the build|the whole)\b/i, "slop"),
+  mkMember("UNIVERSAL-IT", "universal-claim", /\b(?:it|this|that)\b/i, "slop")
+];
+var DIST_SENTINEL = "*dist*";
+function extractSubject(sentence, hasClaimWord) {
+  const matched = SUBJECT_DICTIONARY.filter((r) => r.matcher.test(sentence));
+  if (matched.length > 1)
+    return DIST_SENTINEL;
+  if (matched.length === 1)
+    return matched[0].subject;
+  if (hasClaimWord && UNIVERSAL_CLAIMS.some((u) => u.matcher.test(sentence)))
+    return DIST_SENTINEL;
+  const m = sentence.match(/\b(\w[\w-]*)\s+(?:works|passed|is green|is synced|is ready|is solid)\b/i);
+  if (m)
+    return m[1];
+  return null;
+}
+function isPrediction(sentence) {
+  return /\b(?:will|would|should|may|might|could)\b/i.test(sentence);
+}
+var SENTENCE_BOUNDARY_MIN_CHARS = 2;
+function splitSentences(text) {
+  const spans = [];
+  const n = text.length;
+  let start = 0;
+  let inFence = false;
+  let i = 0;
+  while (i < n) {
+    if (text.startsWith("```", i)) {
+      inFence = !inFence;
+      i += 3;
+      continue;
+    }
+    if (inFence) {
+      i++;
+      continue;
+    }
+    const ch = text[i];
+    const next = i + 1 < n ? text[i + 1] : "";
+    if (ch === `
+`) {
+      if (next !== "" && next !== " " && next !== "\t" && next !== "\r") {
+        pushSpan(spans, text, start, i + 1);
+        start = i + 1;
+      }
+      i++;
+      continue;
+    }
+    const isBoundaryChar = ch === "." || ch === "!" || ch === "?" || ch === ",";
+    if (isBoundaryChar) {
+      if (next === "" || next === " " || next === "\t" || next === "\r" || next === `
+`) {
+        pushSpan(spans, text, start, i + 1);
+        start = i + 1;
+      }
+    }
+    i++;
+  }
+  const tail = text.slice(start);
+  if (tail.trim().length >= SENTENCE_BOUNDARY_MIN_CHARS)
+    spans.push({ start, end: text.length, text: tail });
+  return spans;
+}
+function pushSpan(spans, text, start, end) {
+  const seg = text.slice(start, end);
+  if (seg.trim().length >= SENTENCE_BOUNDARY_MIN_CHARS)
+    spans.push({ start, end, text: seg });
+}
+function isCodeSpan(text) {
+  if (text.startsWith("```") || text.endsWith("```"))
+    return true;
+  return (text.match(/`/g) ?? []).length >= 2;
+}
+var SLANG_CLAIM_WORD_RE = new RegExp(SLANG_CLAIM_WORDS.map((m) => m.matcher.source).join("|"), "i");
+var STRONG_PHRASE_RE = new RegExp(STRONG_PHRASES.map((m) => m.matcher.source).join("|"), "i");
+function findClaimMember(sentence) {
+  for (const member of [...STRONG_PHRASES, ...SLANG_CLAIM_WORDS, ...FORMAL_CLAIM_WORDS]) {
+    if (member.matcher.test(sentence))
+      return member;
+  }
+  return null;
+}
+function classifySentence(sentence, sessionId) {
+  if (isCodeSpan(sentence))
+    return { kind: "NON_CLAIM", subject: null, evidenceVerdict: null, warhead: null };
+  if (isPrediction(sentence))
+    return { kind: "NON_CLAIM", subject: null, evidenceVerdict: null, warhead: null };
+  const hasFormal = FORMAL_CLAIM_WORDS.some((m) => m.matcher.test(sentence));
+  const hasSlang = SLANG_CLAIM_WORDS.some((m) => m.matcher.test(sentence));
+  const hasStrong = STRONG_PHRASES.some((m) => m.matcher.test(sentence));
+  const hasClaim = hasFormal || hasSlang || hasStrong;
+  if (isNegated(sentence))
+    return { kind: "NON_CLAIM", subject: null, evidenceVerdict: null, warhead: null };
+  if (!hasClaim)
+    return { kind: "NON_CLAIM", subject: null, evidenceVerdict: null, warhead: null };
+  const subject = extractSubject(sentence, hasClaim);
+  const querySubject = subject === DIST_SENTINEL || subject === null ? undefined : subject;
+  let verdict = null;
+  try {
+    verdict = queryEvidenceVerdict(sessionId, querySubject);
+  } catch (err) {
+    ctLog("ERROR", "smoke-lexicon", `evidence verdict query failed for ${sessionId}: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  const emittedSubject = subject === DIST_SENTINEL ? null : subject;
+  if (!verdict)
+    return { kind: "NON_CLAIM", subject: emittedSubject, evidenceVerdict: null, warhead: null };
+  const member = findClaimMember(sentence);
+  if (member)
+    return member.remediationHook(emittedSubject, verdict);
+  return verdict.verdict === "LEGIT" ? { kind: "CLAIM_LEGIT", subject: emittedSubject, evidenceVerdict: verdict, warhead: null } : { kind: "CLAIM_SLOP", subject: emittedSubject, evidenceVerdict: verdict, warhead: selectWarheadLocal(verdict) };
+}
+function classifyMessageSpans(text, sessionId) {
+  const spans = splitSentences(text);
+  return spans.map((span) => {
+    const verdict = classifySentence(span.text, sessionId);
+    return { ...verdict, evidenceVerdict: verdict.evidenceVerdict ?? undefined, start: span.start, end: span.end, text: span.text };
+  });
+}
+
 // src/ext/kernel-judge.ts
 import { join as joinPath } from "path";
 import { homedir as homedir2 } from "os";
@@ -4235,7 +4521,7 @@ function textMatchesAtom(atom, spanText) {
 var CLAIM_WORD_RE3 = /\b(?:done|complete[d]?\b|fixed|verified|it\s+works|all\s+green|all\s+pass(?:ed|es)?)\b/i;
 var CLAIM_NEGATION_RE3 = /\b(?:not|cannot|can't|won't|refuse|refused|never|without|unverified|unsubstantiated|fail(?:ed|ing|s)?|pending|todo|wip|to\s+be)\b/i;
 var PAST_TENSE_RE = /\b(?:completed|finished|passed|confirmed|closed|shipped|built|tested)\b/i;
-var STRONG_PHRASE_RE = /\b(?:everything\s+works|all\s+green|all\s+(?:tests|pass|checks)\s+pass|verified\s+everything|is\s+verified|confirmed\s+correct|task\s+completed|wave\s+succeeded|build\s+succeeded|audit\s+passed)\b/i;
+var STRONG_PHRASE_RE2 = /\b(?:everything\s+works|all\s+green|all\s+(?:tests|pass|checks)\s+pass|verified\s+everything|is\s+verified|confirmed\s+correct|task\s+completed|wave\s+succeeded|build\s+succeeded|audit\s+passed)\b/i;
 var CLAIM_AUDIT_REMEDY_RE3 = /\b(?:manifest\s+records|gap|what\s+is\s+not|not\s+verified|records\s+what)\b/i;
 var SCOPE_SHRINK_RE = /\b(?:too\s+complex|too\s+big|simplify\s+the\s+scope|reduce\s+the\s+scope|out\s+of\s+scope|shrink(?:ing|ed)?\s+(?:scope|the\s+promise))\b/i;
 var SCOPE_GAP_RE = /\b(?:not\s+verified|what\s+is\s+not|records\s+what|gap|missing\s+(?:scope|item))\b/i;
@@ -4244,11 +4530,11 @@ var GUESS_RE = /\b(?:i(?:'ll| will)\s+just\s+assume|let\s+me\s+guess|probably\s+
 var DRIFT_RE = /\b(?:drift|GRAPH_GATE_DRIFT_HIGH|structural\s+edit|structural\s+code|reimplement|reimplemented)\b/i;
 var HAPPY_PATH_RE = /\b(?:happy\s+path|all\s+tests\s+pass|everything\s+works|pass\s+\d+|0\s+fail(?:ures)?)\b/i;
 var EVIDENCE_RE = /\b(?:\d+\s+pass(?:ed)?|\d+\s+fail(?:ed)?|exit\s+code\s+\d+|ran\s+just\s+now|container\s+test|tsc\s+exit|battery)\b/i;
-function isNegated(sentence) {
+function isNegated2(sentence) {
   return CLAIM_NEGATION_RE3.test(sentence);
 }
 function isPastTense(sentence) {
-  return PAST_TENSE_RE.test(sentence) && !STRONG_PHRASE_RE.test(sentence);
+  return PAST_TENSE_RE.test(sentence) && !STRONG_PHRASE_RE2.test(sentence);
 }
 function isGapRecord(sentence) {
   return CLAIM_AUDIT_REMEDY_RE3.test(sentence) || SCOPE_GAP_RE.test(sentence);
@@ -4278,7 +4564,7 @@ var VERIFICATION_BEFORE_DECLARATION = {
       if (wordIdx > 0 && s[wordIdx - 1] === ".") {
         return false;
       }
-      if (isNegated(s))
+      if (isNegated2(s))
         continue;
       if (isPastTense(s))
         continue;
@@ -4659,6 +4945,23 @@ function ctExtension(pi) {
               });
               host.log("WARN", "omp-ct", `[CT CLAIM LEXICON] a verification claim with no atom \u2014 "${span.slice(0, 50)}"`);
             }
+            try {
+              const sidForLex = String(c.sessionID ?? "default");
+              for (const span of classifyMessageSpans(text, sidForLex)) {
+                if (span.kind !== "CLAIM_SLOP")
+                  continue;
+                const v = span.evidenceVerdict;
+                recordFiring({
+                  rule: "smoke-lexicon",
+                  buffer: "agent-text",
+                  band: "flag",
+                  matched_span: String(span.text ?? "").slice(0, 200) || text.slice(0, 60),
+                  verdict: `CLAIM_SLOP \u2014 the evidence machine scores the subject ${v ? v.verdict : "UNEVIDENCED"} ` + `(a claim whose proof is not container-grade). Subject: ${span.subject ?? "(dist-level)"}`,
+                  jev_called: false
+                });
+                host.log("WARN", "omp-ct", `[CT SLOP] "${String(span.text ?? "").slice(0, 50)}" \u2014 evidence: ${v ? v.verdict : "UNEVIDENCED"}`);
+              }
+            } catch {}
           } catch {}
           try {
             const v = decide2(text);
