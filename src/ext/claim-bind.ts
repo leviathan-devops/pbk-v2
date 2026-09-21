@@ -83,20 +83,50 @@ export type JudgeFn = (atom: ClaimAtom, span: RingSpan) => JudgeResult | null;
 // The judge is SYNCHRONOUS by contract ("wrap it and resolve BEFORE calling"), so this is the ASYNC half:
 // resolve the verdicts first, then hand the caller a sync lookup. Without a key it returns null — which
 // leaves the caller with no judge and therefore the existing FAIL_CLOSED behaviour, unchanged.
+/** V-070: the keyless state is a STARTUP fact — announce it ONCE, loudly. */
+let claimJudgeAnnounced = false;
+
+import { resolveApiKey } from './kernel-judge';
+
 export const CLAIM_JUDGE_TIMEOUT_MS = 8000;
 
 export async function judgeClaimViaTypeSafe(
   atom: ClaimAtom,
   span: RingSpan,
-  apiKey: string | undefined = process.env.TYPESAFE_AI_API_KEY,
+  apiKey: string | undefined = undefined,
 ): Promise<JudgeResult | null> {
-  if (!apiKey) return null; // no key -> no verdict -> the caller stays fail-closed (as before)
+  // V-070: THE SAME DEFECT AS V-067, IN THE SECOND JUDGE. This parameter defaulted to
+  // `process.env.TYPESAFE_AI_API_KEY` — so the claim judge never resolved `~/.abide/.env`, the file the
+  // loud-fail message names, and returned `null` SILENTLY (no row, no log) while `bindAtoms` recorded
+  // `jev_called: true`. Measured: the real API answered `{noul: 0.99}` and the caller saw nothing.
+  const key = apiKey ?? resolveApiKey();
+  if (!key) {
+    // LOUD: the layer is DOWN, and a silent null here would be indistinguishable from an honest rejection.
+    recordFiring({
+      rule: 'claim-bind', buffer: 'agent-text', band: 'skip', probability: null,
+      verdict: 'CLAIM JUDGE UNAVAILABLE — no TYPESAFE_AI_API_KEY; this claim could NOT be judged (the L2 judge is DOWN)',
+      jev_called: false, ms: 0, matched_span: atom.text,
+      skip_reason: 'judge-unavailable:no-key',
+    });
+    if (!claimJudgeAnnounced) {
+      claimJudgeAnnounced = true;
+      try {
+        process.stderr.write(
+          '\n[omp-ct] *** THE L2 CLAIM JUDGE IS DOWN *** TYPESAFE_AI_API_KEY is absent, so NO claim can ' +
+            'be judged. Every claim therefore FAILS CLOSED.\n' +
+            '         Fix: ~/.abide/.env (chmod 600) with TYPESAFE_AI_API_KEY=<key>, then restart omp.\n\n',
+        );
+      } catch { /* never throw from a logger */ }
+    }
+    return null;
+  }
   const body = JSON.stringify({
     state: { claim: atom.text, evidence: span.text },
     model: 'jev-latest',
     questions: {
       'claim-supported': {
-        type: 'boolean',
+        // V-068: the API's primitive is `noul`; `boolean` is a 400 (measured against the real API).
+        type: 'noul',
         instructions:
           'Does the EVIDENCE text actually support the CLAIM text? Answer true only if the evidence, read ' +
           'literally, establishes the claim. A different turn, an unrelated line, or a paraphrase that ' +
@@ -109,7 +139,7 @@ export async function judgeClaimViaTypeSafe(
   try {
     const resp = await fetch('https://api.typesafe.ai/v1/systemone', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
       body,
       signal: controller.signal,
     });
@@ -121,9 +151,21 @@ export async function judgeClaimViaTypeSafe(
       });
       return null;
     }
-    const j = (await resp.json()) as { answers?: Record<string, { probability?: number }> };
-    const p = j.answers?.['claim-supported']?.probability;
-    if (typeof p !== 'number' || !Number.isFinite(p)) return null;   // V-046's guard, applied here too
+    const j = (await resp.json()) as { answers?: Record<string, { probability?: number; noul?: number }> };
+    // V-069: the answer field is `noul` for a noul question (measured), not `probability`.
+    const ans = j.answers?.['claim-supported'];
+    const p = typeof ans?.noul === 'number' ? ans.noul : ans?.probability;
+    if (typeof p !== 'number' || !Number.isFinite(p)) {
+      // V-046's guard, applied here too — and NAMED, because a silent null is indistinguishable from a
+      // rejection (the exact confusion V-037 was about).
+      recordFiring({
+        rule: 'claim-bind', buffer: 'agent-text', band: 'skip', probability: null,
+        verdict: `claim judge returned no usable score (${JSON.stringify(p)}) for the atom`,
+        jev_called: true, ms: 0, matched_span: atom.text,
+        skip_reason: 'judge-unusable-answer',
+      });
+      return null;
+    }
     return { verdict: p >= 0.5 ? 'support' : 'reject', probability: p } as JudgeResult;
   } catch (err) {
     recordFiring({

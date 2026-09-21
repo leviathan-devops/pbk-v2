@@ -2931,6 +2931,7 @@ import { existsSync as existsSync6, readFileSync as readFileSync5 } from "fs";
 
 // src/ext/kernel-judge.ts
 import { join as joinPath } from "path";
+import { homedir as homedir2 } from "os";
 import { readFileSync as readFileSync4, existsSync as existsSync5 } from "fs";
 
 // src/ledger/events-ledger.ts
@@ -3031,6 +3032,8 @@ function recordFiring(input) {
 // src/ext/kernel-judge.ts
 var EDIT_CHECK_TIMEOUT_MS = 8000;
 var MAX_ACT_APPENDS_PER_RULE_PER_TURN = 2;
+var judgeUnavailableAnnounced = false;
+var rubricUnavailableAnnounced = false;
 var ACT_THRESHOLD = 0.8;
 var FLAG_THRESHOLD = 0.5;
 var MAX_STATE_CHARS = 24000;
@@ -3077,10 +3080,41 @@ function flagNoticeText(rule, probability) {
   const pct = probability.toFixed(2);
   return `Abide: uncertain about "${rule.id}" ${pct} on this edit. Not blocking. Details in .abide/events.jsonl.`;
 }
+function resolveApiKey() {
+  const fromEnv = process.env.TYPESAFE_AI_API_KEY;
+  if (fromEnv)
+    return fromEnv;
+  try {
+    const envPath = joinPath(homedir2(), ".abide", ".env");
+    if (!existsSync5(envPath))
+      return;
+    for (const line of readFileSync4(envPath, "utf8").split(`
+`)) {
+      const m = line.match(/^\s*TYPESAFE_AI_API_KEY\s*=\s*(\S+)/);
+      if (m && m[1].length > 8)
+        return m[1];
+    }
+  } catch {}
+  return;
+}
+function toApiPrimitive(t) {
+  switch ((t ?? "").toLowerCase()) {
+    case "boolean":
+    case "bool":
+    case "noul":
+      return "noul";
+    case "choice":
+      return "choice";
+    case "score":
+      return "score";
+    default:
+      return "noul";
+  }
+}
 async function defaultJudge(rules, state, apiKey) {
-  const key = apiKey ?? process.env.TYPESAFE_AI_API_KEY;
+  const key = apiKey ?? resolveApiKey();
   if (!key) {
-    const err = new Error("no-key");
+    const err = new Error("no-key: TYPESAFE_AI_API_KEY is absent, so NO edit can be judged. " + "Fix: put the key in ~/.abide/.env (chmod 600) as TYPESAFE_AI_API_KEY=<key>, then restart.");
     err.code = "NO_API_KEY";
     throw err;
   }
@@ -3090,7 +3124,7 @@ async function defaultJudge(rules, state, apiKey) {
     if (!q)
       continue;
     questions[rule.id] = {
-      type: q.type,
+      type: toApiPrimitive(q.type),
       ...q.instructions ? { instructions: q.instructions } : {},
       ...q.criteria ? { criteria: q.criteria } : {}
     };
@@ -3126,8 +3160,9 @@ async function defaultJudge(rules, state, apiKey) {
     const scores = {};
     for (const rule of rules) {
       const answer = result.answers?.[rule.id];
-      if (answer && typeof answer.probability === "number" && Number.isFinite(answer.probability)) {
-        scores[rule.id] = Math.min(1, Math.max(0, answer.probability));
+      const score = typeof answer?.noul === "number" ? answer.noul : answer?.probability;
+      if (typeof score === "number" && Number.isFinite(score)) {
+        scores[rule.id] = Math.min(1, Math.max(0, score));
       }
     }
     return scores;
@@ -3190,17 +3225,28 @@ async function judgeWithBands(event, opts, ringAccessor) {
   const allRules = loadRubric(opts.rubricPath);
   const rules = selectEditModelRules(allRules);
   if (rules.length === 0) {
+    const looked = opts.rubricPath ?? joinPath(process.cwd(), ".abide", "rubric.json");
     recordFiring({
       rule: "kernel-judge",
       buffer: "tool-result",
       band: "skip",
       probability: null,
-      verdict: "no edit+model rules found in rubric",
+      verdict: `JUDGE UNAVAILABLE \u2014 the rubric at ${looked} has NO edit+model rules; this edit was NOT judged ` + "(the L1 layer has no rules to apply here)",
       jev_called: false,
       ms: 0,
       matched_span: null,
-      skip_reason: "no-model-rules"
+      skip_reason: "judge-unavailable:no-model-rules"
     });
+    if (!rubricUnavailableAnnounced) {
+      rubricUnavailableAnnounced = true;
+      try {
+        process.stderr.write(`
+[omp-ct] *** THE L1 JUDGE HAS NO RULES HERE *** the rubric resolved at ${looked} ` + `contains no active edit+model rules, so every edit in this workspace is UNJUDGED.
+` + "         Fix: compile the rubric into <workspace>/.abide/rubric.json " + `(bun scripts/compile-rubric.mjs), then restart omp.
+
+`);
+      } catch {}
+    }
     return {
       content: originalContent,
       notices: [],
@@ -3234,12 +3280,22 @@ async function judgeWithBands(event, opts, ringAccessor) {
         buffer: "tool-result",
         band: "skip",
         probability: null,
-        verdict: "judge skipped: no API key",
+        verdict: "JUDGE UNAVAILABLE \u2014 no TYPESAFE_AI_API_KEY; this edit was NOT judged (the L1 layer is DOWN)",
         jev_called: false,
         ms: Math.round(performance.now() - started),
         matched_span: null,
-        skip_reason: "no-key"
+        skip_reason: "judge-unavailable:no-key"
       });
+      if (!judgeUnavailableAnnounced) {
+        judgeUnavailableAnnounced = true;
+        try {
+          process.stderr.write(`
+[omp-ct] *** THE L1 JUDGE IS DOWN *** TYPESAFE_AI_API_KEY is absent, so EVERY edit is ` + `UNJUDGED. This is a LOUD FAILURE, not a degraded mode.
+` + `         Fix: ~/.abide/.env (chmod 600) with TYPESAFE_AI_API_KEY=<key>, then restart omp.
+
+`);
+        } catch {}
+      }
       return {
         content: originalContent,
         notices: [],
@@ -3475,16 +3531,40 @@ function kernelJudge(opts = {}) {
 }
 
 // src/ext/claim-bind.ts
+var claimJudgeAnnounced = false;
 var CLAIM_JUDGE_TIMEOUT_MS = 8000;
-async function judgeClaimViaTypeSafe(atom, span, apiKey = process.env.TYPESAFE_AI_API_KEY) {
-  if (!apiKey)
+async function judgeClaimViaTypeSafe(atom, span, apiKey = undefined) {
+  const key = apiKey ?? resolveApiKey();
+  if (!key) {
+    recordFiring({
+      rule: "claim-bind",
+      buffer: "agent-text",
+      band: "skip",
+      probability: null,
+      verdict: "CLAIM JUDGE UNAVAILABLE \u2014 no TYPESAFE_AI_API_KEY; this claim could NOT be judged (the L2 judge is DOWN)",
+      jev_called: false,
+      ms: 0,
+      matched_span: atom.text,
+      skip_reason: "judge-unavailable:no-key"
+    });
+    if (!claimJudgeAnnounced) {
+      claimJudgeAnnounced = true;
+      try {
+        process.stderr.write(`
+[omp-ct] *** THE L2 CLAIM JUDGE IS DOWN *** TYPESAFE_AI_API_KEY is absent, so NO claim can ` + `be judged. Every claim therefore FAILS CLOSED.
+` + `         Fix: ~/.abide/.env (chmod 600) with TYPESAFE_AI_API_KEY=<key>, then restart omp.
+
+`);
+      } catch {}
+    }
     return null;
+  }
   const body = JSON.stringify({
     state: { claim: atom.text, evidence: span.text },
     model: "jev-latest",
     questions: {
       "claim-supported": {
-        type: "boolean",
+        type: "noul",
         instructions: "Does the EVIDENCE text actually support the CLAIM text? Answer true only if the evidence, read " + "literally, establishes the claim. A different turn, an unrelated line, or a paraphrase that " + "overstates the evidence is false."
       }
     }
@@ -3494,7 +3574,7 @@ async function judgeClaimViaTypeSafe(atom, span, apiKey = process.env.TYPESAFE_A
   try {
     const resp = await fetch("https://api.typesafe.ai/v1/systemone", {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
       body,
       signal: controller.signal
     });
@@ -3513,9 +3593,22 @@ async function judgeClaimViaTypeSafe(atom, span, apiKey = process.env.TYPESAFE_A
       return null;
     }
     const j = await resp.json();
-    const p = j.answers?.["claim-supported"]?.probability;
-    if (typeof p !== "number" || !Number.isFinite(p))
+    const ans = j.answers?.["claim-supported"];
+    const p = typeof ans?.noul === "number" ? ans.noul : ans?.probability;
+    if (typeof p !== "number" || !Number.isFinite(p)) {
+      recordFiring({
+        rule: "claim-bind",
+        buffer: "agent-text",
+        band: "skip",
+        probability: null,
+        verdict: `claim judge returned no usable score (${JSON.stringify(p)}) for the atom`,
+        jev_called: true,
+        ms: 0,
+        matched_span: atom.text,
+        skip_reason: "judge-unusable-answer"
+      });
       return null;
+    }
     return { verdict: p >= 0.5 ? "support" : "reject", probability: p };
   } catch (err) {
     recordFiring({

@@ -59,7 +59,9 @@ describe("V-056 the live claim path supplies a judge", () => {
 
   // ── the judge's own contract ──
   test("ADVERSARIAL: WITHOUT a key the judge returns null (fail-closed preserved exactly)", async () => {
-    const r = await judgeClaimViaTypeSafe({ kind: "status", text: "the daemon is running" } as never, span("daemon running"), undefined);
+    // V-067/V-070: an EMPTY override forces the keyless path — the file is no longer bypassed by
+    // deleting the env var (the key resolves from ~/.abide/.env now).
+    const r = await judgeClaimViaTypeSafe({ kind: "status", text: "the daemon is running" } as never, span("daemon running"), "");
     expect(r).toBeNull();
   });
 

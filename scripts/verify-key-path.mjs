@@ -48,6 +48,28 @@ const res = await judge.judge({
   turnId: "t1",
 }).catch((e) => ({ error: String((e && e.message) || e) }));
 console.log("JUDGE RESULT:", JSON.stringify(res).slice(0, 400));
-if (res && res.error) { console.log("KEY PRESENT BUT THE JUDGE PATH FAILED — read the error above."); process.exit(1); }
-console.log("BAND PRODUCED — the two blocked goal items are now unblocked; re-run their gates.");
-process.exit(0);
+
+// V-067: THE VERDICT MUST BE EVIDENCE-BASED. The previous version printed "BAND PRODUCED — the two
+// blocked goal items are now unblocked" whenever no exception was thrown — INCLUDING when the judge
+// returned `checked:false, actAppends:0`, i.e. NO BAND. That is the theatrical class: a green-sounding
+// line with no evidence behind it, which would have sent the operator away believing the layer worked.
+if (res && res.error) {
+  console.log("VERDICT: FAILED — KEY PRESENT BUT THE JUDGE PATH ERRORED (read the error above).");
+  process.exit(1);
+}
+const banded = res && res.checked === true;
+const bandCount = (res && (res.actAppends ?? 0) + (res.flagNotices ?? 0)) ?? 0;
+if (banded && bandCount > 0) {
+  console.log(`VERDICT: PASS — a REAL band was produced (actAppends=${res.actAppends} flagNotices=${res.flagNotices}); the two key-gated items are unblocked.`);
+  process.exit(0);
+}
+if (banded && bandCount === 0) {
+  // checked but nothing banded: a legitimate outcome for THIS fixture (the judge may clear it) — but it
+  // is NOT a "band produced", and the caller must be able to tell the difference.
+  console.log("VERDICT: PARTIAL — the judge WAS called (checked=true) but this fixture produced no act/flag band.");
+  console.log("         The judge path is LIVE; re-run the real gates to see a band.");
+  process.exit(0);
+}
+console.log("VERDICT: FAILED — the judge did NOT run (checked=false). THE LAYER IS DOWN; the key did not reach it.");
+console.log("         Check that the key resolves: env TYPESAFE_AI_API_KEY, or ~/.abide/.env (chmod 600).");
+process.exit(1);

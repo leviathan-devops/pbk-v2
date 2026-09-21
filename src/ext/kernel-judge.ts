@@ -28,8 +28,11 @@
  *   POST https://api.typesafe.ai/v1/systemone
  *   body: { state, model: 'jev-latest', questions }
  *   header: Authorization: Bearer $TYPESAFE_AI_API_KEY
- * The key is read from the env; if ABSENT, log a `skip` row with
- * skip_reason: 'no-key' and return WITHOUT calling. Never a silent pass.
+ * THE KEY IS REQUIRED. If it is ABSENT the layer is DOWN — not "skipping": every edit goes UNJUDGED
+ * while the agent keeps writing, and the only honest presentation of that is a LOUD FAILURE. The judge
+ * writes an UNAVAILABLE row (band `skip`, skip_reason `judge-unavailable:no-key`, verdict naming the
+ * consequence) AND a loud stderr line naming the remedy. **A quiet per-call skip would let the system
+ * look like it is enforcing while it is not — the unauthorized-fallback class.**
  *
  * Timeouts: EDIT_CHECK_TIMEOUT_MS (8000ms) per edit call; a timeout is a
  * `skip` row with skip_reason: 'timeout', never a block.
@@ -38,6 +41,7 @@
  */
 
 import { join as joinPath } from 'node:path';
+import { homedir } from 'node:os';
 import { readFileSync, existsSync } from 'node:fs';
 import {
   recordFiring,
@@ -50,6 +54,11 @@ export const EDIT_CHECK_TIMEOUT_MS = 8_000;
 export const MAX_ACT_APPENDS_PER_RULE_PER_TURN = 2;
 
 // ── RUBRIC THRESHOLDS (mirror .abide/rubric.json) ──
+/** V-066: the keyless state is a STARTUP fact — announce it loudly ONCE, not per edit. */
+let judgeUnavailableAnnounced = false;
+/** V-071: the no-rules state is also a STARTUP fact — announce it once. */
+let rubricUnavailableAnnounced = false;
+
 export const ACT_THRESHOLD = 0.8;
 export const FLAG_THRESHOLD = 0.5;
 
@@ -233,14 +242,59 @@ function flagNoticeText(rule: RubricRule, probability: number): string {
 // Returns Record<ruleId, probability>.
 // If the key is ABSENT, throws an error with code 'NO_API_KEY' — the caller
 // catches it and writes a skip row with skip_reason: 'no-key'.
+/**
+ * V-067: RESOLVE THE KEY FROM THE PATH THE ERROR NAMES.
+ * MEASURED: the loud-fail message tells the operator to put the key in `~/.abide/.env`, and
+ * `verify-key-path.mjs` reads that file — but `defaultJudge` read ONLY `process.env`. So the remedy the
+ * error named did NOT work: the file held a valid 107-char key while the judge reported it absent. **A
+ * remedy that does not remedy is worse than no remedy** — it sends the operator in a circle.
+ * Resolution order: the explicit override -> the env -> `~/.abide/.env` (the documented path).
+ */
+export function resolveApiKey(): string | undefined {
+  const fromEnv = process.env.TYPESAFE_AI_API_KEY;
+  if (fromEnv) return fromEnv;
+  try {
+    const envPath = joinPath(homedir(), '.abide', '.env');
+    if (!existsSync(envPath)) return undefined;
+    for (const line of readFileSync(envPath, 'utf8').split('\n')) {
+      const m = line.match(/^\s*TYPESAFE_AI_API_KEY\s*=\s*(\S+)/);
+      if (m && m[1].length > 8) return m[1];
+    }
+  } catch { /* an unreadable .env is not a crash — the caller reports the layer DOWN */ }
+  return undefined;
+}
+
+/**
+ * V-068: the rubric's question type -> the API's PRIMITIVE. The upstream schema says `boolean`; the wire
+ * says `noul`. `choice`/`score` pass through (they are already the API's names).
+ */
+export function toApiPrimitive(t: string | undefined): string {
+  switch ((t ?? '').toLowerCase()) {
+    case 'boolean':
+    case 'bool':
+    case 'noul':
+      return 'noul';
+    case 'choice':
+      return 'choice';
+    case 'score':
+      return 'score';
+    default:
+      return 'noul';
+  }
+}
+
 export async function defaultJudge(
   rules: RubricRule[],
   state: JudgeState,
   apiKey?: string,
 ): Promise<Record<string, number>> {
-  const key = apiKey ?? process.env.TYPESAFE_AI_API_KEY;
+  const key = apiKey ?? resolveApiKey();
   if (!key) {
-    const err = new Error('no-key') as Error & { code?: string };
+    // LOUD, and it names the remedy. The caller must present this as the layer being DOWN.
+    const err = new Error(
+      'no-key: TYPESAFE_AI_API_KEY is absent, so NO edit can be judged. ' +
+        'Fix: put the key in ~/.abide/.env (chmod 600) as TYPESAFE_AI_API_KEY=<key>, then restart.',
+    ) as Error & { code?: string };
     err.code = 'NO_API_KEY';
     throw err;
   }
@@ -250,8 +304,13 @@ export async function defaultJudge(
   for (const rule of rules) {
     const q = rule.check?.question;
     if (!q) continue;
+    // V-068: THE API'S PRIMITIVES ARE noul / choice / score — `boolean` IS NOT ONE. MEASURED against the
+    // real API: `type: "boolean"` -> 400 {"error_type":"api_usage_error","message":"Invalid request."},
+    // while `type: "noul"` -> 200 with the answer. The rubric's own vocabulary says `boolean` (it is the
+    // upstream schema's word); the WIRE needs the primitive. This is the mapping, and it exists because the
+    // stub could never have found it: a stub answers whatever shape you ask it.
     questions[rule.id] = {
-      type: q.type,
+      type: toApiPrimitive(q.type),
       ...(q.instructions ? { instructions: q.instructions } : {}),
       ...(q.criteria ? { criteria: q.criteria } : {}),
     };
@@ -291,7 +350,7 @@ export async function defaultJudge(
     }
 
     const result = (await resp.json()) as {
-      answers?: Record<string, { probability?: number }>;
+      answers?: Record<string, { probability?: number; noul?: number }>;
     };
     const scores: Record<string, number> = {};
     for (const rule of rules) {
@@ -300,8 +359,14 @@ export async function defaultJudge(
       // score entered `scores` and passed the decision guard below, where BOTH threshold comparisons
       // are false and computeBand returned 'clear'. A judge that produced no usable number was
       // reported as a CLEAN rule: the V-036 defect class, one type-check deeper.
-      if (answer && typeof answer.probability === 'number' && Number.isFinite(answer.probability)) {
-        scores[rule.id] = Math.min(1, Math.max(0, answer.probability));
+      // V-069: THE ANSWER FIELD IS `noul` (0-1), NOT `probability`. MEASURED: the real API returns
+      // {"answers":{"<id>":{"type":"noul","noul":0.95}}}. Reading only `.probability` found NOTHING and
+      // would have produced a silent all-rules-unanswered result — the fabricated-verdict class (V-036)
+      // arriving through a field name. The primitive's own field is read first; `probability` stays as the
+      // documented alternative the API's other primitives may use.
+      const score = typeof answer?.noul === 'number' ? answer.noul : answer?.probability;
+      if (typeof score === 'number' && Number.isFinite(score)) {
+        scores[rule.id] = Math.min(1, Math.max(0, score));
       }
       // V-036: an UNANSWERED rule gets NO score. The previous `else { scores[rule.id] = 0 }`
       // FABRICATED a probability: a partial/truncated API response made every unjudged rule read
@@ -423,17 +488,37 @@ export async function judgeWithBands(
   const rules = selectEditModelRules(allRules);
 
   if (rules.length === 0) {
+    // V-071: A MISSING RUBRIC IS THE LAYER BEING DOWN, NOT A BENIGN SKIP.
+    // MEASURED LIVE (a real omp session writing a file in a project with no `.abide/rubric.json`):
+    // `rule=kernel-judge band=skip ms=0 jev_called=false skip_reason='no-model-rules'` — EVERY edit in
+    // that project was UNJUDGED, QUIETLY. That is the same unauthorized-fallback class as an absent key:
+    // the system looked like it was enforcing while it was not. The row now names the consequence and a
+    // loud stderr line (once per process) names the remedy.
+    const looked = opts.rubricPath ?? joinPath(process.cwd(), '.abide', 'rubric.json');
     recordFiring({
       rule: 'kernel-judge',
       buffer: 'tool-result',
       band: 'skip',
       probability: null,
-      verdict: 'no edit+model rules found in rubric',
+      verdict:
+        `JUDGE UNAVAILABLE — the rubric at ${looked} has NO edit+model rules; this edit was NOT judged ` +
+        '(the L1 layer has no rules to apply here)',
       jev_called: false,
       ms: 0,
       matched_span: null,
-      skip_reason: 'no-model-rules',
+      skip_reason: 'judge-unavailable:no-model-rules',
     });
+    if (!rubricUnavailableAnnounced) {
+      rubricUnavailableAnnounced = true;
+      try {
+        process.stderr.write(
+          `\n[omp-ct] *** THE L1 JUDGE HAS NO RULES HERE *** the rubric resolved at ${looked} ` +
+            'contains no active edit+model rules, so every edit in this workspace is UNJUDGED.\n' +
+            '         Fix: compile the rubric into <workspace>/.abide/rubric.json ' +
+            '(bun scripts/compile-rubric.mjs), then restart omp.\n\n',
+        );
+      } catch { /* never throw from a logger */ }
+    }
     return {
       content: originalContent,
       notices: [],
@@ -472,17 +557,30 @@ export async function judgeWithBands(
       (err instanceof Error && err.name === 'TimeoutError');
 
     if (isNoKey) {
+      // THE LAYER IS DOWN. Not "skipped" — UNJUDGED. The row names the consequence; the stderr line is
+      // loud and names the remedy; and it is written ONCE PER PROCESS (the condition is a startup fact,
+      // not a per-edit event) so the operator cannot miss it and the log cannot drown in it.
       recordFiring({
         rule: 'kernel-judge',
         buffer: 'tool-result',
         band: 'skip',
         probability: null,
-        verdict: 'judge skipped: no API key',
+        verdict: 'JUDGE UNAVAILABLE — no TYPESAFE_AI_API_KEY; this edit was NOT judged (the L1 layer is DOWN)',
         jev_called: false,
         ms: Math.round(performance.now() - started),
         matched_span: null,
-        skip_reason: 'no-key',
+        skip_reason: 'judge-unavailable:no-key',
       });
+      if (!judgeUnavailableAnnounced) {
+        judgeUnavailableAnnounced = true;
+        try {
+          process.stderr.write(
+            '\n[omp-ct] *** THE L1 JUDGE IS DOWN *** TYPESAFE_AI_API_KEY is absent, so EVERY edit is ' +
+              'UNJUDGED. This is a LOUD FAILURE, not a degraded mode.\n' +
+              '         Fix: ~/.abide/.env (chmod 600) with TYPESAFE_AI_API_KEY=<key>, then restart omp.\n\n',
+          );
+        } catch { /* stderr itself can fail; never throw from a logger */ }
+      }
       return {
         content: originalContent,
         notices: [],

@@ -169,18 +169,19 @@ function optsWithRules(rules: RubricRule[], extra: Partial<JudgeOpts> = {}): Jud
   };
 }
 
-// ── GROUP 1: NO KEY → UNCHECKED + skip row (never a silent pass) ────────────
-// ADVERSARIAL FIRST: the first test proves the failure case — with no API key,
-// the judge MUST NOT silently pass. It must write a skip row with
-// skip_reason: 'no-key' and return the content UNMUTATED.
+// ── GROUP 1: A KEYLESS JUDGE → UNCHECKED + an UNAVAILABLE row (never a silent pass) ──
+// ADVERSARIAL FIRST: the first test proves the failure case — with no API key the judge MUST NOT
+// silently pass: it writes a row naming the LAYER AS DOWN (V-066) and returns the content UNMUTATED.
+// V-067: "no key" is now forced with an explicit EMPTY override, because the key RESOLVES from
+// ~/.abide/.env — deleting the env var no longer means keyless.
 
-describe('bands-edge: no-key is never a silent pass', () => {
-  test('no key → edit is UNCHECKED, content preserved, skip row with skip_reason=no-key written', async () => {
+describe('bands-edge: a keyless judge is a LOUD FAILURE, never a silent pass', () => {
+  test('no key → edit is UNCHECKED, content preserved, an UNAVAILABLE row naming the LAYER IS DOWN', async () => {
     const savedKey = process.env.TYPESAFE_AI_API_KEY;
     delete process.env.TYPESAFE_AI_API_KEY;
 
-    const opts = optsWithRules([EDIT_MODEL_RULE], { apiKey: undefined });
-    // No opts.judge → defaults to defaultJudge → reads env → no key → throws NO_API_KEY.
+    const opts = optsWithRules([EDIT_MODEL_RULE], { apiKey: '' });
+    // No opts.judge → defaultJudge → the key does NOT resolve → throws NO_API_KEY → the LOUD branch.
 
     const judge = kernelJudge(opts);
     const originalContent = [{ type: 'text', text: 'old result' }];
@@ -194,9 +195,11 @@ describe('bands-edge: no-key is never a silent pass', () => {
     expect(result.actAppends).toBe(0);
     expect(result.flagNotices).toBe(0);
 
-    // A skip row with skip_reason: 'no-key' MUST be in the ledger.
+    // V-066/V-067: THE KEY NOW RESOLVES FROM ~/.abide/.env, so "no key" must be forced EXPLICITLY (an
+    // empty override) rather than simulated by deleting the env var — deleting it no longer means
+    // keyless. The row names the state as the LAYER BEING DOWN, not a benign skip.
     const rows = readAllRows();
-    const skipRows = rows.filter((r) => r.skip_reason === 'no-key');
+    const skipRows = rows.filter((r) => r.skip_reason === 'judge-unavailable:no-key');
     expect(skipRows.length).toBeGreaterThanOrEqual(1);
     const skipRow = skipRows[0]!;
     expect(skipRow.band).toBe('skip');
@@ -205,22 +208,20 @@ describe('bands-edge: no-key is never a silent pass', () => {
     if (savedKey !== undefined) process.env.TYPESAFE_AI_API_KEY = savedKey;
   });
 
-  test('explicit apiKey: undefined + no env key → same no-key skip', async () => {
-    const savedKey = process.env.TYPESAFE_AI_API_KEY;
-    delete process.env.TYPESAFE_AI_API_KEY;
-
+  test('an explicit EMPTY apiKey → the LOUD unavailable state (the key cannot be resolved)', async () => {
+    // V-067: `apiKey: ''` is an explicit override that ?? does NOT fall back from, so the file is not
+    // consulted — the only honest way to simulate a keyless environment now that the file carries one.
     const opts = optsWithRules([EDIT_MODEL_RULE], {
-      apiKey: undefined,
-      judge: undefined, // use default → reads env
+      apiKey: '',
+      judge: undefined, // use default
     });
     const judge = kernelJudge(opts);
     const result = await judge.judge(editEvent());
 
     expect(result.checked).toBe(false);
     const rows = readAllRows();
-    expect(rows.some((r) => r.skip_reason === 'no-key')).toBe(true);
-
-    if (savedKey !== undefined) process.env.TYPESAFE_AI_API_KEY = savedKey;
+    expect(rows.some((r) => r.skip_reason === 'judge-unavailable:no-key')).toBe(true);
+    // (no restore needed: this test never touched the env — it forces keyless with the EMPTY override)
   });
 
   test('opts.apiKey provided → judge IS called (no skip row)', async () => {
