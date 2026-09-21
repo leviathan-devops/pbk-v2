@@ -148,8 +148,14 @@ describe('ledger-span (EVIDENCE DESTRUCTION)', () => {
     const file = readFileSync(ledgerPath(), 'utf8');
     const parsed = JSON.parse(file.trim());
     const keys = Object.keys(parsed).sort();
-    const expected = ['band', 'buffer', 'jev_called', 'matched_span', 'ms', 'probability', 'rule', 'skip_reason', 'ts', 'verdict'].sort();
-    expect(keys).toEqual(expected);
+    // V-084: the 10 audit-law fields are ALL REQUIRED, and `session` is the ONE permitted extra — the
+    // ATTRIBUTION field. It exists because the ledger is cwd-scoped, so sessions sharing a cwd wrote into
+    // one file and the claim ring could bind a claim to ANOTHER session's evidence. The test's INTENT is
+    // unchanged: no unapproved key may appear.
+    const base = ['band', 'buffer', 'jev_called', 'matched_span', 'ms', 'probability', 'rule', 'skip_reason', 'ts', 'verdict'];
+    for (const k of base) expect(keys).toContain(k);
+    const extras = keys.filter((k) => !base.includes(k));
+    expect(extras).toEqual(['session']);   // the only sanctioned extra
   });
 
   test('writes are append-only (new rows never overwrite old)', () => {

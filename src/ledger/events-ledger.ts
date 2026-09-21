@@ -69,6 +69,19 @@ export const FIRING_SCHEMA = [
   'jev_called', 'ms', 'matched_span', 'skip_reason',
 ] as const;
 
+/**
+ * V-084: `session` is the ONE permitted extra key — the ATTRIBUTION field.
+ * WHY IT EXISTS: the ledger is cwd-scoped, so every omp session sharing a cwd appends to the SAME file
+ * (measured: 512 rows in one second from two different sessions in Shared_Workspace, one editing
+ * `jarvis-manager.js`, one running this test). The claim firewall's ring was built by reading the last 40
+ * span-bearing rows of that SHARED file — so `currentTurn` was the last row ANY session wrote and a claim
+ * could bind to ANOTHER session's evidence. **The firewall's contract is "span from THIS TURN"; in a shared
+ * cwd it was "span from whoever wrote last."**
+ * It is OPTIONAL in the validation so that the 6,800+ legacy rows keep parsing (an exact-key check that
+ * demanded 11 keys would silently DROP them — the V-038 class, in the reader).
+ */
+export const FIRING_EXTRA_KEYS = ['session'] as const;
+
 export interface FiringEvent {
   /** ISO-8601 timestamp (UTC). */
   ts: string;
@@ -93,6 +106,22 @@ export interface FiringEvent {
   matched_span: string | null;
   /** Why a skip happened, else null. */
   skip_reason: string | null;
+  /**
+   * V-084: the session that produced this row. Optional for backward compatibility with legacy rows; the
+   * claim ring REQUIRES it (an unattributable span is not evidence of this turn).
+   */
+  session?: string;
+}
+
+/** V-084: the process-level session stamped onto every row this process writes. */
+let ledgerSession: string | undefined;
+/** Set the session whose rows this process is producing (called at the settled boundary). */
+export function setLedgerSession(sid: string | undefined): void {
+  ledgerSession = sid && sid.length > 0 ? sid : undefined;
+}
+/** The session this process is currently stamping (undefined = unattributed). */
+export function getLedgerSession(): string | undefined {
+  return ledgerSession;
 }
 
 // ── ROLE CLASSIFIER ───────────────────────────────────────────────────────
@@ -185,6 +214,8 @@ export interface RecordFiringInput {
   rule: string;
   buffer: BufferKind;
   band: Band;
+  /** V-084: override the process session for this row (defaults to setLedgerSession's value). */
+  session?: string;
   probability?: number | null;
   verdict: string;
   jev_called?: boolean;
@@ -235,6 +266,8 @@ export function recordFiring(input: RecordFiringInput): RecordFiringResult {
     ms: input.ms ?? 0,
     matched_span: input.matched_span,
     skip_reason: input.skip_reason ?? null,
+    // V-084: ATTRIBUTION. Written on every row this process produces, so the row can be scoped to its author.
+    ...(input.session ?? ledgerSession ? { session: input.session ?? ledgerSession } : {}),
   };
 
   // V-044: THE AUDIT WRITE MUST NEVER THROW. Measured: with an unwritable ledger dir (read-only
@@ -275,11 +308,13 @@ export function recordFiring(input: RecordFiringInput): RecordFiringResult {
 function parseRow(line: string): FiringEvent | null {
   try {
     const obj = JSON.parse(line);
-    const keys = Object.keys(obj).sort();
-    const expected = FIRING_SCHEMA.slice().sort();
-    // Validate exact key set (no missing, no extra).
+    const keys = Object.keys(obj);
+    const base = FIRING_SCHEMA as readonly string[];
+    // V-084: every BASE key is REQUIRED; the ONLY permitted extra is `session`.
+    // (An exact-count check would drop every legacy row the moment the field was added.)
     const ok =
-      keys.length === expected.length && keys.every((k, i) => k === expected[i]);
+      base.every((k) => keys.includes(k)) &&
+      keys.every((k) => base.includes(k) || (FIRING_EXTRA_KEYS as readonly string[]).includes(k));
     if (!ok) return null;
     return obj as FiringEvent;
   } catch {

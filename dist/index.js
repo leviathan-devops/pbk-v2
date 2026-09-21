@@ -2936,11 +2936,6 @@ function registerCtTools(pi, deps) {
 // src/index.ts
 import { existsSync as existsSync6, readFileSync as readFileSync5 } from "fs";
 
-// src/ext/kernel-judge.ts
-import { join as joinPath } from "path";
-import { homedir as homedir2 } from "os";
-import { readFileSync as readFileSync4, existsSync as existsSync5 } from "fs";
-
 // src/ledger/events-ledger.ts
 import { appendFileSync as appendFileSync5, readFileSync as readFileSync3, mkdirSync as mkdirSync4, existsSync as existsSync4 } from "fs";
 import { join as join6 } from "path";
@@ -2961,6 +2956,13 @@ function ledgerDir() {
 var warnedSentinelDir = false;
 function ledgerPath() {
   return join6(ledgerDir(), "events.jsonl");
+}
+var ledgerSession;
+function setLedgerSession(sid) {
+  ledgerSession = sid && sid.length > 0 ? sid : undefined;
+}
+function getLedgerSession() {
+  return ledgerSession;
 }
 var MCP_TOOL_PREFIXES = ["xd://", "mcp__"];
 function hasSystemTags(text) {
@@ -3014,7 +3016,8 @@ function recordFiring(input) {
     jev_called: input.jev_called ?? false,
     ms: input.ms ?? 0,
     matched_span: input.matched_span,
-    skip_reason: input.skip_reason ?? null
+    skip_reason: input.skip_reason ?? null,
+    ...input.session ?? ledgerSession ? { session: input.session ?? ledgerSession } : {}
   };
   const dir = ledgerDir();
   const file = ledgerPath();
@@ -3037,6 +3040,9 @@ function recordFiring(input) {
 }
 
 // src/ext/kernel-judge.ts
+import { join as joinPath } from "path";
+import { homedir as homedir2 } from "os";
+import { readFileSync as readFileSync4, existsSync as existsSync5 } from "fs";
 var EDIT_CHECK_TIMEOUT_MS = 8000;
 var MAX_ACT_APPENDS_PER_RULE_PER_TURN = 2;
 var judgeUnavailableAnnounced = false;
@@ -4265,6 +4271,9 @@ function ctExtension(pi) {
     if (event?.willContinue === true || event?.isTerminal === false)
       return;
     const isTurnBoundary = Array.isArray(event?.messages);
+    try {
+      setLedgerSession(String(c.sessionID ?? ""));
+    } catch {}
     if (isTurnBoundary) {
       turnCounter += 1;
       try {
@@ -4335,6 +4344,7 @@ function ctExtension(pi) {
       const p = ".abide/events.jsonl";
       if (!existsSync6(p))
         return [];
+      const sid = getLedgerSession();
       const rows = readFileSync5(p, "utf8").split(`
 `).filter((l) => l.trim()).map((l) => {
         try {
@@ -4343,7 +4353,7 @@ function ctExtension(pi) {
           return null;
         }
       }).filter(Boolean);
-      return rows.filter((r) => typeof r.matched_span === "string" && r.matched_span).slice(-limit).map((r) => ({ text: String(r.matched_span), ts: String(r.ts), source: String(r.rule) }));
+      return rows.filter((r) => typeof r.matched_span === "string" && r.matched_span).filter((r) => sid !== undefined && r.session === sid).slice(-limit).map((r) => ({ text: String(r.matched_span), ts: String(r.ts), source: String(r.rule) }));
     } catch {
       return [];
     }

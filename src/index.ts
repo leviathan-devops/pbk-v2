@@ -16,6 +16,8 @@ import { createSessionTracking } from "./hooks/session-hook";
 import { guardianGate } from "./hooks/guardian-hook";
 import { registerCtTools } from "./tools/ct-registry";
 import { existsSync, readFileSync } from "node:fs";
+// V-084: the session attribution — the ring is scoped to THIS session's rows (the cross-session fix).
+import { setLedgerSession, getLedgerSession } from "./ledger/events-ledger";
 import { kernelJudge } from "./ext/kernel-judge";
 import { bindAtoms, parseClaimAtoms, textMatchesAtom, judgeClaimViaTypeSafe, claimJudgeKey, type RingSpan } from "./ext/claim-bind";
 // V-048: the L0 (W3's six kernels + role filter + quote exclusion + ST-7 escalation) was imported by
@@ -147,6 +149,9 @@ const settledHandler = async (event: { messages?: unknown[]; message?: { role?: 
     // ring: probed 2026-09-21 — 5 edits in ONE turn give 2 act-appends (the cap holds), but 5 edits with
     // the turn rotated give 5 (the cap is defeated). V-040's cap was undone one layer up.
     const isTurnBoundary = Array.isArray((event as { messages?: unknown })?.messages);
+    // V-084: stamp THIS session on every row this process writes, before anything fires.
+    try { setLedgerSession(String((c as unknown as Record<string, unknown>).sessionID ?? "")); } catch { /* no session -> rows stay unattributed and the ring excludes them */ }
+
     if (isTurnBoundary) {
       turnCounter += 1;
       try { judge.setTurn(turnCounter); } catch { /* the judge is declared below; it exists by first call */ }
@@ -248,15 +253,25 @@ const settledHandler = async (event: { messages?: unknown[]; message?: { role?: 
 
   // The L2 claim firewall's ring: THIS TURN's evidence, read from the ledger's rows.
   // (The judge keeps its ring in memory; the ledger is the durable record both share.)
+  // ── V-084: THE RING IS SCOPED TO THIS SESSION (the cross-session evidence fix) ───────────────────
+  // MEASURED, LIVE, on the host test: the ledger is CWD-SCOPED, so two omp sessions sharing a cwd append to
+  // ONE file (512 rows in a single second from two different sessions in Shared_Workspace). This function
+  // read the last 40 span-bearing rows of that SHARED file, so `currentTurn` was the last row ANY session
+  // wrote — and a claim in THIS session could bind to ANOTHER session's evidence. The firewall's contract
+  // is "span from THIS TURN"; unscoped, it was "span from whoever wrote last".
+  // THE FIX: filter by the row's `session` (V-084's attribution field). A row WITHOUT a session is
+  // EXCLUDED — unattributable is not evidence of this turn (the fail-closed direction).
   const ringFromLedger = (limit = 40): RingSpan[] => {
     try {
       const p = ".abide/events.jsonl";
       if (!existsSync(p)) return [];
+      const sid = getLedgerSession();
       const rows = readFileSync(p, "utf8").split("\n").filter((l) => l.trim()).map((l) => {
         try { return JSON.parse(l) as Record<string, unknown>; } catch { return null; }
       }).filter(Boolean) as Array<Record<string, unknown>>;
       return rows
         .filter((r) => typeof r.matched_span === "string" && r.matched_span)
+        .filter((r) => sid !== undefined && r.session === sid)   // V-084: THIS session's rows only
         .slice(-limit)
         .map((r) => ({ text: String(r.matched_span), ts: String(r.ts), source: String(r.rule) }));
     } catch { return []; }
