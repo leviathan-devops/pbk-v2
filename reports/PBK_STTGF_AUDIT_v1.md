@@ -1,4 +1,4 @@
-# ZERO-TRUST AUDIT v1 — OMP_CT_STTGF_VERBATIM_PORT engineering report v1
+# ZERO-TRUST AUDIT v1 — PBK_STTGF_VERBATIM_PORT engineering report v1
 **Verdict: REFUTED** (two load-bearing claims failed reproduction; fixes landed + committed 974985f/ad9b994; model-driven E2E still OPEN per the operator's metric).
 **Second pass (audit round 2, same turn):** attachChain + session tracking wired and proven via host-live re-run (handlers tool_call/tool_result registered; teeth + misfire rows through the DEPLOYED dist); dead `markReady` removed (`isReady()` true); arming moved to the VERIFIED tool_result surface with per-fire receipts (agent-end dead, removed); V-008 dodge x3 logged; suite + ST re-run green. What remains OPEN is ONLY the six model-driven tool-result rows — everything else the audit demanded is now mechanically proven.
 
@@ -14,9 +14,9 @@
 | C7 | trident label 0 src+dist | per-file grep -rci | re-ran: all 36 files 0; dist `grep -ci trident` = 0 | PROVEN |
 | C8 | [STTGF BLOCK] + FORBIDDEN in dist | grep -c | re-ran: 1 + 1 (then new dist: same) | PROVEN |
 | C9 | six behaviors live (`bun -e` direct import) | pasted verdict rows | re-ran: armed:true; BLOCK INLINE_EXEC; BLOCK HEADLESS; ESCALATE; hatch path; ALLOW ALLOW | PROVEN as unit-path rows — REJECTED as the success metric (operator: only model-driven tool calls count) |
-| C10 | AUTH screenshot + ALIVE | screenshot bar + `omp -p` exec | screenshot re-observed: `Laguna S 2.1`; exec re-ran: `[omp-ct] registered container-testing` + `ALIVE` | PROVEN |
+| C10 | AUTH screenshot + ALIVE | screenshot bar + `omp -p` exec | screenshot re-observed: `Laguna S 2.1`; exec re-ran: `[pbk] registered container-testing` + `ALIVE` | PROVEN |
 | C11 | IDENTITY stream trident 0 | `grep -ci trident /tmp/tui-stream.txt` | re-ran: 0; pane re-read: "I'm poolside, a coding agent in the OMP harness." | PROVEN |
-| C12 | rpc boot registers + ready | `omp --mode rpc` | re-ran: `[omp-ct] registered container-testing` + `ready` frame | PROVEN |
+| C12 | rpc boot registers + ready | `omp --mode rpc` | re-ran: `[pbk] registered container-testing` + `ready` frame | PROVEN |
 | C13 | ocr §9.5 | 280s run, EXIT 0 | re-read delivery: per-file `code_comment` traces + one JSON-parse error; NO critical/high verdict parsed | INCONCLUSIVE (was labeled honestly in the report — no fraud, but not green) |
 | C14 | **the chain enforces on live tool calls** (implied by C9+C12: "the v6 production STTGF posture is live in OMP") | host-live script on the deployed dist | **REFUTED**: handlers = session.compacting/session_compact/session_start/agent-end — NO tool_call, NO tool_result. `attachChain` + `createSessionTracking` imported but never called (index.ts:7,15; 0 call sites). A block verdict could never reach a live tool call. Class: STRUCTURAL-GREEN-AS-EVIDENCE. |
 | C15 | **claim arming fires live** (implied by the arming hook) | `pi.on("agent-end")` in index.ts:71 | **REFUTED as unverified**: `agent-end` is subscribed by NO sibling extension (ground truth: tool_call + tool_result only). Whether the runtime emits it is unknown — arming may never fire. Class: UNVERIFIED-INFERENCE. |

@@ -9,7 +9,7 @@
 - v6 firewalls dir: NOT YET ported (7 files, 138KB, source path documented in spec §3)
 - Open blockers: janitor process, uncommitted tree, OMP restart pending
 
-## [2026-09-19 07:00] — CT-PORT-1 terminal state
+## [2026-09-19 07:00] — PBK-PORT-1 terminal state
 - 6 commits b9c0895..97e1145; deployed SHA b56392a94897b455 (15.15MB, 528 modules)
 - Suite 186 pass / 4 documented skip / 0 fail; firewall.test 41/41
 - All 10 spec success criteria verified with tool-result evidence (CHANGELOG 07:00 entry)
@@ -17,7 +17,7 @@
 - Janitor still at large: 4 dep-wipes this session, each recovered per HARD STOP protocol
 
 ## [2026-09-19 09:00] — ESCALATION OF RECORD (item 15 decision request)
-- CT-PORT-1 is 17/18 complete, fully verified (see CHANGELOG 07:00-08:55 entries)
+- PBK-PORT-1 is 17/18 complete, fully verified (see CHANGELOG 07:00-08:55 entries)
 - The single open item is the kill-switch FLIP (item 15) — HARD-STOP operator-gated
 - Decision executor: scripts/kill-switch-ctl.sh arm|disarm|status (flip = env + host restart, no rebuild)
 - Gates proven armed via live runs; zero misfire confirmed; real-host load verified

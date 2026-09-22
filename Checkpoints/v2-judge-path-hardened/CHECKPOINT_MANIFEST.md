@@ -1,10 +1,10 @@
 # CHECKPOINT_MANIFEST — v2-judge-path-hardened
 
 **Token:** v2-judge-path-hardened · **captured:** 2026-09-21 08:35 
-**Project:** omp-ct-v2 (the PARAGON V2 fork) · **workspace:** /home/leviathan/JARVIS_WORKSPACE/OMP/omp-ct-v2
+**Project:** pbk-v2 (the PARAGON V2 fork) · **workspace:** /home/leviathan/JARVIS_WORKSPACE/OMP/pbk-v2
 **dist sha256:** 9fc2461ae39e9ddda8a03c8f614b9a326290ab6761be85779c7f0cb877a8ef63 — the ONLY checkpoint carrying the post-V-040 fork state.
 
-**WHY IT EXISTS:** every earlier checkpoint is a snapshot of the PROJECT (omp-ct). This is the
+**WHY IT EXISTS:** every earlier checkpoint is a snapshot of the PROJECT (pbk). This is the
 first snapshot of the FORK after the judge-path hardening round (V-036 … V-041).
 
 ## VERIFIED AT CAPTURE

@@ -37,7 +37,7 @@ function makeFakePi() {
 
 const CLAIM = "the task is done";
 const msg = (text: string) => [{ role: "assistant", content: [{ type: "text", text }] }];
-const claims = (logs: string[], from: number) => logs.slice(from).filter((l) => l.includes("[CT CLAIM]")).length;
+const claims = (logs: string[], from: number) => logs.slice(from).filter((l) => l.includes("[PBK CLAIM]")).length;
 
 const { pi, handlers, logs } = makeFakePi();
 let initError: unknown = null;

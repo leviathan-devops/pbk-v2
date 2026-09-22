@@ -9,10 +9,10 @@ import { describe, expect, test } from "bun:test";
 // The runtime-grade MASTER image (the operator's mandate: "BUILD A RUNTIME
 // GRADE SANDBOX MASTER IMAGE FOR OMP" — tmux + the patched omp bundle + the
 // trident extension baked). The battery runs against THIS image.
-// D005 (spec §9.3 default): retarget to the LIVE omp-ct:master image over
+// D005 (spec §9.3 default): retarget to the LIVE pbk:master image over
 // building a new master. TRIDENT_CONTAINER_IMAGE still overrides for the
 // dedicated-master bake.
-const IMAGE = process.env.TRIDENT_CONTAINER_IMAGE || "omp-ct:master";
+const IMAGE = process.env.TRIDENT_CONTAINER_IMAGE || "pbk:master";
 const CONTAINER = "trident-rpc-" + Date.now();
 
 function sh(cmd: string): { code: number; stdout: string; stderr: string } {
@@ -25,18 +25,18 @@ function sh(cmd: string): { code: number; stdout: string; stderr: string } {
 }
 
 // D005 CAPABILITY PROBE (spec §9.3): the battery's G1 sha step requires the
-// /opt/omp-ct-absent bake and the layout step requires the dedicated-master dirs.
-// The shared omp-ct:master has NEITHER (and no seeded auth) — when the
+// /opt/pbk-absent bake and the layout step requires the dedicated-master dirs.
+// The shared pbk:master has NEITHER (and no seeded auth) — when the
 // dedicated master is absent, the 4 scenarios SKIP with this named reason
 // (the documented image-blocked clause) instead of running to predictable
 // reds. Point TRIDENT_CONTAINER_IMAGE at a baked master to arm the battery.
 const MASTER_CAPS = (() => {
-  const probeRun = sh(`docker run --rm --entrypoint sh ${IMAGE} -c 'ls /opt/omp-ct-absent/dist/index.js 2>/dev/null; ls -d /root/.omp/agent/opencode-go 2>/dev/null; echo __PROBE_DONE__'`);
+  const probeRun = sh(`docker run --rm --entrypoint sh ${IMAGE} -c 'ls /opt/pbk-absent/dist/index.js 2>/dev/null; ls -d /root/.omp/agent/opencode-go 2>/dev/null; echo __PROBE_DONE__'`);
   const out = probeRun.stdout;
   if (probeRun.code !== 0 || !out.includes("__PROBE_DONE__")) {
     return { skip: true, reason: `image ${IMAGE} not runnable locally` };
   }
-  const baked = out.includes("/opt/omp-ct-absent/dist/index.js");
+  const baked = out.includes("/opt/pbk-absent/dist/index.js");
   const layout = out.includes("opencode-go");
   return baked && layout
     ? { skip: false, reason: "" }
@@ -56,7 +56,7 @@ describe.skipIf(MASTER_CAPS.skip)("headless RPC container battery — the omp ru
       console.log("STEP 0 spawn:", cid.slice(0, 12));
 
       // 1. G1 deploy integrity
-      const inSha = sh(`docker exec ${CONTAINER} sha256sum /opt/omp-ct-absent/dist/index.js | cut -d' ' -f1`).stdout.trim();
+      const inSha = sh(`docker exec ${CONTAINER} sha256sum /opt/pbk-absent/dist/index.js | cut -d' ' -f1`).stdout.trim();
       const hostSha = sh("sha256sum /home/leviathan/JARVIS_WORKSPACE/OMP/trident-omp/dist/index.js | cut -d' ' -f1").stdout.trim();
       expect(inSha).toBe(hostSha);
       console.log("G1 sha256:", hostSha.slice(0, 12), "(host == container)");
@@ -109,7 +109,7 @@ describe.skipIf(MASTER_CAPS.skip)("headless RPC container battery — the omp ru
         { type: "prompt", id: "p1", message: "/poseidon build the test pipeline and verify it" },
       ];
       const b64 = Buffer.from(frames.map((f) => JSON.stringify(f)).join("\n")).toString("base64");
-      const r = sh(`docker exec ${CONTAINER}-poseidon sh -c "rm -f /tmp/f; mkfifo /tmp/f; (echo ${b64} | base64 -d; sleep 45) > /tmp/f & timeout 120 omp --mode rpc --extension=/opt/omp-ct-absent/dist/index.js < /tmp/f > /tmp/poseidon.out 2>&1; sleep 1; cat /tmp/poseidon.out"`);
+      const r = sh(`docker exec ${CONTAINER}-poseidon sh -c "rm -f /tmp/f; mkfifo /tmp/f; (echo ${b64} | base64 -d; sleep 45) > /tmp/f & timeout 120 omp --mode rpc --extension=/opt/pbk-absent/dist/index.js < /tmp/f > /tmp/poseidon.out 2>&1; sleep 1; cat /tmp/poseidon.out"`);
       const out = r.stdout + r.stderr;
       console.log("POSEIDON_LIVE_SAMPLE=" + JSON.stringify(out.slice(0, 2000)));
 
@@ -141,7 +141,7 @@ describe.skipIf(MASTER_CAPS.skip)("headless RPC container battery — the omp ru
       expect(spawn.code).toBe(0);
       const frames = [{ type: "prompt", id: "p1", message: "Who are you? Answer in one line." }];
       const b64 = Buffer.from(frames.map((f) => JSON.stringify(f)).join("\n")).toString("base64");
-      const r = sh(`docker exec ${CONTAINER}-ident sh -c "rm -f /tmp/f; mkfifo /tmp/f; (echo ${b64} | base64 -d; sleep 60) > /tmp/f & timeout 150 omp --mode rpc --extension=/opt/omp-ct-absent/dist/index.js < /tmp/f > /tmp/ident.out 2>&1; sleep 1; cat /tmp/ident.out"`);
+      const r = sh(`docker exec ${CONTAINER}-ident sh -c "rm -f /tmp/f; mkfifo /tmp/f; (echo ${b64} | base64 -d; sleep 60) > /tmp/f & timeout 150 omp --mode rpc --extension=/opt/pbk-absent/dist/index.js < /tmp/f > /tmp/ident.out 2>&1; sleep 1; cat /tmp/ident.out"`);
       const out = r.stdout + r.stderr;
       console.log("IDENT_SAMPLE=" + JSON.stringify(out.slice(-800)));
       // the model's ANSWER reflects the injected identity (the binding is in
@@ -173,7 +173,7 @@ describe.skipIf(MASTER_CAPS.skip)("headless RPC container battery — the omp ru
       expect(spawn.code).toBe(0);
 
       // G1 deploy integrity (the master carries the CURRENT dist)
-      const inSha = sh(`docker exec ${CONTAINER}-tui sha256sum /opt/omp-ct-absent/dist/index.js | cut -d' ' -f1`).stdout.trim();
+      const inSha = sh(`docker exec ${CONTAINER}-tui sha256sum /opt/pbk-absent/dist/index.js | cut -d' ' -f1`).stdout.trim();
       const hostSha = sh("sha256sum /home/leviathan/JARVIS_WORKSPACE/OMP/trident-omp/dist/index.js | cut -d' ' -f1").stdout.trim();
       expect(inSha).toBe(hostSha);
       console.log("G1 sha:", inSha.slice(0, 12), "(host == container)");

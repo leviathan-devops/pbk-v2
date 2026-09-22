@@ -14,8 +14,8 @@
 - Status: QUEUED
 
 ## 2026-09-19 — RPC battery missing image
-- 4 tests expect trident-omp-master image, only omp-ct:master/mimo-ct:master exist
-- Fix: retarget to omp-ct:master (spec §9.3 default)
+- 4 tests expect trident-omp-master image, only pbk:master/mimo-ct:master exist
+- Fix: retarget to pbk:master (spec §9.3 default)
 - Status: QUEUED
 
 ## 2026-09-19 06:50 — Janitor wipe #4 (during terminal verification)

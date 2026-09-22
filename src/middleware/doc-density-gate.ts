@@ -70,7 +70,7 @@ export function docDensityGate(host: EngineHost): BeforeGate {
       return {
         action: "block",
         gate: "doc-density",
-        reason: `[CT DOC-DENSITY] ${type.toUpperCase()} requires >= ${floor} lines; got ${lines}`,
+        reason: `[PBK DOC-DENSITY] ${type.toUpperCase()} requires >= ${floor} lines; got ${lines}`,
       };
     }
     return undefined;

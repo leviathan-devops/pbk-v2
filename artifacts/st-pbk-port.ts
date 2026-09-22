@@ -12,7 +12,7 @@
  *   ST-3 Headless      → omp run blocked in BOTH gates
  *   ST-4 Session       → two sids independent + default-key guard intact
  *   CT FIREWALL        → raw docker exec via the tool → "CT EXEC BLOCKED"
- *   CT AUDIT           → auth.json write via the tool → "[CT CONFIG
+ *   CT AUDIT           → auth.json write via the tool → "[TRIDENT CONFIG
  *                        LOCK] CTX-02" (the auth-fumbling warhead family)
  *   CT STATE           → fail-closed default-ON for a never-toggled session
  *   CT LIFECYCLE       → disable → exec runs → enable → blocked again
@@ -24,7 +24,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { classifyCtExec } from "../src/firewalls/ct-anti-derailment.js";
+import { classifyExec } from "../src/firewalls/pbk-anti-derailment.js";
 import { sttgfGate } from "../src/middleware/sttgf-gate.js";
 import { classifyVerb } from "../src/firewalls/semantic-smoke-firewall.js";
 import { containerGate } from "../src/middleware/container-gate.js";
@@ -96,7 +96,7 @@ const ctxFixtures: Array<[string, string]> = [
   ["b64 evasion", "echo " + Buffer.from("sqlite3 /root/.omp/agent/opencode.db").toString("base64") + " | base64 -d | sh"],
 ];
 for (const [id, cmd] of ctxFixtures) {
-  const v = classifyCtExec(cmd);
+  const v = classifyExec(cmd);
   record("ST-1 " + id, "CTX fixtures", v.verdict === "BLOCK", v.verdict === "BLOCK" ? "BLOCK " + v.family : "MISS -> " + v.verdict);
 }
 
@@ -110,7 +110,7 @@ const fpPins: Array<[string, string]> = [
   ["docker ps", "docker ps --format json"],
 ];
 for (const [id, cmd] of fpPins) {
-  const v = classifyCtExec(cmd);
+  const v = classifyExec(cmd);
   record("ST-1 " + id, "zero-misfire", v.verdict === "ALLOW", v.verdict === "ALLOW" ? "ALLOW" : "FP -> " + v.family);
 }
 
@@ -151,16 +151,16 @@ for (const [id, cmd] of fpPins) {
 
 // ═══ ST-4: session independence + default-key guard ═══
 {
-  setCurrentAgent("ct", "st-sid-a");
-  setCurrentAgent("ct-build", "st-sid-b");
-  setCurrentAgent("ct", "default");
-  const independent = getCurrentAgent("st-sid-a") === "ct" && getCurrentAgent("st-sid-b") === "ct-build";
+  setCurrentAgent("trident", "st-sid-a");
+  setCurrentAgent("trident_build", "st-sid-b");
+  setCurrentAgent("trident", "default");
+  const independent = getCurrentAgent("st-sid-a") === "trident" && getCurrentAgent("st-sid-b") === "trident_build";
   const wroteAgentless = trackSessionEvent({ type: "session.updated", sessionId: "default" });
-  const guardIntact = !wroteAgentless && getCurrentAgent("default") === "ct";
+  const guardIntact = !wroteAgentless && getCurrentAgent("default") === "trident";
   trackSessionEvent({ type: "session.created", sessionId: "st-sid-c", agent: "build" });
-  const selectiveClear = getCurrentAgent("st-sid-c") === undefined && getCurrentAgent("default") === "ct";
+  const selectiveClear = getCurrentAgent("st-sid-c") === undefined && getCurrentAgent("default") === "trident";
   handleSessionEnded("st-sid-a");
-  const endClear = getCurrentAgent("st-sid-a") === undefined && getCurrentAgent("st-sid-b") === "ct-build";
+  const endClear = getCurrentAgent("st-sid-a") === undefined && getCurrentAgent("st-sid-b") === "trident_build";
   record("ST-4 session", "sid independence", independent && guardIntact && selectiveClear && endClear, "a/b independent, default guard, selective clear, session_end clear");
 }
 
@@ -179,21 +179,21 @@ const stateFile = path.join(os.homedir(), ".omp/agent/state/ct-firewall.json");
 
 // CT FIREWALL: raw docker exec → "CT EXEC BLOCKED" in the tool result
 {
-  const res = await ctExecute("st", { action: "exec", command: "docker exec omp-ct ls /" }, null, null, ctCtx("st-state-sid-" + process.pid));
+  const res = await ctExecute("st", { action: "exec", command: "docker exec pbk ls /" }, null, null, ctCtx("st-state-sid-" + process.pid));
   const blocked = res.isError === true && textOf(res).includes("CT EXEC BLOCKED");
   record("CT FIREWALL", "tool exec", blocked, blocked ? "CT EXEC BLOCKED in tool result" : "MISS: " + textOf(res).slice(0, 80));
 }
 
-// CT AUDIT: auth.json write → "[CT CONFIG LOCK] CTX-02" warhead
+// CT AUDIT: auth.json write → "[PBK CONFIG LOCK] CTX-02" warhead
 {
   const res = await ctExecute("st", { action: "exec", command: "echo x > /root/.omp/agent/auth.json" }, null, null, ctCtx("st-audit-sid"));
-  const blocked = res.isError === true && textOf(res).includes("[CT CONFIG LOCK]") && textOf(res).includes("CTX-02");
+  const blocked = res.isError === true && textOf(res).includes("[PBK CONFIG LOCK]") && textOf(res).includes("CTX-02");
   record("CT AUDIT", "tool exec", blocked, blocked ? "CONFIG LOCK CTX-02 (auth fumbling family)" : "MISS: " + textOf(res).slice(0, 80));
 }
 
 // CT STATE: fail-closed default-ON (fresh sid, never toggled)
 {
-  const res = await ctExecute("st", { action: "exec", command: "docker exec omp-ct ls /" }, null, null, ctCtx("st-state-sid-" + process.pid));
+  const res = await ctExecute("st", { action: "exec", command: "docker exec pbk ls /" }, null, null, ctCtx("st-state-sid-" + process.pid));
   const stateOn = res.isError === true && textOf(res).includes("CT EXEC BLOCKED");
   record("CT STATE", "fail-closed", stateOn, stateOn ? "fresh session blocked (default ON)" : "MISS: " + textOf(res).slice(0, 80));
 }
@@ -203,10 +203,10 @@ const stateFile = path.join(os.homedir(), ".omp/agent/state/ct-firewall.json");
   const sid = "st-lifecycle-sid-" + process.pid;
   const ctx = ctCtx(sid);
   await ctExecute("st", { action: "firewall", enable: "disable" }, null, null, ctx);
-  const liveRes = await ctExecute("st", { action: "exec", command: "docker exec omp-ct ls /" }, null, null, ctx);
+  const liveRes = await ctExecute("st", { action: "exec", command: "docker exec pbk ls /" }, null, null, ctx);
   const allowedWhenOff = liveRes.isError !== true && textOf(liveRes).startsWith("CT EXEC:");
   await ctExecute("st", { action: "firewall", enable: "enable" }, null, null, ctx);
-  const reRes = await ctExecute("st", { action: "exec", command: "docker exec omp-ct ls /" }, null, null, ctx);
+  const reRes = await ctExecute("st", { action: "exec", command: "docker exec pbk ls /" }, null, null, ctx);
   const reBlocked = reRes.isError === true && textOf(reRes).includes("CT EXEC BLOCKED");
   record("CT LIFECYCLE", "toggle effect", allowedWhenOff && reBlocked, "disable→exec-runs(" + allowedWhenOff + ") → enable→blocked(" + reBlocked + ")");
 }
@@ -233,13 +233,13 @@ const stateFile = path.join(os.homedir(), ".omp/agent/state/ct-firewall.json");
 // CT INTEGRATION: the chain gate itself (unconditional — v6 has no switch) blocks the container verb
 {
   const cg = containerGate();
-  const v = await cg({ toolName: "bash", input: { command: "docker exec omp-ct ls" }, scope: "main", isAgentOrigin: true, toolCallId: "t", sessionId: "st-int" } as never);
+  const v = await cg({ toolName: "bash", input: { command: "docker exec pbk ls" }, scope: "main", isAgentOrigin: true, toolCallId: "t", sessionId: "st-int" } as never);
   const blocked = v?.action === "block";
   record("CT INTEGRATION", "chain", blocked, "chain gate verdict: " + (v?.action ?? "allow"));
 }
 
 // CT TOOLS: DOCUMENTED-BLOCKED with the full evidence chain —
-// (1) the omp TUI preset binds NOTHING (ct-tui-registry: binds: []), so the
+// (1) the omp TUI preset binds NOTHING (pbk-tui-registry: binds: []), so the
 // container never sees host auth;
 // (2) the RPC battery measured the result live: in-container omp reports
 // "No models available" (no seeded auth);
@@ -249,7 +249,7 @@ const stateFile = path.join(os.homedir(), ".omp/agent/state/ct-firewall.json");
 // containers, or bake an auth-seeded master and point
 // CT_CONTAINER_IMAGE at it — this angle then runs unmodified.
 blockedScenarios.push(
-  "CT TOOLS: suite dispatch requires a live auth-seeded container. Evidence: omp preset binds=[] (no host config in container); live RPC battery measured 'No models available' in omp-ct:master; auth bind/bake is operator-gated (secrets HARD STOP). Unblock: operator blesses an auth-bind volume OR bakes an auth-seeded master image and sets CT_CONTAINER_IMAGE.",
+  "CT TOOLS: suite dispatch requires a live auth-seeded container. Evidence: omp preset binds=[] (no host config in container); live RPC battery measured 'No models available' in pbk:master; auth bind/bake is operator-gated (secrets HARD STOP). Unblock: operator blesses an auth-bind volume OR bakes an auth-seeded master image and sets CT_CONTAINER_IMAGE.",
 );
 
 // ═══ emit artifact ═══

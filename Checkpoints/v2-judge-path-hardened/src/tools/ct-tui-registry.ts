@@ -5,7 +5,7 @@
  * a host binary (`tui=grok`), or a raw command (`tuiCommand="my-tui --foo"`).
  * Unknown names loud-fail with the known list — never a silent omp fallback.
  */
-export const CT_IMAGE_OMP = "omp-ct:master";
+export const CT_IMAGE_OMP = "pbk:master";
 export const CT_IMAGE_MIMO = "mimo-ct:master";
 
 export interface TuiBind {

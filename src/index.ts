@@ -1,5 +1,5 @@
 /**
- * omp-ct — debranded container-testing enforcement extension.
+ * pbk — debranded container-testing enforcement extension.
  * Chain + session tracking + CT-only tools. No poseidon, no plugin-tool block.
  */
 import type { ExtensionAPI, OmpExtensionContext } from "./types/omp";
@@ -17,7 +17,7 @@ import { theatricalGate, theatricalGateAfter, TheatricalStateTracker } from "./m
 import { containerGate, containerWriteGate } from "./middleware/container-gate";
 import { RecordedRunSet } from "./middleware/phantom-gate";
 import { createSessionTracking } from "./hooks/session-hook";
-import { registerCtTools } from "./tools/ct-registry";
+import { registerPbkTools } from "./tools/pbk-registry";
 import { existsSync, readFileSync } from "node:fs";
 // V-084: the session attribution — the ring is scoped to THIS session's rows (the cross-session fix).
 import { recordFiring, setLedgerSession, getLedgerSession  } from "./ledger/events-ledger";
@@ -39,7 +39,7 @@ import { bindAtoms, parseClaimAtoms, textMatchesAtom, judgeClaimViaTypeSafe, cla
 // quoted regions — the role classifier inside decide() enforces that).
 import { decide as l0Decide } from "./l0/index";
 
-const LOAD_MARKER = "__OMP_CT_LOADED__";
+const LOAD_MARKER = "__PBK_LOADED__";
 
 export default function ctExtension(pi: ExtensionAPI): void {
   // V-024 INSTRUMENT (the resume condition): log from INSIDE the extension's own init,
@@ -99,7 +99,7 @@ export default function ctExtension(pi: ExtensionAPI): void {
   // Both are required. The extension is fully built at this point, so it is ready.
   markReady();
   attachChain(pi, chain, scopeOf, isReady);
-  host.log("INFO", "omp-ct", "chain ATTACHED (V-027) — the gates are now consulted on tool_call");
+  host.log("INFO", "pbk", "chain ATTACHED (V-027) — the gates are now consulted on tool_call");
 
   pi.on("session.compacting", (_event: unknown, c: OmpExtensionContext) => {
     currentCtx = c;
@@ -115,7 +115,7 @@ export default function ctExtension(pi: ExtensionAPI): void {
   pi.on("session_start", (_event: unknown, c: OmpExtensionContext) => {
     currentCtx = c;
     pi.appendEntry("com.ct.state", { loaded: true, version: "2.0.0", ts: host.now() });
-    host.log("INFO", "omp-ct", "extension loaded — container-testing first-class");
+    host.log("INFO", "pbk", "extension loaded — container-testing first-class");
   });
 
   // Claim arming — v6 text.complete + messages.transform (:1030-1052, :3742-3746):
@@ -217,7 +217,7 @@ const settledHandler = async (event: { messages?: unknown[]; message?: { role?: 
                   ? { judge: (atom, span) => pre.get(claimJudgeKey(atom, span)) ?? null }
                   : {}),
               });
-              host.log(res.verdict === "PASS" ? "INFO" : "WARN", "omp-ct", `[CT CLAIM] ${res.verdict} — ${res.reason ?? "claim bound to this turn's evidence"}`);
+              host.log(res.verdict === "PASS" ? "INFO" : "WARN", "pbk", `[PBK CLAIM] ${res.verdict} — ${res.reason ?? "claim bound to this turn's evidence"}`);
             }
 
             // ── V-083/V-090 WIRED: THE COMPLETION-CLAIM DETECTOR ────────────────────────────────────
@@ -238,7 +238,7 @@ const settledHandler = async (event: { messages?: unknown[]; message?: { role?: 
                   'missed; the evidence demand applies (no "tested" without sandbox evidence)',
                 jev_called: false,
               });
-              host.log("WARN", "omp-ct", `[CT CLAIM LEXICON] a verification claim with no atom — "${span.slice(0, 50)}"`);
+              host.log("WARN", "pbk", `[PBK CLAIM LEXICON] a verification claim with no atom — "${span.slice(0, 50)}"`);
             }
 
             // ── THE SMOKE LEXICON WIRED: THE EVIDENCE VERDICT GATES THE CLAIM ──────────────────────
@@ -264,8 +264,8 @@ const settledHandler = async (event: { messages?: unknown[]; message?: { role?: 
                 });
                 host.log(
                   "WARN",
-                  "omp-ct",
-                  `[CT SLOP] "${String(span.text ?? "").slice(0, 50)}" — evidence: ${v ? v.verdict : "UNEVIDENCED"}`,
+                  "pbk",
+                  `[PBK SLOP] "${String(span.text ?? "").slice(0, 50)}" — evidence: ${v ? v.verdict : "UNEVIDENCED"}`,
                 );
               }
             } catch { /* the lexicon is advisory; it never breaks the turn */ }
@@ -282,8 +282,8 @@ const settledHandler = async (event: { messages?: unknown[]; message?: { role?: 
               const span = (v.matchedSpan ?? '').slice(0, 70);
               host.log(
                 v.kind === 'act' ? 'WARN' : 'INFO',
-                'omp-ct',
-                `[CT L0] ${v.rule} ${v.kind.toUpperCase()}` +
+                'pbk',
+                `[PBK L0] ${v.rule} ${v.kind.toUpperCase()}` +
                   (v.escalate ? ` — ESCALATE (${v.consecutive} consecutive firings)` : '') +
                   ` — "${span}"`,
               );
@@ -307,14 +307,14 @@ const settledHandler = async (event: { messages?: unknown[]; message?: { role?: 
   const judge = stubProb !== undefined
     ? kernelJudge({
         judge: async (rules) => {
-          host.log("WARN", "omp-ct", `[CT JUDGE] STUB ACTIVE (CT_JUDGE_STUB=${stubProb}) — plumbing proof, NOT a real verdict`);
+          host.log("WARN", "pbk", `[PBK JUDGE] STUB ACTIVE (CT_JUDGE_STUB=${stubProb}) — plumbing proof, NOT a real verdict`);
           return Object.fromEntries(rules.map((r) => [r.id, Number(stubProb)]));
         },
       })
     : kernelJudge();
-  if (stubProb !== undefined) host.log("WARN", "omp-ct", `[CT JUDGE] stub judge mode (${stubProb}) — labelled plumbing proof`);
+  if (stubProb !== undefined) host.log("WARN", "pbk", `[PBK JUDGE] stub judge mode (${stubProb}) — labelled plumbing proof`);
   judge.register(pi);
-  host.log("INFO", "omp-ct", "kernel-judge registered (L1 per-edit, ledger-backed)");
+  host.log("INFO", "pbk", "kernel-judge registered (L1 per-edit, ledger-backed)");
 
   // The L2 claim firewall's ring: THIS TURN's evidence, read from the ledger's rows.
   // (The judge keeps its ring in memory; the ledger is the durable record both share.)
@@ -346,7 +346,7 @@ const settledHandler = async (event: { messages?: unknown[]; message?: { role?: 
   pi.on("message_end", settledHandler);
   pi.on("agent-end", settledHandler); // legacy name, kept for hosts that emit it
 
-  registerCtTools(pi, { host, recordedRuns });
+  registerPbkTools(pi, { host, recordedRuns });
 }
 
 export const IDENTITY_HEADER = ``;

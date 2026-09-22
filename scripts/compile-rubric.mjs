@@ -5,7 +5,7 @@
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 
-const FORK_DIR  = "/home/leviathan/JARVIS_WORKSPACE/OMP/omp-ct-v2";
+const FORK_DIR  = "/home/leviathan/JARVIS_WORKSPACE/OMP/pbk-v2";
 const WARHEADS  = process.env.HOME + "/.omp/agent/identity/trident/WARHEADS.md";
 const PARKED    = process.env.HOME + "/.agent/rules.parked-20260920";
 const FW        = FORK_DIR + "/src/firewalls";
@@ -41,7 +41,7 @@ const sources = [
   { path: "src/firewalls/smoke-lexicon.ts", sha: sha256File(FW + "/smoke-lexicon.ts") },
   { path: "src/firewalls/memory-read-lexicon.ts", sha: sha256File(FW + "/memory-read-lexicon.ts") },
   { path: "src/firewalls/dispatch-input-lexicon.ts", sha: sha256File(FW + "/dispatch-input-lexicon.ts") },
-  { path: "src/firewalls/ct-anti-derailment.ts", sha: sha256File(FW + "/ct-anti-derailment.ts") },
+  { path: "src/firewalls/pbk-anti-derailment.ts", sha: sha256File(FW + "/pbk-anti-derailment.ts") },
   { path: "src/firewalls/surgical-mutator.ts", sha: sha256File(FW + "/surgical-mutator.ts") },
   { path: "src/firewalls/evidence-tracker.ts", sha: sha256File(FW + "/evidence-tracker.ts") },
 ];
@@ -338,16 +338,16 @@ for (const [id, text, how] of tsRules) {
 }
 
 // ── CTX mutation patterns (lint — deterministic on bash commands) ───────
-// CTX-02..CTX-08 from ct-anti-derailment.ts. CTX-01 EXCLUDED (disabled as broken).
+// CTX-02..CTX-08 from pbk-anti-derailment.ts. CTX-01 EXCLUDED (disabled as broken).
 // VERIFY_INSPECT EXCLUDED (209/325 false positives).
 const ctxRules = [
-  ["ctx-02-auth-fumble", "Block writes to auth.json — the auth comes from the build + deploy secret handling, NEVER a runtime write. Reads are always allowed.", "auth\\.json.*(?:tee|sed -i|json\\.dump|writeFileSync|>>)", "src/firewalls/ct-anti-derailment.ts", 52],
-  ["ctx-03-sessiondb-fumble", "Block mutations to opencode.db — the session state is the runtime's own, NEVER a manual database write. SELECT reads are always allowed.", "opencode\\.db.*(?:UPDATE|INSERT|DELETE|DROP)", "src/firewalls/ct-anti-derailment.ts", 61],
-  ["ctx-04-install-fumble", "Block runtime install/update against opencode — use container-testing deploy + the pre-built master image.", "(?:npm|bun|npx)[^;]*(?:install|update|add).*opencode", "src/firewalls/ct-anti-derailment.ts", 76],
-  ["ctx-05-staging-cheat", "Block staging a hand-modified config through /tmp + deploy dirs — the config comes from the BUILD.", "(?:deploy/|dragon-opencode\\.json).*(?:cp|mv|scp|sudo)", "src/firewalls/ct-anti-derailment.ts", 94],
-  ["ctx-06-content-rewrite", "Block rewriting opencode.json/config.json content through ANY channel — the config comes from the BUILD deploy action.", "(opencode\\.json|config\\.json).*(?:tee|sed -i|json\\.dump|writeFileSync|>>)", "src/firewalls/ct-anti-derailment.ts", 107],
-  ["ctx-07-setup-script-staging", "Block running setup scripts over hand-modified config copies — the setup script deploys the SHIPPED config.", "setup-[a-z0-9-]+\\.sh.*(?:config|apiKey|sed|cp)", "src/firewalls/ct-anti-derailment.ts", 120],
-  ["ctx-08-apikey-fumble", "Block rewriting apiKey in config through any channel — the auth/key comes from build + deploy secrets.", "(?:apiKey|OPENROUTER_API_KEY).*(?:tee|sed -i|json\\.dump|writeFileSync|>>)", "src/firewalls/ct-anti-derailment.ts", 133],
+  ["ctx-02-auth-fumble", "Block writes to auth.json — the auth comes from the build + deploy secret handling, NEVER a runtime write. Reads are always allowed.", "auth\\.json.*(?:tee|sed -i|json\\.dump|writeFileSync|>>)", "src/firewalls/pbk-anti-derailment.ts", 52],
+  ["ctx-03-sessiondb-fumble", "Block mutations to opencode.db — the session state is the runtime's own, NEVER a manual database write. SELECT reads are always allowed.", "opencode\\.db.*(?:UPDATE|INSERT|DELETE|DROP)", "src/firewalls/pbk-anti-derailment.ts", 61],
+  ["ctx-04-install-fumble", "Block runtime install/update against opencode — use container-testing deploy + the pre-built master image.", "(?:npm|bun|npx)[^;]*(?:install|update|add).*opencode", "src/firewalls/pbk-anti-derailment.ts", 76],
+  ["ctx-05-staging-cheat", "Block staging a hand-modified config through /tmp + deploy dirs — the config comes from the BUILD.", "(?:deploy/|dragon-opencode\\.json).*(?:cp|mv|scp|sudo)", "src/firewalls/pbk-anti-derailment.ts", 94],
+  ["ctx-06-content-rewrite", "Block rewriting opencode.json/config.json content through ANY channel — the config comes from the BUILD deploy action.", "(opencode\\.json|config\\.json).*(?:tee|sed -i|json\\.dump|writeFileSync|>>)", "src/firewalls/pbk-anti-derailment.ts", 107],
+  ["ctx-07-setup-script-staging", "Block running setup scripts over hand-modified config copies — the setup script deploys the SHIPPED config.", "setup-[a-z0-9-]+\\.sh.*(?:config|apiKey|sed|cp)", "src/firewalls/pbk-anti-derailment.ts", 120],
+  ["ctx-08-apikey-fumble", "Block rewriting apiKey in config through any channel — the auth/key comes from build + deploy secrets.", "(?:apiKey|OPENROUTER_API_KEY).*(?:tee|sed -i|json\\.dump|writeFileSync|>>)", "src/firewalls/pbk-anti-derailment.ts", 133],
 ];
 
 for (const [id, text, pattern, srcFile, line] of ctxRules) {

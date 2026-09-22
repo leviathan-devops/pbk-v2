@@ -259,7 +259,7 @@ export function dispatchTemplateGate(host: unknown): BeforeGate {
       return {
         action: "block",
         gate: "dispatch-template-v2",
-        reason: `[CT DISPATCH TEMPLATE GATE v2] ${evalResult.reasons.join(" || ")}`,
+        reason: `[PBK DISPATCH TEMPLATE GATE v2] ${evalResult.reasons.join(" || ")}`,
       };
     }
     return undefined;

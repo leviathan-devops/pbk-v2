@@ -43,7 +43,7 @@ Every surface beside the intent → what it does → **what it does NOT do** (th
 | surface | does | does NOT | source |
 |---|---|---|---|
 | 6 TTSR kernels (61L, parked) | aborts on a token | judge an act; know role, polarity, mention, evidence | `~/.agent/rules.parked-20260920/*.md` |
-| omp-ct chain (7 gates + after) | blocks smoke/headless/verb/config shapes at the tool boundary | judge prose; know an act from a word | `omp-ct/src/index.ts:45-52` |
+| pbk chain (7 gates + after) | blocks smoke/headless/verb/config shapes at the tool boundary | judge prose; know an act from a word | `pbk/src/index.ts:45-52` |
 | STTGF lexicons | ISE pattern: typed members + state machine + evidence triad | leave the tool boundary; judge claims | `firewalls/*.ts` |
 | evidence machine | NO_EVIDENCE → UNIT_EVIDENCED → CONTAINER_EVIDENCED | bind a CLAIM to a span | `firewalls/evidence-tracker.ts:438` |
 | theatrical gate | 2-phase: state-set, then demand-inject | judge whether the demand was met | `middleware/theatrical-gate.ts:170,195` |
@@ -244,12 +244,12 @@ the named residual).
  L1/L2 judge (omp ext)   owns rubric load, per-edit/per-turn/close calls, banding, repair text
  abide CLI (upstream)    owns rubric compile / validate / calibrate
  the paragon kernels     own WHICH acts matter (the rule source)
- omp-ct STTGF gates      own the tool-firewall — never prose
+ pbk STTGF gates      own the tool-firewall — never prose
  APPEND_SYSTEM.md        owns the UNENFORCEABLE remainder
 ```
 
 Boundary laws: the tool firewall never judges prose; the judge never blocks a tool; no layer keeps
-a private copy of another's detector. Precedence: on a tool-shape act, omp-ct wins; on a claim,
+a private copy of another's detector. Precedence: on a tool-shape act, pbk wins; on a claim,
 L2 wins; on a phrase, L0 wins; on the remainder, the prompt carries it.
 
 ## §9 — THE TRIGGER SURFACE
@@ -276,7 +276,7 @@ state cap) · `postToolUse.ts:35-171` (the control flow) · the compile pipeline
 ledger schema + verbs · key order · the fail polarity · calibrate-once.
 
 **ADAPT FOR OMP:** sessionStart → extension load · turnStart → first write/edit · **PostToolUse →
-wrap write/edit tool RESULTS via the extension API (`pi.on("tool_result")`, the omp-ct pattern)** ·
+wrap write/edit tool RESULTS via the extension API (`pi.on("tool_result")`, the pbk pattern)** ·
 Stop → settled message + the close tool · plugin shim → the config entry · `hardSteer` → the TTSR
 system-interrupt inject · EditHunch before/after → omp's own tool API.
 

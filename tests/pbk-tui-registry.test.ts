@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { formatTuiCatalog, listTuiIds, resolveTui, TUI_PRESETS } from "../src/tools/ct-tui-registry";
+import { formatTuiCatalog, listTuiIds, resolveTui, TUI_PRESETS } from "../src/tools/pbk-tui-registry";
 
-describe("ct-tui-registry", () => {
+describe("pbk-tui-registry", () => {
   test("lists omp pi opencode mimo mimocode qwen qwen-code grok grok-build", () => {
     const ids = listTuiIds();
     for (const need of ["omp", "pi", "opencode", "mimo", "mimocode", "qwen", "qwen-code", "grok", "grok-build"]) {

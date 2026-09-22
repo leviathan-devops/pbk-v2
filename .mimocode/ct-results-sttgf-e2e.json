@@ -2,7 +2,7 @@
   "suite": "STTGF-E2E",
   "distSha16": "e1bd1dbad665d83f",
   "imageId": "988d8bde1f87",
-  "container": "omp-ct-debrand",
+  "container": "pbk-debrand",
   "overall": false,
   "hostLive": {
     "dist": "e1bd1dbad665d83f",

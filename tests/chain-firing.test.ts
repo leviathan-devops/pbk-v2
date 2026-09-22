@@ -5,7 +5,7 @@
  * whole chain rather than at one node, so every gate was driven with an input that MUST trigger it:
  *
  *   docDensityGate      BLOCKS a short .md below its type's floor
- *   containerGate       BLOCKS the protected-path mutation class ([CT CONFIG LOCK])
+ *   containerGate       BLOCKS the protected-path mutation class ([PBK CONFIG LOCK])
  *   containerWriteGate  BLOCKS a test file that smuggles a container run
  *   dispatchGate        BLOCKS a disallowed agent, REWRITES a thin task
  *   sttgfGate           BLOCKS the inline-exec class
@@ -46,7 +46,7 @@ describe("the chain — every gate's firing ability", () => {
     const g = containerGate();
     const blocked = await g(ctx("bash", { command: "cp x auth.json" }));
     expect(blocked).toBeDefined();
-    expect(String((blocked as { reason?: string }).reason)).toContain("CT CONFIG LOCK");
+    expect(String((blocked as { reason?: string }).reason)).toContain("PBK CONFIG LOCK");
     expect(await g(ctx("bash", { command: "ls -la" }))).toBeUndefined();
   });
 

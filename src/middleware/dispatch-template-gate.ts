@@ -272,9 +272,9 @@ export function dispatchTemplateGate(host: unknown): BeforeGate {
     if (ctx.toolName !== "task") return undefined;
     // F-04 FIX — THE ESCAPE HATCH. A guard that can brick the operator's own dispatch is worse than the
     // defect it guards. Two ways out, both explicit and both loud:
-    //   OMP_CT_DISPATCH_TEMPLATE_GATE=off  -> the gate is inert for this process
-    //   OMP_CT_DISPATCH_TEMPLATE_GATE=warn -> the gate reports but never blocks (observe before enforcing)
-    const mode = (process.env.OMP_CT_DISPATCH_TEMPLATE_GATE ?? "on").toLowerCase();
+    //   PBK_DISPATCH_TEMPLATE_GATE=off  -> the gate is inert for this process
+    //   PBK_DISPATCH_TEMPLATE_GATE=warn -> the gate reports but never blocks (observe before enforcing)
+    const mode = (process.env.PBK_DISPATCH_TEMPLATE_GATE ?? "on").toLowerCase();
     if (mode === "off") return undefined;
     // V-081 THE INVERTED POLARITY — the code contradicted its OWN comment.
     // MEASURED (an ocr CRITICAL, then verified by reading the live sibling): the comment says
@@ -302,7 +302,7 @@ export function dispatchTemplateGate(host: unknown): BeforeGate {
         action: "block",
         gate: "dispatch-template-v2",
         reason:
-          `[CT DISPATCH TEMPLATE GATE] ${evalResult.reasons.join(" · ")}\n` +
+          `[PBK DISPATCH TEMPLATE GATE] ${evalResult.reasons.join(" · ")}\n` +
           `FIX: ${REMEDY}.`,
       };
     }

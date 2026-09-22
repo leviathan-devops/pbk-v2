@@ -9,7 +9,7 @@
  * spawns. The gate catches the INDIRECTION, not just the direct verb.)
  */
 import type { BeforeGate } from "./chain";
-import { classifyCtExec, buildCtConfigLockMessage } from "../firewalls/ct-anti-derailment.js";
+import { classifyExec, buildConfigLockMessage } from "../firewalls/pbk-anti-derailment.js";
 import { ctLog } from "../utils.js";
 
 // Direct container verbs — the original v4.4.2 surface.
@@ -102,15 +102,15 @@ export function containerGate(): BeforeGate {
     if (ctx.toolName !== "bash") return undefined;
     const cmd = String(ctx.input.command ?? "");
     // THE HOOKS BASH GUARD (spec item 8 — port of hook-chain.ts:1769):
-    // the CT anti-derailment lexicon (classifyCtExec — the PatternFamily +
+    // the CT anti-derailment lexicon (classifyExec — the PatternFamily +
     // state machine + evidence triad) decides on bash commands. BLOCK → the
-    // per-family warhead (buildCtConfigLockMessage). Non-gate failures are
+    // per-family warhead (buildConfigLockMessage). Non-gate failures are
     // logged non-fatal (the v6 caller shape). The reads + unrelated execs
     // pass untouched — the surgical filter.
     try {
-      const ctVerdict = classifyCtExec(cmd);
+      const ctVerdict = classifyExec(cmd);
       if (ctVerdict.verdict === "BLOCK") {
-        return { action: "block", gate: "container", reason: buildCtConfigLockMessage(ctVerdict) };
+        return { action: "block", gate: "container", reason: buildConfigLockMessage(ctVerdict) };
       }
     } catch (e) {
       ctLog("WARN", "container-gate", "the anti-derailment lexicon check failed (non-gate): " + (e instanceof Error ? e.message : String(e)));
@@ -119,7 +119,7 @@ export function containerGate(): BeforeGate {
       return {
         action: "block",
         gate: "container",
-        reason: "[CT CONTAINER GATE] raw docker/tmux container commands + bypass indirection are blocked — use the ct-sandbox-test AGENT TOOL (sandbox test), the ONLY sanctioned sandbox path",
+        reason: "[PBK CONTAINER GATE] raw docker/tmux container commands + bypass indirection are blocked — use the ct-sandbox-test AGENT TOOL (sandbox test), the ONLY sanctioned sandbox path",
       };
     }
     return undefined;
@@ -136,7 +136,7 @@ export function containerWriteGate(): BeforeGate {
       return {
         action: "block",
         gate: "container",
-        reason: "[CT CONTAINER GATE] writing a test file that drives containers is a bypass — use the ct-sandbox-test AGENT TOOL (sandbox test) instead",
+        reason: "[PBK CONTAINER GATE] writing a test file that drives containers is a bypass — use the ct-sandbox-test AGENT TOOL (sandbox test) instead",
       };
     }
     return undefined;

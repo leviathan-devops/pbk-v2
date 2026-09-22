@@ -112,7 +112,7 @@ export async function judgeClaimViaTypeSafe(
       claimJudgeAnnounced = true;
       try {
         process.stderr.write(
-          '\n[omp-ct] *** THE L2 CLAIM JUDGE IS DOWN *** TYPESAFE_AI_API_KEY is absent, so NO claim can ' +
+          '\n[pbk] *** THE L2 CLAIM JUDGE IS DOWN *** TYPESAFE_AI_API_KEY is absent, so NO claim can ' +
             'be judged. Every claim therefore FAILS CLOSED.\n' +
             '         Fix: ~/.abide/.env (chmod 600) with TYPESAFE_AI_API_KEY=<key>, then restart omp.\n\n',
         );

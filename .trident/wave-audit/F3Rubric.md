@@ -26,7 +26,7 @@ cousin) — a cleanup is an EDIT like any other and needs the same ownership dis
 
 ## the structural side effect (needs a decision)
 F3 ran `git init` in the fork to anchor abide's repo-root discovery. The parent repo now sees
-`omp-ct-v2/` as a NESTED repository. Keep it (the fork as its own repo) or remove it (track in the
+`pbk-v2/` as a NESTED repository. Keep it (the fork as its own repo) or remove it (track in the
 parent) — an explicit decision, recorded, not a side effect left standing.
 
 ## verdicts

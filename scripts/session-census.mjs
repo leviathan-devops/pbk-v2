@@ -76,5 +76,5 @@ for (let i = 0; i < 3; i++) {
 const out = execFileSync("node", ["scripts/census.mjs", "--ledger", join(dir, ".abide", "events.jsonl")], { encoding: "utf8" });
 console.log(out);
 console.log("── the L0's own log lines (what the operator sees) ──");
-for (const l of logs.filter((l) => l.includes("[CT L0]"))) console.log("   " + l.slice(0, 110));
+for (const l of logs.filter((l) => l.includes("[PBK L0]"))) console.log("   " + l.slice(0, 110));
 rmSync(dir, { recursive: true, force: true });

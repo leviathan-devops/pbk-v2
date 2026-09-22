@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "omp-ct",
+      "name": "pbk",
       "dependencies": {
         "@agentos-software/pi": "^0.2.7",
         "@rivet-dev/agentos": "^0.2.15",

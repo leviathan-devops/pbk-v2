@@ -21,8 +21,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { sttgfStateTracker } from "../firewalls/semantic-smoke-firewall";
 import type { RecordedRunSet } from "../middleware/phantom-gate";
-import { formatTuiCatalog, resolveTui } from "./ct-tui-registry";
-import { classifyCtExec, buildCtConfigLockMessage } from "../firewalls/ct-anti-derailment.js";
+import { formatTuiCatalog, resolveTui } from "./pbk-tui-registry";
+import { classifyExec, buildConfigLockMessage } from "../firewalls/pbk-anti-derailment.js";
 import { classifyVerb } from "../firewalls/semantic-smoke-firewall";
 
 export const CT_ACTIONS = [
@@ -41,9 +41,9 @@ const STREAM_FILE = "/tmp/tui-stream.txt";
 // with a working free model and a live credential — no manual setup, no
 // model-picker derailment. Default: openrouter poolside laguna (free tier).
 // Overridable per-call via params.modelName / params.smolModel, per-host via
-// OMP_CT_DEFAULT_MODEL / OMP_CT_DEFAULT_SMOL.
-export const DEFAULT_OMP_CT_MODEL = "poolside/poolside/laguna-s-2.1";
-export const DEFAULT_OMP_CT_SMOL = "poolside/poolside/laguna-xs-2.1";
+// PBK_DEFAULT_MODEL / PBK_DEFAULT_SMOL.
+export const DEFAULT_PBK_MODEL = "poolside/poolside/laguna-s-2.1";
+export const DEFAULT_PBK_SMOL = "poolside/poolside/laguna-xs-2.1";
 const OMP_FAMILY_TUIS: ReadonlySet<string> = new Set(["omp", "pi"]);
 
 // The in-container provision script (base64-shipped; no key material in argv).
@@ -146,7 +146,7 @@ const provisionOmpContainer = (
 ): string => {
   const b64 = Buffer.from(PROVISION_PY, "utf8").toString("base64");
   const r = dockerExec(
-    `printf %s ${shq(b64)} | base64 -d > /tmp/omp-ct-provision.py && PROV_MODEL=${shq(model)} PROV_SMOL=${shq(smol)} python3 /tmp/omp-ct-provision.py; rm -f /tmp/omp-ct-provision.py`,
+    `printf %s ${shq(b64)} | base64 -d > /tmp/pbk-provision.py && PROV_MODEL=${shq(model)} PROV_SMOL=${shq(smol)} python3 /tmp/pbk-provision.py; rm -f /tmp/pbk-provision.py`,
     30000,
   );
   const line = (r.stdout + "\n" + r.stderr).split("\n").find((l) => l.trim().startsWith("PROVISION"));
@@ -326,7 +326,7 @@ export function buildContainerTestingTool(pi: ExtensionAPI, deps: CtDeps): OmpTo
       // firewall**, which is precisely the class this extension exists to prevent.
       // FIX: validate the name BEFORE any interpolation (docker's own grammar is
       // `[a-zA-Z0-9][a-zA-Z0-9_.-]*`). One guard covers every site.
-      const rawName = String(params.containerName ?? "omp-ct");
+      const rawName = String(params.containerName ?? "pbk");
       if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$/.test(rawName)) {
         return {
           text:
@@ -414,7 +414,7 @@ export function buildContainerTestingTool(pi: ExtensionAPI, deps: CtDeps): OmpTo
         const envFile = host.existsSync("/home/leviathan/.omp/agent/.env") ? " --env-file /home/leviathan/.omp/agent/.env" : "";
         if (!adopting) {
           const run = host.execSync(
-            `docker run -d --name ${name} --label omp-ct=owned ${mem} ${cpus}${socketFlag}${envFile} ${bindVols} ${callerVols} ${tui.image} sleep infinity`,
+            `docker run -d --name ${name} --label pbk=owned ${mem} ${cpus}${socketFlag}${envFile} ${bindVols} ${callerVols} ${tui.image} sleep infinity`,
             { timeoutMs: 120000 },
           );
           if (run.code !== 0) return { text: `CT SETUP FAILED: docker run -> ${(run.stderr || run.stdout).slice(0, 500)}`, isError: true };
@@ -431,8 +431,8 @@ export function buildContainerTestingTool(pi: ExtensionAPI, deps: CtDeps): OmpTo
         if (OMP_FAMILY_TUIS.has(tui.id)) {
           const modelParam = typeof params.modelName === "string" && String(params.modelName).includes("/") ? String(params.modelName) : "";
           const smolParam = typeof params.smolModel === "string" && String(params.smolModel).includes("/") ? String(params.smolModel) : "";
-          const model = sanitizeModel(modelParam || process.env.OMP_CT_DEFAULT_MODEL || DEFAULT_OMP_CT_MODEL);
-          const smol = sanitizeModel(smolParam || process.env.OMP_CT_DEFAULT_SMOL || DEFAULT_OMP_CT_SMOL);
+          const model = sanitizeModel(modelParam || process.env.PBK_DEFAULT_MODEL || DEFAULT_PBK_MODEL);
+          const smol = sanitizeModel(smolParam || process.env.PBK_DEFAULT_SMOL || DEFAULT_PBK_SMOL);
           provisionSummary = provisionOmpContainer(dockerExec, model, smol);
         }
         const tmuxCheck = dockerExec("command -v tmux");
@@ -516,8 +516,8 @@ export function buildContainerTestingTool(pi: ExtensionAPI, deps: CtDeps): OmpTo
         if (OMP_FAMILY_TUIS.has(tui.id)) {
           tuiProvision = provisionOmpContainer(
             dockerExec,
-            sanitizeModel(process.env.OMP_CT_DEFAULT_MODEL || DEFAULT_OMP_CT_MODEL),
-            sanitizeModel(process.env.OMP_CT_DEFAULT_SMOL || DEFAULT_OMP_CT_SMOL),
+            sanitizeModel(process.env.PBK_DEFAULT_MODEL || DEFAULT_PBK_MODEL),
+            sanitizeModel(process.env.PBK_DEFAULT_SMOL || DEFAULT_PBK_SMOL),
           );
         }
         dockerExec(`tmux kill-session -t ${session} 2>/dev/null; rm -f ${STREAM_FILE}; true`);
@@ -687,14 +687,14 @@ export function buildContainerTestingTool(pi: ExtensionAPI, deps: CtDeps): OmpTo
         if (!cmd) return { text: "CT EXEC FAILED: command required", isError: true };
         if (!firewallOff.has(sid)) {
           // THE ANTI-DERAILMENT LEXICON (spec item 7 — port of v6
-          // container-test.ts:2489): classifyCtExec (the state machine —
+          // container-test.ts:2489): classifyExec (the state machine —
           // the regex = the detector only) → BLOCK emits the per-family
-          // [CT CONFIG LOCK] warhead + the evidence triad. Reads +
+          // [PBK CONFIG LOCK] warhead + the evidence triad. Reads +
           // unrelated execs pass untouched.
           try {
-            const ctVerdict = classifyCtExec(cmd);
+            const ctVerdict = classifyExec(cmd);
             if (ctVerdict.verdict === "BLOCK") {
-              return { text: buildCtConfigLockMessage(ctVerdict), isError: true };
+              return { text: buildConfigLockMessage(ctVerdict), isError: true };
             }
           } catch { /* non-gate failure — fall through to the verb firewall */ }
           // THE HEADLESS FIREWALL — command dispatch surface: classifyVerb's
@@ -720,11 +720,11 @@ export function buildContainerTestingTool(pi: ExtensionAPI, deps: CtDeps): OmpTo
           // (spec item 7 — port of v6 container-test.ts:2521): a copy
           // landing on a protected opencode path (config.json/auth.json/
           // opencode.db) is the config-fumbling class by another verb —
-          // the same [CT CONFIG LOCK]. Fixture/workspace copies pass.
+          // the same [PBK CONFIG LOCK]. Fixture/workspace copies pass.
           try {
-            const cpProtected = classifyCtExec("cp x " + target);
+            const cpProtected = classifyExec("cp x " + target);
             if (cpProtected.verdict === "BLOCK") {
-              return { text: buildCtConfigLockMessage(cpProtected), isError: true };
+              return { text: buildConfigLockMessage(cpProtected), isError: true };
             }
           } catch { /* non-gate failure — the copy proceeds */ }
         }
@@ -742,14 +742,14 @@ export function buildContainerTestingTool(pi: ExtensionAPI, deps: CtDeps): OmpTo
         // e1bd1dbad665d83f) and the ONLY way to repair the sha trio was a manual `action=cp`. This is that
         // repair, sanctioned, with the verification the trio needs.
         const local = String(params.distPath ?? params.src ?? "dist/index.js");
-        const target = String(params.dest ?? params.containerPath ?? "/root/.omp/agent/extensions/omp-ct/dist.js");
+        const target = String(params.dest ?? params.containerPath ?? "/root/.omp/agent/extensions/pbk/dist.js");
         if (!local) return { text: "CT DEPLOY FAILED: distPath (or src) required", isError: true };
         // The same cp-into-container guard the `cp` verb runs: a deploy must not become a way to write a
         // protected opencode path.
         if (!firewallOff.has(sid)) {
           try {
-            const protectedHit = classifyCtExec("cp x " + target);
-            if (protectedHit.verdict === "BLOCK") return { text: buildCtConfigLockMessage(protectedHit), isError: true };
+            const protectedHit = classifyExec("cp x " + target);
+            if (protectedHit.verdict === "BLOCK") return { text: buildConfigLockMessage(protectedHit), isError: true };
           } catch { /* non-gate failure — the deploy proceeds */ }
         }
         const localSha = (host.execSync(`sha256sum ${shq(local)} 2>/dev/null`).stdout.trim().split(/\s+/)[0] ?? "");

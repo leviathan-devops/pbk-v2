@@ -54,7 +54,7 @@
       "scope": "**/*"
     },
     {
-      "path": "src/firewalls/ct-anti-derailment.ts",
+      "path": "src/firewalls/pbk-anti-derailment.ts",
       "sha": "afbfc838be56cabffd9fe45fbc0b9e0329c6db23d0b7aa919c7ce0555641b1d3",
       "scope": "**/*"
     },
@@ -1188,7 +1188,7 @@
       "id": "ctx-02-auth-fumble",
       "text": "Block writes to auth.json — the auth comes from the build + deploy secret handling, NEVER a runtime write. Reads are always allowed.",
       "source": {
-        "path": "src/firewalls/ct-anti-derailment.ts",
+        "path": "src/firewalls/pbk-anti-derailment.ts",
         "line": 52
       },
       "check": {
@@ -1201,7 +1201,7 @@
       "id": "ctx-03-sessiondb-fumble",
       "text": "Block mutations to opencode.db — the session state is the runtime's own, NEVER a manual database write. SELECT reads are always allowed.",
       "source": {
-        "path": "src/firewalls/ct-anti-derailment.ts",
+        "path": "src/firewalls/pbk-anti-derailment.ts",
         "line": 61
       },
       "check": {
@@ -1214,7 +1214,7 @@
       "id": "ctx-04-install-fumble",
       "text": "Block runtime install/update against opencode — use container-testing deploy + the pre-built master image.",
       "source": {
-        "path": "src/firewalls/ct-anti-derailment.ts",
+        "path": "src/firewalls/pbk-anti-derailment.ts",
         "line": 76
       },
       "check": {
@@ -1227,7 +1227,7 @@
       "id": "ctx-05-staging-cheat",
       "text": "Block staging a hand-modified config through /tmp + deploy dirs — the config comes from the BUILD.",
       "source": {
-        "path": "src/firewalls/ct-anti-derailment.ts",
+        "path": "src/firewalls/pbk-anti-derailment.ts",
         "line": 94
       },
       "check": {
@@ -1240,7 +1240,7 @@
       "id": "ctx-06-content-rewrite",
       "text": "Block rewriting opencode.json/config.json content through ANY channel — the config comes from the BUILD deploy action.",
       "source": {
-        "path": "src/firewalls/ct-anti-derailment.ts",
+        "path": "src/firewalls/pbk-anti-derailment.ts",
         "line": 107
       },
       "check": {
@@ -1253,7 +1253,7 @@
       "id": "ctx-07-setup-script-staging",
       "text": "Block running setup scripts over hand-modified config copies — the setup script deploys the SHIPPED config.",
       "source": {
-        "path": "src/firewalls/ct-anti-derailment.ts",
+        "path": "src/firewalls/pbk-anti-derailment.ts",
         "line": 120
       },
       "check": {
@@ -1266,7 +1266,7 @@
       "id": "ctx-08-apikey-fumble",
       "text": "Block rewriting apiKey in config through any channel — the auth/key comes from build + deploy secrets.",
       "source": {
-        "path": "src/firewalls/ct-anti-derailment.ts",
+        "path": "src/firewalls/pbk-anti-derailment.ts",
         "line": 133
       },
       "check": {

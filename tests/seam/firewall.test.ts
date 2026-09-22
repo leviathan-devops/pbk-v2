@@ -413,7 +413,7 @@ describe("theatrical gate — v4.4.2 semantics: state-set, escalate at 3, USE ne
     const out = await after({
       toolName: "bash", toolCallId: "c", input: {}, content: [{ type: "text", text: "done" }], details: {}, isError: false, scope: "main",
     });
-    expect(out.content.map((b: any) => b.text ?? "").join("")).toContain("[CT THEATRICAL GATE]");
+    expect(out.content.map((b: any) => b.text ?? "").join("")).toContain("[PBK THEATRICAL GATE]");
     // container-test clears
     const tracker2 = new TheatricalStateTracker();
     const gate2 = theatricalGate(tracker2);
@@ -425,7 +425,7 @@ describe("theatrical gate — v4.4.2 semantics: state-set, escalate at 3, USE ne
     const out2 = await after2({
       toolName: "bash", toolCallId: "c2", input: {}, content: [{ type: "text", text: "done" }], details: {}, isError: false, scope: "main",
     });
-    expect(out2.content.map((b: any) => b.text ?? "").join("")).not.toContain("[CT THEATRICAL GATE]");
+    expect(out2.content.map((b: any) => b.text ?? "").join("")).not.toContain("[PBK THEATRICAL GATE]");
   });
 });
 

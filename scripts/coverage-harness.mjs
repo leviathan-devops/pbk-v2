@@ -19,7 +19,7 @@ import { readFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const BUNDLE = "/home/leviathan/.omp/agent/extensions/omp-ct/dist.js";
+const BUNDLE = "/home/leviathan/.omp/agent/extensions/pbk/dist.js";
 const sha = createHash("sha256").update(readFileSync(BUNDLE)).digest("hex").slice(0, 16);
 const D = "dock" + "er";
 const TMP = mkdtempSync(join(tmpdir(), "cov3-"));
@@ -44,7 +44,7 @@ const CONTROL = {
 const R = [];
 const rec = (point, rung, pos, neg, verdict, note) => R.push({ point, rung, pos, neg, verdict, note });
 const fired = (s) => !/^allow$/i.test(String(s));
-const S = "file:///home/leviathan/JARVIS_WORKSPACE/OMP/omp-ct-v2/src/";
+const S = "file:///home/leviathan/JARVIS_WORKSPACE/OMP/pbk-v2/src/";
 
 // ── [bundle] boot the factory ──
 const bundle = await import(BUNDLE);
@@ -167,7 +167,7 @@ rec("judge: the key resolution", "[src]", src.kj.resolveApiKey?.() ? "resolves (
   const tool = src.ct.buildContainerTestingTool(pi, { host: { ...fakeHost, execSync: (c) => { calls.push(c); return { code: 0, stdout: "", stderr: "" }; } }, recordedRuns: new src.pg.RecordedRunSet() });
   const inj = await tool.execute("i", { action: "alive", containerName: "x; touch /tmp/PWNED" });
   const n = calls.length; calls.length = 0;
-  await tool.execute("i", { action: "alive", containerName: "omp-ct-debrand" });
+  await tool.execute("i", { action: "alive", containerName: "pbk-debrand" });
   const good = calls.length > 0;
   rec("ct tool: the name validation", "[src]", n === 0 ? "REFUSED, 0 host calls" : `LEAKED (${n})`, `a real name -> ${good ? "allowed" : "blocked"}`, n === 0 && good ? "WORKS" : "WEAK", "V-080 the injection fix");
   const r1 = await tool.execute("i", { action: "setup", testPlan: "/w/test-plan.md" });

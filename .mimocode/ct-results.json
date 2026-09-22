@@ -4,7 +4,7 @@
   "total": 20,
   "passed": 20,
   "documentedBlocked": [
-    "CT TOOLS: suite dispatch requires a live auth-seeded container. Evidence: omp preset binds=[] (no host config in container); live RPC battery measured 'No models available' in omp-ct:master; auth bind/bake is operator-gated (secrets HARD STOP). Unblock: operator blesses an auth-bind volume OR bakes an auth-seeded master image and sets CT_CONTAINER_IMAGE."
+    "CT TOOLS: suite dispatch requires a live auth-seeded container. Evidence: omp preset binds=[] (no host config in container); live RPC battery measured 'No models available' in pbk:master; auth bind/bake is operator-gated (secrets HARD STOP). Unblock: operator blesses an auth-bind volume OR bakes an auth-seeded master image and sets CT_CONTAINER_IMAGE."
   ],
   "scenarios": [
     {

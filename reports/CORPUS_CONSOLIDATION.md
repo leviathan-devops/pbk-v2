@@ -79,14 +79,14 @@ not-enforceable.
 | 15 | **ORPHAN CAPABILITY** — module exists but has zero non-test callers | `client.ts` → 0 callers; `src/sync.ts` → 0 callers; `src/kick.ts` → 0 callers; all 11 modules → 0 non-test callers except store | V-05; EN-001, EN-003; O-B3; BUILD_REPORT line 50-67; RECOVERED_B L-B2, GR-3 | **L1 — PER-EDIT JUDGE + B5 TOOL BLOCK** (every module ≥1 non-test caller before wave close, or declared entry point) |
 | 16 | **FIRST-CALL DEFFECT** — an export's first execution reveals a latent bug | `ao-client/client.ts` `health()` → `Error: unknown operation getHealth` on first invocation after 32 green runs | EN-001; O-B13; DEBUG_LOG.md EN-001 lines 3-19; RECOVERED_B L-B4, GR-8 | **L1 — JUDGE** (every export invoked ≥1 time from non-test path before wave close) |
 | 17 | **UNPROVEN LIVE PATH** — parser/transport never fed real bytes from a live wire | `new EventRail` only in tests; live probe captured 0 bytes (daemon DOWN, `http_code=000 exit=7`); `/api/v1/events` never tested | EN-002; V-02; O-B2 line 174; DEBUG_LOG.md EN-002 lines 21-32 | **L1 — CLAIM FIREWALL** (live-path test required, or claim downgraded) |
-| 18 | **REIMPLEMENTATION-OVER-IMPORT** — re-implementing existing machinery instead of importing it | `claim-gate.ts` reimplemented `sstf.decide` as `claimWindowDecide`; `headless-gate.ts` reimplemented `classifyVerb` as `HEADLESS_RE` | F-001 (omp-ct); V-001 | **L1 — JUDGE** (Abide diff rubric; structural audit) |
-| 19 | **MISSING LOAD-BEARING HOOK** — enforcement code wired but the event it listens to never fires | `markClaim()` called by nothing in src; `attachChain` imported but never called; `createSessionTracking` imported but never called; `pi.on("agent-end")` subscribes to an event no sibling extension uses | F-001; V-000 (omp-ct); GUARDRAILS.md §G.4 fail-open edits | **L0/L1 boundary** (static analysis: imported-but-uncalled functions = structurally dead) |
-| 20 | **INVENTED KILL-SWITCH** — mechanism invented that the spec/system never had | `TRIDENT_SSTF_DISABLED` / `TRIDENT_CONTAINER_GATE_DISABLED` — 0 hits in v6; kill-switch-ctl.sh inert | F-002 (omp-ct) | **L1 — JUDGE** (static analysis: grep for the mechanism name in source) |
-| 21 | **FIXTURE-ENSHRINED TEST** — tests assert the broken reimplementation instead of the real contract | `firewall.test.ts` asserted `claimWindowDecide`/`HEADLESS_RE` shapes | F-003 (omp-ct) | **L1 — JUDGE** (tests must assert the real contract; shape-freeze gate) |
-| 22 | **STRUCTURAL-RED AS EVIDENCE** — deployed bundle contains enforcement code but no live event reaches it | host-live script: handlers registered for `session.compacting/session_compact/session_start/agent-end`; NO `tool_call` handler, NO `tool_result` handler | V-000 (omp-ct lines 87-114); GUARDRAILS.md §G.4 | **L0 — PHRASE/REGEX + L1 — JUDGE** (the gate-scope rule: scope detectors to the actual operation) |
-| 23 | **DEAD WARMUP GUARD** — `isReady()` false forever → warmup guard swallows every tool_call | `markReady` imported but defined only, never called; `isReady()` returns false permanently | V-000 (omp-ct lines 107-110) | **L1 — JUDGE** |
-| 24 | **OVER-BREADTH GATE** — detector fires on ANY token in a payload, even inside quoted strings or documentation | `[CT CONTAINER GATE] raw docker/tmux container commands + bypass indirection are blocked` fired on a Python heredoc STRING (documentation text); same on a commit-message string; `[CT DOC-DENSITY] GENERIC requires >= 200 lines; got 68` fired on a 68-line ledger | O-B10 / V-019; GUARDRAILS.md §G.3.1; GR-10 | **L0 — PHRASE/REGEX** (scope detectors to the OPERATION, never to a token appearing anywhere in a payload) |
-| 25 | **CLASS-BY-FILENAME** — gate classification by filename instead of declared content class | `[CT DOC-DENSITY] GENERIC requires >= 200 lines` fired on 68-line ledger; same content under a neutral name passes 200-line floor | O-A10; GUARDRAILS.md §G.3.1 | **L0 — PHRASE/REGEX** (declare density class in header, never infer from filename) |
+| 18 | **REIMPLEMENTATION-OVER-IMPORT** — re-implementing existing machinery instead of importing it | `claim-gate.ts` reimplemented `sstf.decide` as `claimWindowDecide`; `headless-gate.ts` reimplemented `classifyVerb` as `HEADLESS_RE` | F-001 (pbk); V-001 | **L1 — JUDGE** (Abide diff rubric; structural audit) |
+| 19 | **MISSING LOAD-BEARING HOOK** — enforcement code wired but the event it listens to never fires | `markClaim()` called by nothing in src; `attachChain` imported but never called; `createSessionTracking` imported but never called; `pi.on("agent-end")` subscribes to an event no sibling extension uses | F-001; V-000 (pbk); GUARDRAILS.md §G.4 fail-open edits | **L0/L1 boundary** (static analysis: imported-but-uncalled functions = structurally dead) |
+| 20 | **INVENTED KILL-SWITCH** — mechanism invented that the spec/system never had | `TRIDENT_SSTF_DISABLED` / `TRIDENT_CONTAINER_GATE_DISABLED` — 0 hits in v6; kill-switch-ctl.sh inert | F-002 (pbk) | **L1 — JUDGE** (static analysis: grep for the mechanism name in source) |
+| 21 | **FIXTURE-ENSHRINED TEST** — tests assert the broken reimplementation instead of the real contract | `firewall.test.ts` asserted `claimWindowDecide`/`HEADLESS_RE` shapes | F-003 (pbk) | **L1 — JUDGE** (tests must assert the real contract; shape-freeze gate) |
+| 22 | **STRUCTURAL-RED AS EVIDENCE** — deployed bundle contains enforcement code but no live event reaches it | host-live script: handlers registered for `session.compacting/session_compact/session_start/agent-end`; NO `tool_call` handler, NO `tool_result` handler | V-000 (pbk lines 87-114); GUARDRAILS.md §G.4 | **L0 — PHRASE/REGEX + L1 — JUDGE** (the gate-scope rule: scope detectors to the actual operation) |
+| 23 | **DEAD WARMUP GUARD** — `isReady()` false forever → warmup guard swallows every tool_call | `markReady` imported but defined only, never called; `isReady()` returns false permanently | V-000 (pbk lines 107-110) | **L1 — JUDGE** |
+| 24 | **OVER-BREADTH GATE** — detector fires on ANY token in a payload, even inside quoted strings or documentation | `[PBK CONTAINER GATE] raw docker/tmux container commands + bypass indirection are blocked` fired on a Python heredoc STRING (documentation text); same on a commit-message string; `[PBK DOC-DENSITY] GENERIC requires >= 200 lines; got 68` fired on a 68-line ledger | O-B10 / V-019; GUARDRAILS.md §G.3.1; GR-10 | **L0 — PHRASE/REGEX** (scope detectors to the OPERATION, never to a token appearing anywhere in a payload) |
+| 25 | **CLASS-BY-FILENAME** — gate classification by filename instead of declared content class | `[PBK DOC-DENSITY] GENERIC requires >= 200 lines` fired on 68-line ledger; same content under a neutral name passes 200-line floor | O-A10; GUARDRAILS.md §G.3.1 | **L0 — PHRASE/REGEX** (declare density class in header, never infer from filename) |
 | 26 | **PARKED-RULE STILL FIRES** — a rule moved to the parked directory continues to interrupt; the enforcement engine loads rules at session START and does not re-scan or purge on park | interrupt fired during this consolidation: `verification-before-declaration` fired on text in this document, citing `~/.agent/rules/verification-before-declaration.md` — but `find /home/leviathan/.agent/ -type f` confirms the file lives ONLY in `rules.parked-20260920/` and `rules/` is EMPTY; the rule was PARKED by operator order yet still active in the running engine | CORPUS_CONSOLIDATION.md §5.1 (this document, live); `~/.agent/rules/` (empty dir); `~/.agent/rules.parked-20260920/` (6 files) | **L0 — LOADING LIFECYCLE** (parked = structurally inert; session restart must NOT reload from a directory the operator cleared) |
 
 **Distinct failure classes: 26**
@@ -128,7 +128,7 @@ judgment, and 1 (row 7) is a rate-telemetry requirement.
 - **Abide never loaded on this host.** GUARDRAILS.md §G.9 lists Abide L1/L2 as
   PROPOSED — no rubric exists, no `abide check` has run. The claim-firewall gate
   is a design, not a deployed layer.
-- **The omp-ct FAILURE_LOG** (V-000..V-019) documents a parallel enforcement stack
+- **The pbk FAILURE_LOG** (V-000..V-019) documents a parallel enforcement stack
   (the STTGF container gate) with its own over-breadth and evidence-destruction
   classes (V-019 is the exact twin of row 24 here). These were folded into the
   table as the same class; no separate rows added.
@@ -181,12 +181,12 @@ judgment, and 1 (row 7) is a rate-telemetry requirement.
 - GUARDRAILS.md §G.8 (lines 269-278) — rollout order
 - GUARDRAILS.md §G.9 (lines 284-306) — proposed vs landed status
 
-**omp-ct enforcement stack:**
-- OMP/omp-ct/context_management/FAILURE_LOG.md F-001..F-004 (lines 4-41) — reimplementation, kill-switches, fixture-enshrined, unwired chain
-- OMP/omp-ct/context_management/FAILURE_LOG.md V-000..V-019 (lines 33-622) — 20 numbered entries across E2E, stream-audit, and defects
-- omp-ct index.ts:7, :15, :51-52, :71 — import-but-uncalled symbols (V-000)
-- omp-ct semantic-smoke-firewall.ts:256-257 — inline_exec unconditional on verb (V-018)
-- omp-ct container-gate.ts:122 — raw verb block (V-018)
+**pbk enforcement stack:**
+- OMP/pbk/context_management/FAILURE_LOG.md F-001..F-004 (lines 4-41) — reimplementation, kill-switches, fixture-enshrined, unwired chain
+- OMP/pbk/context_management/FAILURE_LOG.md V-000..V-019 (lines 33-622) — 20 numbered entries across E2E, stream-audit, and defects
+- pbk index.ts:7, :15, :51-52, :71 — import-but-uncalled symbols (V-000)
+- pbk semantic-smoke-firewall.ts:256-257 — inline_exec unconditional on verb (V-018)
+- pbk container-gate.ts:122 — raw verb block (V-018)
 
 **Probes:**
 - probes/kernel-lexical-defect-evidence.md lines 21-66 — 4 probes + mechanism

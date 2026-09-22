@@ -748,7 +748,7 @@ function dispatchGate(host) {
       return {
         action: "block",
         gate: "dispatch",
-        reason: `[CT DISPATCH GATE] agent type not allowed: ${[...new Set(badAgents)].join(", ")}`
+        reason: `[PBK DISPATCH GATE] agent type not allowed: ${[...new Set(badAgents)].join(", ")}`
       };
     }
     const thin = items.flatMap((it) => validateDpl1(String(it.task ?? "")));
@@ -762,7 +762,7 @@ function dispatchGate(host) {
       return {
         action: "block",
         gate: "dispatch",
-        reason: `[CT DISPATCH GATE] missing: ${missing}`
+        reason: `[PBK DISPATCH GATE] missing: ${missing}`
       };
     }
     return;
@@ -942,7 +942,7 @@ function dispatchTemplateGate(host) {
       return {
         action: "block",
         gate: "dispatch-template-v2",
-        reason: `[CT DISPATCH TEMPLATE GATE v2] ${evalResult.reasons.join(" || ")}`
+        reason: `[PBK DISPATCH TEMPLATE GATE v2] ${evalResult.reasons.join(" || ")}`
       };
     }
     return;
@@ -1954,7 +1954,7 @@ function skipTheatrical(toolName, poseidonActive) {
   return false;
 }
 var ESCALATION_THRESHOLD = 3;
-var PHASE_B_DEMAND = "[CT THEATRICAL GATE] substitute-frame detected \u2014 build the real thing and verify in the sandbox. " + "Call the ct-sandbox-test AGENT TOOL (sandbox test) with a 2000-char, 6-section plan (OBJECTIVE / TOOLS UNDER TEST / TEST SCENARIOS 3+ / " + "ADVERSARIAL 1+ / EVIDENCE / PASS CRITERIA), then cite ContainerTestResult.json.";
+var PHASE_B_DEMAND = "[PBK THEATRICAL GATE] substitute-frame detected \u2014 build the real thing and verify in the sandbox. " + "Call the ct-sandbox-test AGENT TOOL (sandbox test) with a 2000-char, 6-section plan (OBJECTIVE / TOOLS UNDER TEST / TEST SCENARIOS 3+ / " + "ADVERSARIAL 1+ / EVIDENCE / PASS CRITERIA), then cite ContainerTestResult.json.";
 function theatricalGate(state, opts = { poseidonActive: () => false }) {
   return async (ctx) => {
     if (!ctx.isAgentOrigin)
@@ -1971,7 +1971,7 @@ function theatricalGate(state, opts = { poseidonActive: () => false }) {
       return {
         action: "block",
         gate: "theatrical",
-        reason: "[CT THEATRICAL ESCALATE] repeated substitute-frame suggestions. Running a REAL container test is MANDATORY."
+        reason: "[PBK THEATRICAL ESCALATE] repeated substitute-frame suggestions. Running a REAL container test is MANDATORY."
       };
     }
     return;
@@ -1991,7 +1991,7 @@ function theatricalGateAfter(state, containerTestRan) {
       return ctx;
     const already = ctx.content.filter((b) => typeof b === "object" && b !== null && ("text" in b)).map((b) => b.text).join(`
 `);
-    if (already.includes("[CT THEATRICAL GATE]"))
+    if (already.includes("[PBK THEATRICAL GATE]"))
       return ctx;
     return { ...ctx, content: [...ctx.content, { type: "text", text: `
 ` + PHASE_B_DEMAND }] };
@@ -2119,7 +2119,7 @@ function classifyCtExec(command) {
 function buildCtConfigLockMessage(v) {
   const fam = CT_MUTATION_PATTERNS.find((p) => p.id === v.family);
   const warhead = fam && fam.remedy ? fam.remedy : "THE SANCTIONED PATH: the tool's deploy action + the pre-built master image \u2014 NEVER the config/auth/db files. THE READS (cat/md5sum/json.load/SELECT) are always allowed \u2014 the inspection surface is intact.";
-  return "[CT CONFIG LOCK] " + v.family + ": " + v.familyName + ' \u2014 this exec command is BLOCKED mechanically (the operator 2026-08-09: "WHY ARE YOU FUCKING WITH THE CONFIG. FOR WHAT REASON. WHY IS THIS NOT BANNED AND BLOCKED BY THE TOOL"). THE EVIDENCE: ' + v.evidence + ". " + warhead;
+  return "[PBK CONFIG LOCK] " + v.family + ": " + v.familyName + ' \u2014 this exec command is BLOCKED mechanically (the operator 2026-08-09: "WHY ARE YOU FUCKING WITH THE CONFIG. FOR WHAT REASON. WHY IS THIS NOT BANNED AND BLOCKED BY THE TOOL"). THE EVIDENCE: ' + v.evidence + ". " + warhead;
 }
 
 // src/middleware/container-gate.ts
@@ -2178,7 +2178,7 @@ function containerGate() {
       return {
         action: "block",
         gate: "container",
-        reason: "[CT CONTAINER GATE] raw docker/tmux container commands + bypass indirection are blocked \u2014 use the ct-sandbox-test AGENT TOOL (sandbox test), the ONLY sanctioned sandbox path"
+        reason: "[PBK CONTAINER GATE] raw docker/tmux container commands + bypass indirection are blocked \u2014 use the ct-sandbox-test AGENT TOOL (sandbox test), the ONLY sanctioned sandbox path"
       };
     }
     return;
@@ -2194,7 +2194,7 @@ function containerWriteGate() {
       return {
         action: "block",
         gate: "container",
-        reason: "[CT CONTAINER GATE] writing a test file that drives containers is a bypass \u2014 use the ct-sandbox-test AGENT TOOL (sandbox test) instead"
+        reason: "[PBK CONTAINER GATE] writing a test file that drives containers is a bypass \u2014 use the ct-sandbox-test AGENT TOOL (sandbox test) instead"
       };
     }
     return;
@@ -2232,7 +2232,7 @@ import * as os2 from "os";
 import * as path2 from "path";
 
 // src/tools/ct-tui-registry.ts
-var CT_IMAGE_OMP = "omp-ct:master";
+var CT_IMAGE_OMP = "pbk:master";
 var CT_IMAGE_MIMO = "mimo-ct:master";
 var TUI_PRESETS = {
   omp: {
@@ -2441,8 +2441,8 @@ var CT_ACTIONS2 = [
 var CT_IMAGE = "runtime-grade-container-sandbox:master";
 var DEFAULT_TMUX_SESSION = "test";
 var STREAM_FILE = "/tmp/tui-stream.txt";
-var DEFAULT_OMP_CT_MODEL = "poolside/poolside/laguna-s-2.1";
-var DEFAULT_OMP_CT_SMOL = "poolside/poolside/laguna-xs-2.1";
+var DEFAULT_PBK_MODEL = "poolside/poolside/laguna-s-2.1";
+var DEFAULT_PBK_SMOL = "poolside/poolside/laguna-xs-2.1";
 var OMP_FAMILY_TUIS = new Set(["omp", "pi"]);
 var PROVISION_PY = [
   "import json, os, sqlite3",
@@ -2528,7 +2528,7 @@ var PROVISION_PY = [
 var sanitizeModel = (v) => v.replace(/[^A-Za-z0-9/._:-]/g, "");
 var provisionOmpContainer = (dockerExec, model, smol) => {
   const b64 = Buffer.from(PROVISION_PY, "utf8").toString("base64");
-  const r = dockerExec(`printf %s ${shq(b64)} | base64 -d > /tmp/omp-ct-provision.py && PROV_MODEL=${shq(model)} PROV_SMOL=${shq(smol)} python3 /tmp/omp-ct-provision.py; rm -f /tmp/omp-ct-provision.py`, 30000);
+  const r = dockerExec(`printf %s ${shq(b64)} | base64 -d > /tmp/pbk-provision.py && PROV_MODEL=${shq(model)} PROV_SMOL=${shq(smol)} python3 /tmp/pbk-provision.py; rm -f /tmp/pbk-provision.py`, 30000);
   const line = (r.stdout + `
 ` + r.stderr).split(`
 `).find((l) => l.trim().startsWith("PROVISION"));
@@ -2695,7 +2695,7 @@ function buildContainerTestingTool(pi, deps) {
         return { text: `CONTAINER-TESTING FAILED: unknown action "${action}" \u2014 use ${CT_ACTIONS2.join("|")}`, isError: true };
       }
       const sid = sidOf(ctx);
-      const rawName = String(params.containerName ?? "omp-ct");
+      const rawName = String(params.containerName ?? "pbk");
       if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$/.test(rawName)) {
         return {
           text: `CONTAINER-TESTING FAILED: containerName ${JSON.stringify(rawName)} is not a valid docker name. ` + "REFUSED \u2014 the name is interpolated into host docker commands, so an unvalidated value is a " + "shell-injection vector (V-080). Use letters/digits/underscore/dot/hyphen, start with alnum.",
@@ -2766,7 +2766,7 @@ function buildContainerTestingTool(pi, deps) {
         const socketFlag = host.existsSync("/var/run/docker.sock") ? " -v /var/run/docker.sock:/var/run/docker.sock" : "";
         const envFile = host.existsSync("/home/leviathan/.omp/agent/.env") ? " --env-file /home/leviathan/.omp/agent/.env" : "";
         if (!adopting) {
-          const run = host.execSync(`docker run -d --name ${name} --label omp-ct=owned ${mem} ${cpus}${socketFlag}${envFile} ${bindVols} ${callerVols} ${tui.image} sleep infinity`, { timeoutMs: 120000 });
+          const run = host.execSync(`docker run -d --name ${name} --label pbk=owned ${mem} ${cpus}${socketFlag}${envFile} ${bindVols} ${callerVols} ${tui.image} sleep infinity`, { timeoutMs: 120000 });
           if (run.code !== 0)
             return { text: `CT SETUP FAILED: docker run -> ${(run.stderr || run.stdout).slice(0, 500)}`, isError: true };
         }
@@ -2779,8 +2779,8 @@ function buildContainerTestingTool(pi, deps) {
         if (OMP_FAMILY_TUIS.has(tui.id)) {
           const modelParam = typeof params.modelName === "string" && String(params.modelName).includes("/") ? String(params.modelName) : "";
           const smolParam = typeof params.smolModel === "string" && String(params.smolModel).includes("/") ? String(params.smolModel) : "";
-          const model = sanitizeModel(modelParam || process.env.OMP_CT_DEFAULT_MODEL || DEFAULT_OMP_CT_MODEL);
-          const smol = sanitizeModel(smolParam || process.env.OMP_CT_DEFAULT_SMOL || DEFAULT_OMP_CT_SMOL);
+          const model = sanitizeModel(modelParam || process.env.PBK_DEFAULT_MODEL || DEFAULT_PBK_MODEL);
+          const smol = sanitizeModel(smolParam || process.env.PBK_DEFAULT_SMOL || DEFAULT_PBK_SMOL);
           provisionSummary = provisionOmpContainer(dockerExec, model, smol);
         }
         const tmuxCheck = dockerExec("command -v tmux");
@@ -2861,7 +2861,7 @@ function buildContainerTestingTool(pi, deps) {
         dockerExec(`mkdir -p ${tui.workdir}`);
         let tuiProvision = null;
         if (OMP_FAMILY_TUIS.has(tui.id)) {
-          tuiProvision = provisionOmpContainer(dockerExec, sanitizeModel(process.env.OMP_CT_DEFAULT_MODEL || DEFAULT_OMP_CT_MODEL), sanitizeModel(process.env.OMP_CT_DEFAULT_SMOL || DEFAULT_OMP_CT_SMOL));
+          tuiProvision = provisionOmpContainer(dockerExec, sanitizeModel(process.env.PBK_DEFAULT_MODEL || DEFAULT_PBK_MODEL), sanitizeModel(process.env.PBK_DEFAULT_SMOL || DEFAULT_PBK_SMOL));
         }
         dockerExec(`tmux kill-session -t ${session} 2>/dev/null; rm -f ${STREAM_FILE}; true`);
         const boot = dockerExec(`tmux new-session -d -s ${session} -x 240 -y 60 && echo NEW_OK`);
@@ -3077,7 +3077,7 @@ ${r.stdout.slice(-6000)}` };
       }
       if (action === "deploy") {
         const local = String(params.distPath ?? params.src ?? "dist/index.js");
-        const target = String(params.dest ?? params.containerPath ?? "/root/.omp/agent/extensions/omp-ct/dist.js");
+        const target = String(params.dest ?? params.containerPath ?? "/root/.omp/agent/extensions/pbk/dist.js");
         if (!local)
           return { text: "CT DEPLOY FAILED: distPath (or src) required", isError: true };
         if (!firewallOff.has(sid)) {
@@ -3295,7 +3295,7 @@ ${verdicts.map((v) => `  [${v.verdict}] #${v.i} /${v.pattern}/`).join(`
 function registerCtTools(pi, deps) {
   pi.registerTool(buildContainerTestingTool(pi, deps));
   const names = ["container-testing"];
-  console.log("[omp-ct] registered " + names.join(", "));
+  console.log("[pbk] registered " + names.join(", "));
   return names;
 }
 
@@ -3311,7 +3311,7 @@ function ledgerDir() {
     if (raw !== undefined && raw !== "" && !warnedSentinelDir) {
       warnedSentinelDir = true;
       try {
-        process.stderr.write(`[omp-ct] ABIDE_DIR was set to the sentinel ${JSON.stringify(raw)} (a broken value, not a ` + `path) \u2014 resolving to '.abide' instead of writing audit rows into ./${raw}/. Fix the caller.
+        process.stderr.write(`[pbk] ABIDE_DIR was set to the sentinel ${JSON.stringify(raw)} (a broken value, not a ` + `path) \u2014 resolving to '.abide' instead of writing audit rows into ./${raw}/. Fix the caller.
 `);
       } catch {}
     }
@@ -3398,7 +3398,7 @@ function recordFiring(input) {
   } catch (e) {
     writeError = e instanceof Error ? e.message : String(e);
     try {
-      process.stderr.write(`[omp-ct] LEDGER WRITE FAILED (${file}): ${writeError} \u2014 the firing is NOT recorded; ` + `the edit/claim proceeds (fail-open). Fix the ledger path or permissions.
+      process.stderr.write(`[pbk] LEDGER WRITE FAILED (${file}): ${writeError} \u2014 the firing is NOT recorded; ` + `the edit/claim proceeds (fail-open). Fix the ledger path or permissions.
 `);
     } catch {}
   }
@@ -3870,7 +3870,7 @@ async function judgeWithBands(event, opts, ringAccessor) {
       rubricUnavailableAnnounced = true;
       try {
         process.stderr.write(`
-[omp-ct] *** THE L1 JUDGE HAS NO RULES HERE *** the rubric resolved at ${looked} ` + `contains no active edit+model rules, so every edit in this workspace is UNJUDGED.
+[pbk] *** THE L1 JUDGE HAS NO RULES HERE *** the rubric resolved at ${looked} ` + `contains no active edit+model rules, so every edit in this workspace is UNJUDGED.
 ` + "         Fix: compile the rubric into <workspace>/.abide/rubric.json " + `(bun scripts/compile-rubric.mjs), then restart omp.
 
 `);
@@ -3919,7 +3919,7 @@ async function judgeWithBands(event, opts, ringAccessor) {
         judgeUnavailableAnnounced = true;
         try {
           process.stderr.write(`
-[omp-ct] *** THE L1 JUDGE IS DOWN *** TYPESAFE_AI_API_KEY is absent, so EVERY edit is ` + `UNJUDGED. This is a LOUD FAILURE, not a degraded mode.
+[pbk] *** THE L1 JUDGE IS DOWN *** TYPESAFE_AI_API_KEY is absent, so EVERY edit is ` + `UNJUDGED. This is a LOUD FAILURE, not a degraded mode.
 ` + `         Fix: ~/.abide/.env (chmod 600) with TYPESAFE_AI_API_KEY=<key>, then restart omp.
 
 `);
@@ -4180,7 +4180,7 @@ async function judgeClaimViaTypeSafe(atom, span, apiKey = undefined) {
       claimJudgeAnnounced = true;
       try {
         process.stderr.write(`
-[omp-ct] *** THE L2 CLAIM JUDGE IS DOWN *** TYPESAFE_AI_API_KEY is absent, so NO claim can ` + `be judged. Every claim therefore FAILS CLOSED.
+[pbk] *** THE L2 CLAIM JUDGE IS DOWN *** TYPESAFE_AI_API_KEY is absent, so NO claim can ` + `be judged. Every claim therefore FAILS CLOSED.
 ` + `         Fix: ~/.abide/.env (chmod 600) with TYPESAFE_AI_API_KEY=<key>, then restart omp.
 
 `);
@@ -4824,7 +4824,7 @@ function decide2(text, origin = "agent", state = escalationState) {
 }
 
 // src/index.ts
-var LOAD_MARKER = "__OMP_CT_LOADED__";
+var LOAD_MARKER = "__PBK_LOADED__";
 function ctExtension(pi) {
   try {
     const { appendFileSync } = __require("fs");
@@ -4865,7 +4865,7 @@ function ctExtension(pi) {
   chain.useAfter(theatricalGateAfter(theatricalTracker, () => recordedRuns.hasAfter(sttgfStateTracker.getState("default").containerTestTimestamp ?? 0, "ct-sandbox-test")));
   markReady();
   attachChain(pi, chain, scopeOf, isReady);
-  host.log("INFO", "omp-ct", "chain ATTACHED (V-027) \u2014 the gates are now consulted on tool_call");
+  host.log("INFO", "pbk", "chain ATTACHED (V-027) \u2014 the gates are now consulted on tool_call");
   pi.on("session.compacting", (_event, c) => {
     currentCtx = c;
     return {
@@ -4879,7 +4879,7 @@ function ctExtension(pi) {
   pi.on("session_start", (_event, c) => {
     currentCtx = c;
     pi.appendEntry("com.ct.state", { loaded: true, version: "2.0.0", ts: host.now() });
-    host.log("INFO", "omp-ct", "extension loaded \u2014 container-testing first-class");
+    host.log("INFO", "pbk", "extension loaded \u2014 container-testing first-class");
   });
   let turnCounter = 0;
   const settledHandler = async (event, c) => {
@@ -4930,7 +4930,7 @@ function ctExtension(pi) {
                 currentTurn,
                 ...pre.size > 0 ? { judge: (atom, span) => pre.get(claimJudgeKey(atom, span)) ?? null } : {}
               });
-              host.log(res.verdict === "PASS" ? "INFO" : "WARN", "omp-ct", `[CT CLAIM] ${res.verdict} \u2014 ${res.reason ?? "claim bound to this turn's evidence"}`);
+              host.log(res.verdict === "PASS" ? "INFO" : "WARN", "pbk", `[PBK CLAIM] ${res.verdict} \u2014 ${res.reason ?? "claim bound to this turn's evidence"}`);
             }
             if (atoms.length === 0 && isCompletionClaim2(text)) {
               const m = CLAIM_STRONG_PHRASE_RE2.exec(text) ?? CLAIM_WORD_RE2.exec(text);
@@ -4943,7 +4943,7 @@ function ctExtension(pi) {
                 verdict: "a VERIFICATION claim with no structured atom \u2014 the lexicon caught what the atom parser " + 'missed; the evidence demand applies (no "tested" without sandbox evidence)',
                 jev_called: false
               });
-              host.log("WARN", "omp-ct", `[CT CLAIM LEXICON] a verification claim with no atom \u2014 "${span.slice(0, 50)}"`);
+              host.log("WARN", "pbk", `[PBK CLAIM LEXICON] a verification claim with no atom \u2014 "${span.slice(0, 50)}"`);
             }
             try {
               const sidForLex = String(c.sessionID ?? "default");
@@ -4959,7 +4959,7 @@ function ctExtension(pi) {
                   verdict: `CLAIM_SLOP \u2014 the evidence machine scores the subject ${v ? v.verdict : "UNEVIDENCED"} ` + `(a claim whose proof is not container-grade). Subject: ${span.subject ?? "(dist-level)"}`,
                   jev_called: false
                 });
-                host.log("WARN", "omp-ct", `[CT SLOP] "${String(span.text ?? "").slice(0, 50)}" \u2014 evidence: ${v ? v.verdict : "UNEVIDENCED"}`);
+                host.log("WARN", "pbk", `[PBK SLOP] "${String(span.text ?? "").slice(0, 50)}" \u2014 evidence: ${v ? v.verdict : "UNEVIDENCED"}`);
               }
             } catch {}
           } catch {}
@@ -4967,7 +4967,7 @@ function ctExtension(pi) {
             const v = decide2(text);
             if (v.kind === "act" || v.kind === "flag") {
               const span = (v.matchedSpan ?? "").slice(0, 70);
-              host.log(v.kind === "act" ? "WARN" : "INFO", "omp-ct", `[CT L0] ${v.rule} ${v.kind.toUpperCase()}` + (v.escalate ? ` \u2014 ESCALATE (${v.consecutive} consecutive firings)` : "") + ` \u2014 "${span}"`);
+              host.log(v.kind === "act" ? "WARN" : "INFO", "pbk", `[PBK L0] ${v.rule} ${v.kind.toUpperCase()}` + (v.escalate ? ` \u2014 ESCALATE (${v.consecutive} consecutive firings)` : "") + ` \u2014 "${span}"`);
             }
           } catch {}
         }
@@ -4977,14 +4977,14 @@ function ctExtension(pi) {
   const stubProb = process.env.CT_JUDGE_STUB;
   const judge = stubProb !== undefined ? kernelJudge({
     judge: async (rules) => {
-      host.log("WARN", "omp-ct", `[CT JUDGE] STUB ACTIVE (CT_JUDGE_STUB=${stubProb}) \u2014 plumbing proof, NOT a real verdict`);
+      host.log("WARN", "pbk", `[PBK JUDGE] STUB ACTIVE (CT_JUDGE_STUB=${stubProb}) \u2014 plumbing proof, NOT a real verdict`);
       return Object.fromEntries(rules.map((r) => [r.id, Number(stubProb)]));
     }
   }) : kernelJudge();
   if (stubProb !== undefined)
-    host.log("WARN", "omp-ct", `[CT JUDGE] stub judge mode (${stubProb}) \u2014 labelled plumbing proof`);
+    host.log("WARN", "pbk", `[PBK JUDGE] stub judge mode (${stubProb}) \u2014 labelled plumbing proof`);
   judge.register(pi);
-  host.log("INFO", "omp-ct", "kernel-judge registered (L1 per-edit, ledger-backed)");
+  host.log("INFO", "pbk", "kernel-judge registered (L1 per-edit, ledger-backed)");
   const ringFromLedger = (limit = 40) => {
     try {
       const p = ".abide/events.jsonl";

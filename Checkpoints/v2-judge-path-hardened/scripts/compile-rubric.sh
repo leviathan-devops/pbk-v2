@@ -25,7 +25,7 @@ set -euo pipefail
 #   VERIFY_INSPECT — 209/325 blocks were false positives; disabled
 ###############################################################################
 
-FORK_DIR="/home/leviathan/JARVIS_WORKSPACE/OMP/omp-ct-v2"
+FORK_DIR="/home/leviathan/JARVIS_WORKSPACE/OMP/pbk-v2"
 OUT_DIR="${FORK_DIR}/.abide"
 OUT_FILE="${OUT_DIR}/rubric.json"
 

@@ -13,9 +13,9 @@ export interface CtRegistryDeps {
   recordedRuns: RecordedRunSet;
 }
 
-export function registerCtTools(pi: ExtensionAPI, deps: CtRegistryDeps): string[] {
+export function registerPbkTools(pi: ExtensionAPI, deps: CtRegistryDeps): string[] {
   pi.registerTool(buildContainerTestingTool(pi, deps));
   const names = ["container-testing"];
-  console.log("[omp-ct] registered " + names.join(", "));
+  console.log("[pbk] registered " + names.join(", "));
   return names;
 }

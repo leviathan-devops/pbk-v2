@@ -1,14 +1,14 @@
-# OMP-CT STTGF VERBATIM PORT — ENGINEERING REPORT v1
-**Series:** OMP_CT_STTGF_VERBATIM_PORT (the v6 production STTGF posture ported verbatim into the OMP `omp-ct` extension; no parent series — first report of this lineage)
+# PBK STTGF VERBATIM PORT — ENGINEERING REPORT v1
+**Series:** PBK_STTGF_VERBATIM_PORT (the v6 production STTGF posture ported verbatim into the OMP `pbk` extension; no parent series — first report of this lineage)
 **Project:** trident-omp (`/home/leviathan/JARVIS_WORKSPACE/OMP/trident-omp`)
 **Date:** 2026-09-20
-**Author:** omp coding agent (goal run OMP_CT_STTGF_VERBATIM_PORT, commit 116ec75)
+**Author:** omp coding agent (goal run PBK_STTGF_VERBATIM_PORT, commit 116ec75)
 **Baseline:** jarvis/omp-main @ 116ec75
 **Commit:** 116ec75 (W1–W4; W5 evidence in container + checkpoint)
-**Container:** omp-ct-debrand · **Image:** omp-ct:master 988d8bde1f87
+**Container:** pbk-debrand · **Image:** pbk:master 988d8bde1f87
 
 ## ONE-PARAGRAPH SUMMARY
-The OMP `omp-ct` extension now enforces the Trident v6 production STTGF posture verbatim: the `:2473-2555` wiring block lives as `src/middleware/sttgf-gate.ts` (141 lines) calling the byte-identical `semantic-smoke-firewall.ts` (522 lines) through `checkSmokeTestFirewall`, claims arm only from completed agent messages via the verbatim `isCompletionClaim` lexicon, `container-testing` setup/run/suite/deploy clears the gate, block #3 escalates to `[STTGF ESCALATE]`, and there is no kill-switch anywhere in src/tests/scripts (grep 0 — v6 has none, PWM grep 0 hits). The three recreation generations (`claim-gate.ts`, `headless-gate.ts`, the `sstf()` inline copy) are deleted; the sanctioned verbatim-file delta is one regex line covering `omp|jarvis -p/--print` as headless. It produces `dist/index.js` 118,243 bytes SHA 51d1aea470f498a5 (local = deployed = in-container), suite 439 pass/16 skip/0 fail, ST battery 20/20, and live container receipts: AUTH ALIVE, identity with zero `trident` in the stream, `[STTGF BLOCK]` HEADLESS/INLINE_EXEC, `[STTGF ESCALATE]`, and zero-misfire ALLOWs.
+The OMP `pbk` extension now enforces the Trident v6 production STTGF posture verbatim: the `:2473-2555` wiring block lives as `src/middleware/sttgf-gate.ts` (141 lines) calling the byte-identical `semantic-smoke-firewall.ts` (522 lines) through `checkSmokeTestFirewall`, claims arm only from completed agent messages via the verbatim `isCompletionClaim` lexicon, `container-testing` setup/run/suite/deploy clears the gate, block #3 escalates to `[STTGF ESCALATE]`, and there is no kill-switch anywhere in src/tests/scripts (grep 0 — v6 has none, PWM grep 0 hits). The three recreation generations (`claim-gate.ts`, `headless-gate.ts`, the `sstf()` inline copy) are deleted; the sanctioned verbatim-file delta is one regex line covering `omp|jarvis -p/--print` as headless. It produces `dist/index.js` 118,243 bytes SHA 51d1aea470f498a5 (local = deployed = in-container), suite 439 pass/16 skip/0 fail, ST battery 20/20, and live container receipts: AUTH ALIVE, identity with zero `trident` in the stream, `[STTGF BLOCK]` HEADLESS/INLINE_EXEC, `[STTGF ESCALATE]`, and zero-misfire ALLOWs.
 
 ## THE LIFECYCLE MAP
 ```
@@ -61,14 +61,14 @@ Failure modes: infra exception → catch (:518-521) returns ALLOW 'ERROR' with r
 ### M3 — container-gate.ts (unconditional CT verb firewall)
 Interfaces: `isContainerPathCommand` (:61), `isBypassWrite` (:87), `containerGate()` (:100), `containerWriteGate()` (:131).
 ```
-bash cmd -> classifyCtExec (PatternFamily) -> BLOCK? warhead : pass
-       -> isContainerPathCommand -> BLOCK [CT CONTAINER GATE]
+bash cmd -> classifyExec (PatternFamily) -> BLOCK? warhead : pass
+       -> isContainerPathCommand -> BLOCK [PBK CONTAINER GATE]
 write/edit content -> isBypassWrite -> BLOCK materialization channel
 ```
 No env gate (kill-switch block deleted; comment :98 "v6 has no kill-switch"). Failure mode: lexicon throw → caught, WARN, fall through to verb firewall. Anchor: :100-146.
 
 ### M4 — index.ts + chain.ts (entry + pipeline)
-Chain order (index.ts:41-49): docDensityGate → containerGate → guardianGate → containerWriteGate → dispatchGate → sttgfGate → theatricalGate; after: theatricalGateAfter keyed to `sttgfStateTracker.getState("default").containerTestTimestamp`. `attachChain` (chain.ts:106-153) maps `tool_call` → `runBefore` (first block short-circuits via StructuredBlockError → rethrown as Error), `tool_result` → `runAfter`. Claim arming wired as `pi.on("agent-end")` (index.ts:70-84): assistant text parts joined → `armClaimFromCompletedMessage(sessionID ?? "default")`. Tool registration: `registerCtTools` (ct-registry.ts:18) registers exactly `container-testing`. Failure mode: pre-`input` warmup skips gates until ready. Anchors: index.ts:41-50,70-87; chain.ts:17-51,106-153.
+Chain order (index.ts:41-49): docDensityGate → containerGate → guardianGate → containerWriteGate → dispatchGate → sttgfGate → theatricalGate; after: theatricalGateAfter keyed to `sttgfStateTracker.getState("default").containerTestTimestamp`. `attachChain` (chain.ts:106-153) maps `tool_call` → `runBefore` (first block short-circuits via StructuredBlockError → rethrown as Error), `tool_result` → `runAfter`. Claim arming wired as `pi.on("agent-end")` (index.ts:70-84): assistant text parts joined → `armClaimFromCompletedMessage(sessionID ?? "default")`. Tool registration: `registerPbkTools` (ct-registry.ts:18) registers exactly `container-testing`. Failure mode: pre-`input` warmup skips gates until ready. Anchors: index.ts:41-50,70-87; chain.ts:17-51,106-153.
 
 ### M5 — hooks (session/agent-state/guardian)
 `trackSessionEvent` (session-hook.ts:31), `createSessionTracking` (:52), `handleSessionEnded` (:65); `setCurrentAgent/getCurrentAgent/clearCurrentAgent` (agent-state.ts:17-34) with per-session map + default-key guard; `guardianGate` F1 isolation with `isOwnedAgent` always-false post-purge (empty set by design). Failure mode: agentless events never write the default key.
@@ -76,7 +76,7 @@ Chain order (index.ts:41-49): docDensityGate → containerGate → guardianGate 
 ### M6 — container-testing tool (844 lines: the sanctioned path + exec firewall)
 Interfaces: `buildContainerTestingTool` (:231), `CtDeps` (:225, host+recordedRuns only), CT_ACTIONS 28 verbs (:28-34).
 ```
-exec{command} -> classifyCtExec -> BLOCK? config-lock warhead
+exec{command} -> classifyExec -> BLOCK? config-lock warhead
   -> classifyVerb headless? -> "Headless exec forbidden. Use TUI." (:632-634)
   -> firewallOff? -> EXEC_BLOCKED docker/tmux verbs -> CT EXEC BLOCKED
   -> dockerExec -> CT EXEC / CT EXEC FAILED
@@ -93,7 +93,7 @@ Failure mode: non-gate failure falls through to verb firewall; docker failure re
 | B1 | NEVER-arms fixture armed the gate | "the tool listed 4 files" matches WORK_ENTITY (`listed`) — the fixture violated the lexicon it tested | fixture text with no claim word; second armable sentence proves the path works | suite green 119/119 file |
 | B2 | hatch assertion read the DB projection | `setContainerTestRan` needs artifact+dist (DD-5) which the unit sandbox never builds | assert the hatch PATH (undefined, never blocks); DB projection asserted live in container | 119/119 |
 | B3 | escalation catch was dead code | OMP returns verdicts (no throw) so the catch-path escalation never ran; count stayed 0 | escalation moved inline with the BLOCK verdict (v6 comment preserved) | live n1..n4: 1,2,BLOCK,ESCALATE |
-| B4 | `[TRIDENT THEATRICAL ESCALATE]` label in tests | debrand leftover | replaced with `[CT THEATRICAL GATE]` semantics | suite |
+| B4 | `[TRIDENT THEATRICAL ESCALATE]` label in tests | debrand leftover | replaced with `[PBK THEATRICAL GATE]` semantics | suite |
 | B5 | SID bleed across describes | shared `sttgf-test` sid + shared default sqlite; one describe's events leaked into another's projection | per-describe sids + per-describe `CT_EVIDENCE_DB_PATH` sqlite files | 119/119 |
 | B6 | my own mangled edits (3 syntax breaks) | wrong line anchors in edit ranges | re-read + corrected each time; tsc gate caught all | tsc exit 0 |
 | B7 | hatch tests 2× asserted projection | same DD-5 root as B2 | both assert routing (`toBeUndefined`) | suite |
@@ -115,10 +115,10 @@ Detail — B5: the evidence machine is sqlite (`CT_EVIDENCE_DB_PATH` or tmpdir `
 | unit suite | 43 files / 455 tests / 1222 expects | `bun test tests/` | 439 pass / 16 skip / 0 fail |
 | ST battery | 20 angles | `bun scripts/st-ct-port.ts` | 20/20 OVERALL TRUE, artifact written |
 | live gate contract | 6 behaviors | `bun -e` direct import | armed:true; BLOCK INLINE_EXEC; BLOCK HEADLESS; ESCALATE; hatch path; ALLOW ALLOW (pasted below) |
-| container AUTH | omp-ct-debrand | screenshot + `omp -p` | bar `Laguna S 2.1`; `ALIVE` |
-| container IDENTITY | omp-ct-debrand | TUI send + pane + stream grep | "I'm poolside..." + `grep -ci trident` = 0 |
-| container teeth | omp-ct-debrand | screenshot + exec | `[omp-ct] registered container-testing`; note headless-model-reply gap below |
-| rpc boot | host | `omp --mode rpc` | `[omp-ct] registered container-testing` + `ready` frame |
+| container AUTH | pbk-debrand | screenshot + `omp -p` | bar `Laguna S 2.1`; `ALIVE` |
+| container IDENTITY | pbk-debrand | TUI send + pane + stream grep | "I'm poolside..." + `grep -ci trident` = 0 |
+| container teeth | pbk-debrand | screenshot + exec | `[pbk] registered container-testing`; note headless-model-reply gap below |
+| rpc boot | host | `omp --mode rpc` | `[pbk] registered container-testing` + `ready` frame |
 | qwen-code-audit §9.5 | src/ | `ocr scan --path src/` (280s timeout) | INCONCLUSIVE — tool ran, `code_comment` JSON parse errors, `[EXIT=0]` with no critical/high verdict parsed (see gaps) |
 | regression | before/after goal | 356→439 pass as firewall.test.ts grew to the v6 contract | 0 fail throughout; 2 committed states |
 
@@ -158,7 +158,7 @@ OVERALL: TRUE — 20/20 — .mimocode/ct-results.json written
 
 ## THE RUNTIME TRACE (the armed→block→escalate→hatch path, live)
 ```
-TIMELINE: dist 51d1aea470f498a5 deployed to omp-ct + in-container copy;
+TIMELINE: dist 51d1aea470f498a5 deployed to pbk + in-container copy;
   no kill-switch env on host or container; tracker fresh.
 STEP 1: armClaimFromCompletedMessage("live", "the wave succeeded — the full battery passed")
   -> isCompletionClaim TRUE (STRONG "wave succeeded" + WORK "battery")
@@ -202,8 +202,8 @@ OBSERVER (quiet case): read/grep/ls inputs -> ALLOW, no verdicts, no log
 | trident label | 0 src / 0 dist | `grep -rci trident src` per-file all 0; dist 0 |
 | recreation | 0 | grep claimWindowDecide/HEADLESS_RE/sstfDisabled/containerGateDisabled |
 | kill-switch | 0 files | grep CT_*_DISABLED src tests scripts |
-| image | 988d8bde1f87 (11h old) | `docker images omp-ct:master` |
-| container | omp-ct-debrand Up 11h | `docker ps` |
+| image | 988d8bde1f87 (11h old) | `docker images pbk:master` |
+| container | pbk-debrand Up 11h | `docker ps` |
 | live receipts | ALIVE ×1, identity ×1 (stream trident 0), bar Laguna S 2.1, gate contract 6/6 | container screenshot/exec/pane + `bun -e` |
 
 ## THE FILE MANIFEST
@@ -224,25 +224,25 @@ src/
   middleware/phantom-gate.ts   EXISTING (RecordedRunSet)
   middleware/poseidon-gate.ts  EXISTING (untouched)
   firewalls/semantic-smoke-firewall.ts MODIFIED: +2/-1 (D-2 headless line only)
-  firewalls/ct-anti-derailment.ts + 5 more  EXISTING byte-identical to PWM
+  firewalls/pbk-anti-derailment.ts + 5 more  EXISTING byte-identical to PWM
   firewalls/headless-gate.ts   DELETED (dissolved into classifyVerb)
   hooks/session-hook.ts + agent-state.ts + guardian-hook.ts  EXISTING (untouched)
   tools/container-testing.ts   MODIFIED: classifyVerb headless + verbatim hatch clear
   tools/ct-registry.ts         MODIFIED: claimTracker dep dropped
-  tools/ct-session-store.ts + ct-tui-registry.ts  EXISTING
+  tools/ct-session-store.ts + pbk-tui-registry.ts  EXISTING
   evidence/ (3) + shared/firewall-audit.ts + types  EXISTING
 scripts/st-ct-port.ts          MODIFIED: sttgf ST-3, unconditional INTEGRATION, CT tokens
 scripts/kill-switch-ctl.sh     TOMBSTONED (15 lines, exit 3)
 tests/seam/firewall.test.ts    REWRITTEN to the v6 contract (119 tests in-file scope)
 tests/seam/container-bypass.test.ts  env lines removed
 tests/container-testing-tool.test.ts claimTracker dep dropped
-specs/OMP_CT_STTGF_VERBATIM_PORT_DPL1_SPEC.md (96L) + _GOAL.md (120L)  NEW, committed
+specs/PBK_STTGF_VERBATIM_PORT_DPL1_SPEC.md (96L) + _GOAL.md (120L)  NEW, committed
 ```
 
 ## WHAT'S NEEDED FROM THE OPERATOR
 1. Nothing blocking — the goal is complete and the gates are unconditional (v6 posture). The tombstoned `kill-switch-ctl.sh` needs no action.
 2. Optional: confirm the D-2 delta stays (`omp|jarvis -p/--print` as headless) — one regex line, documented in commit 116ec75.
-3. Optional: `trident-omp/` leftover dir inside the IMAGE extensions listing (code-retrieval, graph-intelligence, omp-ct, trident-omp all present) — config points at omp-ct only; purge the stale dir on the next image bake if you want it gone.
+3. Optional: `trident-omp/` leftover dir inside the IMAGE extensions listing (code-retrieval, graph-intelligence, pbk, trident-omp all present) — config points at pbk only; purge the stale dir on the next image bake if you want it gone.
 
 ## HONEST GAPS
 1. qwen-code-audit §9.5: `ocr scan --path src/` ran the full 280s budget and exited 0 but produced only per-file `code_comment` traces plus one JSON-parse error (`failed to parse 'comments' JSON string`) — NO critical/high verdict was parsed. Recorded as INCONCLUSIVE, not green.

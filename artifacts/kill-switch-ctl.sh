@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# kill-switch-ctl.sh — RETIRED by the v6 verbatim port (spec OMP_CT_STTGF_VERBATIM_PORT).
+# kill-switch-ctl.sh — RETIRED by the v6 verbatim port (spec PBK_STTGF_VERBATIM_PORT).
 #
 # v6 production HAS NO kill-switch (PWM grep: 0 hits for any *_DISABLED env;
 # FIREWALL_CONFIG is enabled:true at semantic-smoke-firewall.ts:463). The

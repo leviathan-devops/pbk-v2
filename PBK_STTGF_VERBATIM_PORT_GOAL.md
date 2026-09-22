@@ -1,5 +1,5 @@
 ## GOAL
-Execute specs/OMP_CT_STTGF_VERBATIM_PORT_DPL1_SPEC.md until the v6 production
+Execute specs/PBK_STTGF_VERBATIM_PORT_DPL1_SPEC.md until the v6 production
 STTGF posture is live in OMP VERBATIM — the :2473-2555 wiring block as
 sttgf-gate.ts, claim arming from completed messages, escape hatch on
 container-testing, escalation at 3, ZERO kill-switch envs, zero regex
@@ -9,12 +9,12 @@ zero-misfire, Phase E) with the artifact written. Anything less is OPEN.
 ## BASELINE
 Re-measured 2026-09-20 (re-verify ALL on first reply, then fire W1):
 - Tree: /home/leviathan/JARVIS_WORKSPACE/OMP/trident-omp @ jarvis/omp-main a5cc081
-- Spec: specs/OMP_CT_STTGF_VERBATIM_PORT_DPL1_SPEC.md (96L); authority = PWM
+- Spec: specs/PBK_STTGF_VERBATIM_PORT_DPL1_SPEC.md (96L); authority = PWM
   Checkpoints/CLEAN-STABLE-SHIP-APPROVED (v6 has NO kill-switch — grep 0
   hits; FIREWALL_CONFIG enabled:true :463); scout maps '/home/leviathan/.omp/agent/sessions/-JARVIS_WORKSPACE-Shared_Workspace/2026-09-15T10-21-16-032Z_01a0a495-cd80-74b8-818b-082b0dafde3b/V6SttgfWiring.md'
   + '/home/leviathan/.omp/agent/sessions/-JARVIS_WORKSPACE-Shared_Workspace/2026-09-15T10-21-16-032Z_01a0a495-cd80-74b8-818b-082b0dafde3b/OmpDeltaSurface.md'
 - src 37f/7,671L; dist=deployed 6ea49fb8aba2b821 (121KB); tsc 0; suite 360
-  pass/0 fail; ST 20/20 TRUE; image omp-ct:master 988d8bde1f87 (clean)
+  pass/0 fail; ST 20/20 TRUE; image pbk:master 988d8bde1f87 (clean)
 - THE DEAD GATE (measured): setVerificationClaimed wired=0 outside the
   verbatim file; sttgfStateTracker imported by 0 files; claimWindowDecide x2
   + HEADLESS_RE x2 in claim-gate.ts; containerGateDisabled x3; CT_*_DISABLED
@@ -41,7 +41,7 @@ W4 TESTS TO v6 CONTRACT: assert the v6 strings ([STTGF BLOCK] ${category},
   'Smoke tests are FORBIDDEN. Use container-test.', [STTGF ESCALATE] at
   getBlockCount>=3, 'Headless exec forbidden. Use TUI.', 'Inline exec is
   smoke test. Use container.'); ST tokens updated. Gate: suite 0 fail; ST green.
-W5 CONTAINER SUITE+CHECKPOINT: 12-step law on omp-ct:master — AUTH probe
+W5 CONTAINER SUITE+CHECKPOINT: 12-step law on pbk:master — AUTH probe
   FIRST (poolside bar live, screenshot truth) -> teeth POSITIVE (headless
   BLOCK, inline-exec BLOCK, claim-demand — each its OWN token in TOOL-RESULT
   context) -> NEGATIVE zero-misfire AFTER teeth -> Phase E 10 -> artifact
@@ -116,5 +116,5 @@ image id, suite/ST), report deltas, fire W1. Anything less is OPEN.
 
 HONEST_CLASS: infra_spine (middleware verbatim port; ship proof = W5
 container contract).
-DENSITY: multi_day (round-zero checkpoint OMP-CT-PURGED-DEBRANDED-COMPLETE
+DENSITY: multi_day (round-zero checkpoint PBK-PURGED-DEBRANDED-COMPLETE
 on disk; canon live; spec 96L on disk).

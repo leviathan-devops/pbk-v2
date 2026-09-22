@@ -15,7 +15,7 @@ const call = (cmd: string) =>
 
 describe("V-030 REFUTED — no extension-path exclusion exists", () => {
   test("a model command naming the extension path is STILL policed (the hole is closed)", async () => {
-    const v = await call(`node -e 'require("/root/.omp/agent/extensions/omp-ct/dist.js")'`);
+    const v = await call(`node -e 'require("/root/.omp/agent/extensions/pbk/dist.js")'`);
     expect(v.action).toBe("BLOCK");
   });
 

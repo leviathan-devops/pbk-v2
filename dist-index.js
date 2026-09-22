@@ -443,7 +443,7 @@ function docDensityGate(host) {
       return {
         action: "block",
         gate: "doc-density",
-        reason: `[CT DOC-DENSITY] ${type.toUpperCase()} requires >= ${floor} lines; got ${lines}`
+        reason: `[PBK DOC-DENSITY] ${type.toUpperCase()} requires >= ${floor} lines; got ${lines}`
       };
     }
     return;
@@ -521,7 +521,7 @@ function dispatchGate(host) {
       return {
         action: "block",
         gate: "dispatch",
-        reason: `[CT DISPATCH GATE] agent type not allowed: ${[...new Set(badAgents)].join(", ")}`
+        reason: `[PBK DISPATCH GATE] agent type not allowed: ${[...new Set(badAgents)].join(", ")}`
       };
     }
     const thin = items.flatMap((it) => validateDpl1(String(it.task ?? "")));
@@ -535,7 +535,7 @@ function dispatchGate(host) {
       return {
         action: "block",
         gate: "dispatch",
-        reason: `[CT DISPATCH GATE] missing: ${missing}`
+        reason: `[PBK DISPATCH GATE] missing: ${missing}`
       };
     }
     return;
@@ -1457,7 +1457,7 @@ function skipTheatrical(toolName, poseidonActive) {
   return false;
 }
 var ESCALATION_THRESHOLD = 3;
-var PHASE_B_DEMAND = "[CT THEATRICAL GATE] substitute-frame detected \u2014 build the real thing and verify in the sandbox. " + "Call the ct-sandbox-test AGENT TOOL (sandbox test) with a 2000-char, 6-section plan (OBJECTIVE / TOOLS UNDER TEST / TEST SCENARIOS 3+ / " + "ADVERSARIAL 1+ / EVIDENCE / PASS CRITERIA), then cite ContainerTestResult.json.";
+var PHASE_B_DEMAND = "[PBK THEATRICAL GATE] substitute-frame detected \u2014 build the real thing and verify in the sandbox. " + "Call the ct-sandbox-test AGENT TOOL (sandbox test) with a 2000-char, 6-section plan (OBJECTIVE / TOOLS UNDER TEST / TEST SCENARIOS 3+ / " + "ADVERSARIAL 1+ / EVIDENCE / PASS CRITERIA), then cite ContainerTestResult.json.";
 function theatricalGate(state, opts = { poseidonActive: () => false }) {
   return async (ctx) => {
     if (!ctx.isAgentOrigin)
@@ -1474,7 +1474,7 @@ function theatricalGate(state, opts = { poseidonActive: () => false }) {
       return {
         action: "block",
         gate: "theatrical",
-        reason: "[CT THEATRICAL ESCALATE] repeated substitute-frame suggestions. Running a REAL container test is MANDATORY."
+        reason: "[PBK THEATRICAL ESCALATE] repeated substitute-frame suggestions. Running a REAL container test is MANDATORY."
       };
     }
     return;
@@ -1494,7 +1494,7 @@ function theatricalGateAfter(state, containerTestRan) {
       return ctx;
     const already = ctx.content.filter((b) => typeof b === "object" && b !== null && ("text" in b)).map((b) => b.text).join(`
 `);
-    if (already.includes("[CT THEATRICAL GATE]"))
+    if (already.includes("[PBK THEATRICAL GATE]"))
       return ctx;
     return { ...ctx, content: [...ctx.content, { type: "text", text: `
 ` + PHASE_B_DEMAND }] };
@@ -1622,7 +1622,7 @@ function classifyCtExec(command) {
 function buildCtConfigLockMessage(v) {
   const fam = CT_MUTATION_PATTERNS.find((p) => p.id === v.family);
   const warhead = fam && fam.remedy ? fam.remedy : "THE SANCTIONED PATH: the tool's deploy action + the pre-built master image \u2014 NEVER the config/auth/db files. THE READS (cat/md5sum/json.load/SELECT) are always allowed \u2014 the inspection surface is intact.";
-  return "[CT CONFIG LOCK] " + v.family + ": " + v.familyName + ' \u2014 this exec command is BLOCKED mechanically (the operator 2026-08-09: "WHY ARE YOU FUCKING WITH THE CONFIG. FOR WHAT REASON. WHY IS THIS NOT BANNED AND BLOCKED BY THE TOOL"). THE EVIDENCE: ' + v.evidence + ". " + warhead;
+  return "[PBK CONFIG LOCK] " + v.family + ": " + v.familyName + ' \u2014 this exec command is BLOCKED mechanically (the operator 2026-08-09: "WHY ARE YOU FUCKING WITH THE CONFIG. FOR WHAT REASON. WHY IS THIS NOT BANNED AND BLOCKED BY THE TOOL"). THE EVIDENCE: ' + v.evidence + ". " + warhead;
 }
 
 // src/middleware/container-gate.ts
@@ -1681,7 +1681,7 @@ function containerGate() {
       return {
         action: "block",
         gate: "container",
-        reason: "[CT CONTAINER GATE] raw docker/tmux container commands + bypass indirection are blocked \u2014 use the ct-sandbox-test AGENT TOOL (sandbox test), the ONLY sanctioned sandbox path"
+        reason: "[PBK CONTAINER GATE] raw docker/tmux container commands + bypass indirection are blocked \u2014 use the ct-sandbox-test AGENT TOOL (sandbox test), the ONLY sanctioned sandbox path"
       };
     }
     return;
@@ -1697,7 +1697,7 @@ function containerWriteGate() {
       return {
         action: "block",
         gate: "container",
-        reason: "[CT CONTAINER GATE] writing a test file that drives containers is a bypass \u2014 use the ct-sandbox-test AGENT TOOL (sandbox test) instead"
+        reason: "[PBK CONTAINER GATE] writing a test file that drives containers is a bypass \u2014 use the ct-sandbox-test AGENT TOOL (sandbox test) instead"
       };
     }
     return;
@@ -1815,7 +1815,7 @@ import * as os2 from "os";
 import * as path3 from "path";
 
 // src/tools/ct-tui-registry.ts
-var CT_IMAGE_OMP = "omp-ct:master";
+var CT_IMAGE_OMP = "pbk:master";
 var CT_IMAGE_MIMO = "mimo-ct:master";
 var TUI_PRESETS = {
   omp: {
@@ -2024,8 +2024,8 @@ var CT_ACTIONS2 = [
 var CT_IMAGE = "runtime-grade-container-sandbox:master";
 var DEFAULT_TMUX_SESSION = "test";
 var STREAM_FILE = "/tmp/tui-stream.txt";
-var DEFAULT_OMP_CT_MODEL = "poolside/poolside/laguna-s-2.1";
-var DEFAULT_OMP_CT_SMOL = "poolside/poolside/laguna-xs-2.1";
+var DEFAULT_PBK_MODEL = "poolside/poolside/laguna-s-2.1";
+var DEFAULT_PBK_SMOL = "poolside/poolside/laguna-xs-2.1";
 var OMP_FAMILY_TUIS = new Set(["omp", "pi"]);
 var PROVISION_PY = [
   "import json, os, sqlite3",
@@ -2111,7 +2111,7 @@ var PROVISION_PY = [
 var sanitizeModel = (v) => v.replace(/[^A-Za-z0-9/._:-]/g, "");
 var provisionOmpContainer = (dockerExec, model, smol) => {
   const b64 = Buffer.from(PROVISION_PY, "utf8").toString("base64");
-  const r = dockerExec(`printf %s ${shq(b64)} | base64 -d > /tmp/omp-ct-provision.py && PROV_MODEL=${shq(model)} PROV_SMOL=${shq(smol)} python3 /tmp/omp-ct-provision.py; rm -f /tmp/omp-ct-provision.py`, 30000);
+  const r = dockerExec(`printf %s ${shq(b64)} | base64 -d > /tmp/pbk-provision.py && PROV_MODEL=${shq(model)} PROV_SMOL=${shq(smol)} python3 /tmp/pbk-provision.py; rm -f /tmp/pbk-provision.py`, 30000);
   const line = (r.stdout + `
 ` + r.stderr).split(`
 `).find((l) => l.trim().startsWith("PROVISION"));
@@ -2273,7 +2273,7 @@ function buildContainerTestingTool(pi, deps) {
         return { text: `CONTAINER-TESTING FAILED: unknown action "${action}" \u2014 use ${CT_ACTIONS2.join("|")}`, isError: true };
       }
       const sid = sidOf(ctx);
-      const name = String(params.containerName ?? "omp-ct");
+      const name = String(params.containerName ?? "pbk");
       const image = String(params.image ?? CT_IMAGE);
       const session = String(params.tmuxSessionName ?? params.sessionName ?? DEFAULT_TMUX_SESSION);
       const dockerExec = (cmd, timeoutMs = 20000) => host.execSync(`docker exec ${name} sh -c ${shq(cmd)}`, { timeoutMs });
@@ -2337,7 +2337,7 @@ function buildContainerTestingTool(pi, deps) {
         const socketFlag = host.existsSync("/var/run/docker.sock") ? " -v /var/run/docker.sock:/var/run/docker.sock" : "";
         const envFile = host.existsSync("/home/leviathan/.omp/agent/.env") ? " --env-file /home/leviathan/.omp/agent/.env" : "";
         if (!adopting) {
-          const run = host.execSync(`docker run -d --name ${name} --label omp-ct=owned ${mem} ${cpus}${socketFlag}${envFile} ${bindVols} ${callerVols} ${tui.image} sleep infinity`, { timeoutMs: 120000 });
+          const run = host.execSync(`docker run -d --name ${name} --label pbk=owned ${mem} ${cpus}${socketFlag}${envFile} ${bindVols} ${callerVols} ${tui.image} sleep infinity`, { timeoutMs: 120000 });
           if (run.code !== 0)
             return { text: `CT SETUP FAILED: docker run -> ${(run.stderr || run.stdout).slice(0, 500)}`, isError: true };
         }
@@ -2350,8 +2350,8 @@ function buildContainerTestingTool(pi, deps) {
         if (OMP_FAMILY_TUIS.has(tui.id)) {
           const modelParam = typeof params.modelName === "string" && String(params.modelName).includes("/") ? String(params.modelName) : "";
           const smolParam = typeof params.smolModel === "string" && String(params.smolModel).includes("/") ? String(params.smolModel) : "";
-          const model = sanitizeModel(modelParam || process.env.OMP_CT_DEFAULT_MODEL || DEFAULT_OMP_CT_MODEL);
-          const smol = sanitizeModel(smolParam || process.env.OMP_CT_DEFAULT_SMOL || DEFAULT_OMP_CT_SMOL);
+          const model = sanitizeModel(modelParam || process.env.PBK_DEFAULT_MODEL || DEFAULT_PBK_MODEL);
+          const smol = sanitizeModel(smolParam || process.env.PBK_DEFAULT_SMOL || DEFAULT_PBK_SMOL);
           provisionSummary = provisionOmpContainer(dockerExec, model, smol);
         }
         const tmuxCheck = dockerExec("command -v tmux");
@@ -2432,7 +2432,7 @@ function buildContainerTestingTool(pi, deps) {
         dockerExec(`mkdir -p ${tui.workdir}`);
         let tuiProvision = null;
         if (OMP_FAMILY_TUIS.has(tui.id)) {
-          tuiProvision = provisionOmpContainer(dockerExec, sanitizeModel(process.env.OMP_CT_DEFAULT_MODEL || DEFAULT_OMP_CT_MODEL), sanitizeModel(process.env.OMP_CT_DEFAULT_SMOL || DEFAULT_OMP_CT_SMOL));
+          tuiProvision = provisionOmpContainer(dockerExec, sanitizeModel(process.env.PBK_DEFAULT_MODEL || DEFAULT_PBK_MODEL), sanitizeModel(process.env.PBK_DEFAULT_SMOL || DEFAULT_PBK_SMOL));
         }
         dockerExec(`tmux kill-session -t ${session} 2>/dev/null; rm -f ${STREAM_FILE}; true`);
         const boot = dockerExec(`tmux new-session -d -s ${session} -x 240 -y 60 && echo NEW_OK`);
@@ -2816,12 +2816,12 @@ ${verdicts.map((v) => `  [${v.verdict}] #${v.i} /${v.pattern}/`).join(`
 function registerCtTools(pi, deps) {
   pi.registerTool(buildContainerTestingTool(pi, deps));
   const names = ["container-testing"];
-  console.log("[omp-ct] registered " + names.join(", "));
+  console.log("[pbk] registered " + names.join(", "));
   return names;
 }
 
 // src/index.ts
-var LOAD_MARKER = "__OMP_CT_LOADED__";
+var LOAD_MARKER = "__PBK_LOADED__";
 function ctExtension(pi) {
   const g = globalThis;
   if (g[LOAD_MARKER])
@@ -2863,7 +2863,7 @@ function ctExtension(pi) {
   pi.on("session_start", (_event, c) => {
     currentCtx = c;
     pi.appendEntry("com.ct.state", { loaded: true, version: "2.0.0", ts: host.now() });
-    host.log("INFO", "omp-ct", "extension loaded \u2014 container-testing first-class");
+    host.log("INFO", "pbk", "extension loaded \u2014 container-testing first-class");
   });
   pi.on("agent-end", (event, c) => {
     currentCtx = c;

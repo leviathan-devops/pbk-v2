@@ -69,7 +69,7 @@ const MAX_DIFF_INPUT_CHARS = 1_000_000;
 /**
  * V-025: the rubric is a WORKSPACE artifact (`<cwd>/.abide/rubric.json`, abide's own
  * convention — `abide rubric validate` reads it there). The original default resolved
- * relative to the extension's dist dir (`extensions/omp-ct/../.abide/`), which does not
+ * relative to the extension's dist dir (`extensions/pbk/../.abide/`), which does not
  * exist in the deployed layout, so the live judge skipped every edit with
  * `skip_reason: 'no-model-rules'` even with 6 active edit+model rules compiled.
  * Resolution order: an explicit path, then the workspace, then the extension-relative
@@ -543,7 +543,7 @@ export async function judgeWithBands(
       rubricUnavailableAnnounced = true;
       try {
         process.stderr.write(
-          `\n[omp-ct] *** THE L1 JUDGE HAS NO RULES HERE *** the rubric resolved at ${looked} ` +
+          `\n[pbk] *** THE L1 JUDGE HAS NO RULES HERE *** the rubric resolved at ${looked} ` +
             'contains no active edit+model rules, so every edit in this workspace is UNJUDGED.\n' +
             '         Fix: compile the rubric into <workspace>/.abide/rubric.json ' +
             '(bun scripts/compile-rubric.mjs), then restart omp.\n\n',
@@ -606,7 +606,7 @@ export async function judgeWithBands(
         judgeUnavailableAnnounced = true;
         try {
           process.stderr.write(
-            '\n[omp-ct] *** THE L1 JUDGE IS DOWN *** TYPESAFE_AI_API_KEY is absent, so EVERY edit is ' +
+            '\n[pbk] *** THE L1 JUDGE IS DOWN *** TYPESAFE_AI_API_KEY is absent, so EVERY edit is ' +
               'UNJUDGED. This is a LOUD FAILURE, not a degraded mode.\n' +
               '         Fix: ~/.abide/.env (chmod 600) with TYPESAFE_AI_API_KEY=<key>, then restart omp.\n\n',
           );

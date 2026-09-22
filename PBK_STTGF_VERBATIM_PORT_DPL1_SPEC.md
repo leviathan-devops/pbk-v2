@@ -1,4 +1,4 @@
-# BUILD SPEC ARTIFACT — OMP_CT_STTGF_VERBATIM_PORT (the v6 production STTGF posture, ported verbatim)
+# BUILD SPEC ARTIFACT — PBK_STTGF_VERBATIM_PORT (the v6 production STTGF posture, ported verbatim)
 - **Target:** `/home/leviathan/JARVIS_WORKSPACE/OMP/trident-omp` (branch `jarvis/omp-main`)
 - **Generated:** 2026-09-20 UTC
 - **Status:** PLANNING (awaiting operator rulings D-2/D-3; D-1 resolved)
@@ -93,4 +93,4 @@ W5 CONTAINER SUITE: AUTH first (poolside bar live) → teeth (headless BLOCK, in
 - **D-3 PENDING (operator):** `trident-container-test` → `container-testing` inside the verbatim BLOCK string (name-only, consistent with the debrand ruling).
 
 ## §9 CONTEXT (evidence base)
-Scout payloads: `agent://V6SttgfWiring` (v6 wiring, 29m27s) + `agent://OmpDeltaSurface` (OMP deviations, 42m41s). First-hand reads this session: trident-hooks.ts :1008-1018, :1020-1067, :2439-2565; semantic-smoke-firewall.ts :186-215, :245-309, :320-441, :463-522; OMP claim-gate.ts/headless-gate.ts/container-gate.ts/chain.ts/index.ts full. ripwire CLI callers probe disclosed (defs=1 count=0 engine floor). Prior goals: OMP_CT_PURGE_DEBRAND complete (0df67a8), checkpoint Checkpoints/OMP-CT-PURGED-DEBRANDED-COMPLETE.
+Scout payloads: `agent://V6SttgfWiring` (v6 wiring, 29m27s) + `agent://OmpDeltaSurface` (OMP deviations, 42m41s). First-hand reads this session: trident-hooks.ts :1008-1018, :1020-1067, :2439-2565; semantic-smoke-firewall.ts :186-215, :245-309, :320-441, :463-522; OMP claim-gate.ts/headless-gate.ts/container-gate.ts/chain.ts/index.ts full. ripwire CLI callers probe disclosed (defs=1 count=0 engine floor). Prior goals: PBK_PURGE_DEBRAND complete (0df67a8), checkpoint Checkpoints/PBK-PURGED-DEBRANDED-COMPLETE.

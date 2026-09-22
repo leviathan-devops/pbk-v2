@@ -114,7 +114,7 @@ describe("V-016 action=deploy has a branch and verifies the sha", () => {
     const host = scriptedHost([
       [/sha256sum .*dist\/index\.js/, { code: 0, stdout: "abc123def4567890  dist/index.js\n", stderr: "" }],
       [/docker cp/, { code: 0, stdout: "", stderr: "" }],
-      [/sha256sum \/root\/\.omp\/agent\/extensions\/omp-ct\/dist\.js/, { code: 0, stdout: "abc123def4567890  /root/.omp/x\n", stderr: "" }],
+      [/sha256sum \/root\/\.omp\/agent\/extensions\/pbk\/dist\.js/, { code: 0, stdout: "abc123def4567890  /root/.omp/x\n", stderr: "" }],
     ]);
     const r = await runWith(host, "deploy", { distPath: "dist/index.js" });
     expect(r.text).not.toContain("unhandled");
@@ -125,7 +125,7 @@ describe("V-016 action=deploy has a branch and verifies the sha", () => {
     const host = scriptedHost([
       [/sha256sum .*dist\/index\.js/, { code: 0, stdout: "aaaa111122223333  dist/index.js\n", stderr: "" }],
       [/docker cp/, { code: 0, stdout: "", stderr: "" }],
-      [/sha256sum \/root\/\.omp\/agent\/extensions\/omp-ct\/dist\.js/, { code: 0, stdout: "bbbb444455556666  /root/.omp/x\n", stderr: "" }],
+      [/sha256sum \/root\/\.omp\/agent\/extensions\/pbk\/dist\.js/, { code: 0, stdout: "bbbb444455556666  /root/.omp/x\n", stderr: "" }],
     ]);
     const r = await runWith(host, "deploy", { distPath: "dist/index.js" });
     expect(r.isError).toBe(true);
@@ -137,7 +137,7 @@ describe("V-016 action=deploy has a branch and verifies the sha", () => {
     const host = scriptedHost([
       [/sha256sum .*dist\/index\.js/, { code: 0, stdout: "deadbeefcafe1234  dist/index.js\n", stderr: "" }],
       [/docker cp/, { code: 0, stdout: "", stderr: "" }],
-      [/sha256sum \/root\/\.omp\/agent\/extensions\/omp-ct\/dist\.js/, { code: 0, stdout: "deadbeefcafe1234  /root/.omp/x\n", stderr: "" }],
+      [/sha256sum \/root\/\.omp\/agent\/extensions\/pbk\/dist\.js/, { code: 0, stdout: "deadbeefcafe1234  /root/.omp/x\n", stderr: "" }],
     ]);
     const r = await runWith(host, "deploy", { distPath: "dist/index.js" });
     expect(r.isError).toBe(false);
@@ -236,7 +236,7 @@ describe("V-080 the container name is validated (a live CRITICAL, closed)", () =
   }
   test("CONTROL: a legitimate docker name passes through", async () => {
     const calls: string[] = [];
-    const r = await runWith(scriptedHost([], calls), "alive", { containerName: "omp-ct-debrand" });
+    const r = await runWith(scriptedHost([], calls), "alive", { containerName: "pbk-debrand" });
     expect(r.isError).toBeFalsy();
     expect(calls.length).toBeGreaterThan(0);
   });

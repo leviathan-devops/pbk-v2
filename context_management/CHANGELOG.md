@@ -11,7 +11,7 @@
 - Canon docs scaffolded (this file set)
 
 ## [2026-09-19 05:40] — W1: 7 v6 firewall files ported verbatim
-- Ported src/firewalls/ (7 files, 2469L): ct-anti-derailment, dispatch-input-lexicon, memory-read-lexicon, semantic-smoke-firewall, smoke-lexicon, surgical-mutator, evidence-tracker — cp verbatim, ZERO logic delta
+- Ported src/firewalls/ (7 files, 2469L): pbk-anti-derailment, dispatch-input-lexicon, memory-read-lexicon, semantic-smoke-firewall, smoke-lexicon, surgical-mutator, evidence-tracker — cp verbatim, ZERO logic delta
 - Support substrate ported: types.ts (156L), utils.ts (178L), hooks/agent-state.ts (534L evidence slice), evidence/ (3 files, 247L: evidence-store + merkle-chain + types)
 - Import coupling: 0 opencode hits across all 13 files (grep-verified) — v6 hook coupling lived at caller level (W2's job)
 - PatternFamily/classify/evidence markers per file: 11,1,31,9,14,41,12 (all >0)
@@ -19,8 +19,8 @@
 - tsc on ported paths: CLEAN (0 errors); build green 15.12MB
 
 ## [2026-09-19 06:05] — W2: gates wired (exec/cp/bash/headless)
-- Item 7: exec action runs classifyCtExec (CTX families) + warhead; cp host→container runs the v6 cp-guard shape ('cp x ' + path)
-- Item 8: containerGate now runs the hooks bash guard (classifyCtExec on bash, port of trident-hooks.ts:1769, non-gate failures logged)
+- Item 7: exec action runs classifyExec (CTX families) + warhead; cp host→container runs the v6 cp-guard shape ('cp x ' + path)
+- Item 8: containerGate now runs the hooks bash guard (classifyExec on bash, port of trident-hooks.ts:1769, non-gate failures logged)
 - Item 9: NEW src/firewalls/headless-gate.ts — headlessGate BeforeGate registered in index.ts; omp/opencode run anchored per-subcommand (env-prefix + sudo aware); exec action also blocks headless (command dispatch surface)
 - Live proof (switches armed =0): config-write BLOCK CTX-03; config-read ALLOW; docker exec BLOCK via container gate; omp run BLOCK + warhead; grep "omp run" (unanchored) ALLOW; FOO=1 omp run anchored-detect TRUE
 - CTX-01 config.json-class ALLOW verified as v6-verbatim law (disabled family); FP pins hold
@@ -36,7 +36,7 @@
 
 ## [2026-09-19 06:45] — W4: decisions + map + battery
 - Item 16: chain tests verified 41/0 (delivered in W0 runBefore restore)
-- Item 17: D005 executed — battery default retargeted trident-omp-master → omp-ct:master (TRIDENT_CONTAINER_IMAGE override kept); stale host path OMP_WORKSPACE → JARVIS_WORKSPACE/OMP fixed (2 sites); D005 capability probe added — 4 scenarios SKIP with named reason (shared image lacks /app/trident bake + opencode-go layout + seeded auth)
+- Item 17: D005 executed — battery default retargeted trident-omp-master → pbk:master (TRIDENT_CONTAINER_IMAGE override kept); stale host path OMP_WORKSPACE → JARVIS_WORKSPACE/OMP fixed (2 sites); D005 capability probe added — 4 scenarios SKIP with named reason (shared image lacks /app/trident bake + opencode-go layout + seeded auth)
 - Item 18: Super_Omp/MIDDLEWARE_HOOK_SURFACE_MAP.md §9 addendum (chain order, ported modules, kill-switch state, test surface)
 - Item 15: BLOCKED-OPERATOR per goal HARD STOP (flip awaits explicit order; wiring proven armed)
 - Suite: 186 pass / 4 skip (documented) / 0 fail
@@ -107,10 +107,10 @@ Deployed SHA: b56392a94897b455. Item 15 (kill-switch flip) awaits operator.
   middleware + headless-gate, not the verbatim firewall. PENDING: rewire index.ts to the
   verbatim STTGF file (1:1 law), retire the reimplementation, re-run battery.
 
-## [2026-09-19 17:55] — OMP_CT_PURGE_DEBRAND W1-W5
+## [2026-09-19 17:55] — PBK_PURGE_DEBRAND W1-W5
 - W1 image: no /app, no opencode-go dir; poolside pin; go-proxy stays; PAID=0
 - W2 purge: engines/identity/commands/registry/sstf gone; STTGF wired; src trident=0; dist 14.53MB→120KB
-- W3: extensions/omp-ct deployed; rpc boot [omp-ct] registered container-testing + ready
+- W3: extensions/pbk deployed; rpc boot [pbk] registered container-testing + ready
 - W4: ST 20/20 debranded; suite 273/8skip/0fail
-- W5: container omp-ct-debrand AUTH ALIVE poolside; IDENTITY omp -p no trident; SHA 6ea49fb8aba2b821 trio
+- W5: container pbk-debrand AUTH ALIVE poolside; IDENTITY omp -p no trident; SHA 6ea49fb8aba2b821 trio
 - Kill-switches CT_* UNSET (no flip)

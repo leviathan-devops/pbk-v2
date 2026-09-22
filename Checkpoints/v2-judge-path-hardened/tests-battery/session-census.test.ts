@@ -21,7 +21,7 @@ describe("the session census (a controlled session through the real extension)",
   test("ADVERSARIAL: a CONTINUATION does not fire (V-049's guard, measured)", () => {
     // the corpus contains one isTerminal:false turn carrying a bare claim; the log must show exactly the
     // firings the 8 declared turns produce, not one more
-    const l0Lines = out.split("\n").filter((l) => l.includes("[CT L0]"));
+    const l0Lines = out.split("\n").filter((l) => l.includes("[PBK L0]"));
     // 8 turns declare 5 firings (4 act + 1 flag); the continuation + the quoted region add none.
     expect(l0Lines.length).toBeLessThanOrEqual(6);
   });

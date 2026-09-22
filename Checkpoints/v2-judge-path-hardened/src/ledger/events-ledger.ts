@@ -36,7 +36,7 @@ export function ledgerDir(): string {
       warnedSentinelDir = true;
       try {
         process.stderr.write(
-          `[omp-ct] ABIDE_DIR was set to the sentinel ${JSON.stringify(raw)} (a broken value, not a ` +
+          `[pbk] ABIDE_DIR was set to the sentinel ${JSON.stringify(raw)} (a broken value, not a ` +
             `path) — resolving to '.abide' instead of writing audit rows into ./${raw}/. Fix the caller.\n`,
         );
       } catch { /* stderr can fail; never throw from a logger */ }
@@ -291,7 +291,7 @@ export function recordFiring(input: RecordFiringInput): RecordFiringResult {
     writeError = e instanceof Error ? e.message : String(e);
     try {
       process.stderr.write(
-        `[omp-ct] LEDGER WRITE FAILED (${file}): ${writeError} — the firing is NOT recorded; ` +
+        `[pbk] LEDGER WRITE FAILED (${file}): ${writeError} — the firing is NOT recorded; ` +
           `the edit/claim proceeds (fail-open). Fix the ledger path or permissions.\n`,
       );
     } catch { /* stderr itself can fail; never throw from a logger */ }

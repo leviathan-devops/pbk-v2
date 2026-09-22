@@ -5,7 +5,7 @@
  * whole chain rather than at one node, so every gate was driven with an input that MUST trigger it:
  *
  *   docDensityGate      BLOCKS a short .md below its type's floor
- *   containerGate       BLOCKS the protected-path mutation class ([CT CONFIG LOCK])
+ *   containerGate       BLOCKS the protected-path mutation class ([PBK CONFIG LOCK])
  *   guardianGate        INERT — structurally unable to fire (V-060; its assertion below is the pin)
  *   containerWriteGate  BLOCKS a test file that smuggles a container run
  *   dispatchGate        BLOCKS a disallowed agent, REWRITES a thin task

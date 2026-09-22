@@ -22,7 +22,7 @@ import { execFileSync } from "node:child_process";
 import { writeFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 
-const DIST = process.env.HOSTLIVE_DIST ?? "/home/leviathan/.omp/agent/extensions/omp-ct/dist.js";
+const DIST = process.env.HOSTLIVE_DIST ?? "/home/leviathan/.omp/agent/extensions/pbk/dist.js";
 const SESSION_FILE = "/tmp/hostlive-session.jsonl";
 
 // ── fake pi: captures registrations, no-ops everything else ──────────────

@@ -1,5 +1,5 @@
 /**
- * Structural omp ExtensionAPI types for the omp-ct port.
+ * Structural omp ExtensionAPI types for the pbk port.
  *
  * NOTE: these are LOCAL structural approximations of the runtime API
  * (the real types ship in @oh-my-pi/pi-coding-agent, which is bundled

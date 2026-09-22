@@ -1,6 +1,6 @@
 {
   "harness": "hostlive-sttgf",
-  "dist": "/home/leviathan/.omp/agent/extensions/omp-ct/dist.js",
+  "dist": "/home/leviathan/.omp/agent/extensions/pbk/dist.js",
   "rows": [
     {
       "id": "HL-INLINE",

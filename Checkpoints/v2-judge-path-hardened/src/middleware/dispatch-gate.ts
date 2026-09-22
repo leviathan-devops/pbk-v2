@@ -87,7 +87,7 @@ export function dispatchGate(host?: unknown): BeforeGate {
       return {
         action: "block",
         gate: "dispatch",
-        reason: `[CT DISPATCH GATE] agent type not allowed: ${[...new Set(badAgents)].join(", ")}`,
+        reason: `[PBK DISPATCH GATE] agent type not allowed: ${[...new Set(badAgents)].join(", ")}`,
       };
     }
     const thin = items.flatMap((it) => validateDpl1(String(it.task ?? "")));
@@ -104,7 +104,7 @@ export function dispatchGate(host?: unknown): BeforeGate {
       return {
         action: "block",
         gate: "dispatch",
-        reason: `[CT DISPATCH GATE] missing: ${missing}`,
+        reason: `[PBK DISPATCH GATE] missing: ${missing}`,
       };
     }
     return undefined;

@@ -1,4 +1,4 @@
-// src/firewalls/ct-anti-derailment.ts
+// src/firewalls/pbk-anti-derailment.ts
 // THE CT TOOL'S ANTI-DERAILMENT LEXICON (2026-08-09 — the operator: "WHY ARE
 // YOU FUCKING WITH THE CONFIG... WHY IS THIS NOT BANNED AND BLOCKED BY THE
 // TOOL" + "blocks all variations of this config fucking and other stupid shit").
@@ -6,7 +6,7 @@
 // the state machine + the evidence triad. THE REGEX = THE MECHANICAL DETECTOR ONLY — the
 // regex cannot DECIDE intent from the unstructured command text (it would be
 // the regex-only classifier slop); it only CANDIDATES the (path, verb) pairs.
-// The classifyCtExec() state machine DECIDES. The fail-state = INCONCLUSIVE →
+// The classifyExec() state machine DECIDES. The fail-state = INCONCLUSIVE →
 // BLOCK (fail-closed, never PASS — the ISE law). Every block = an evidence triad
 // (Pattern/State/Evidence). The reads + the unrelated execs pass untouched —
 // the surgical filter.
@@ -144,7 +144,7 @@ const CT_MUTATION_PATTERN_BASE: CtMutationPattern[] = [
 // cheat lands the generic config warhead instead of the deploy-path warhead.
 // The sort: the HIGHER family ids (the newer, more specific) first — the
 // first match in the array order wins.
-export const CT_MUTATION_PATTERNS: CtMutationPattern[] = CT_MUTATION_PATTERN_BASE.slice().sort(
+export const MUTATION_PATTERNS: CtMutationPattern[] = CT_MUTATION_PATTERN_BASE.slice().sort(
   (a: CtMutationPattern, b: CtMutationPattern) => parseInt(b.id.slice(4), 10) - parseInt(a.id.slice(4), 10),
 );
 
@@ -157,7 +157,7 @@ export const CT_MUTATION_PATTERNS: CtMutationPattern[] = CT_MUTATION_PATTERN_BAS
 // of the runner's presence.
 const CT_READ_VERBS = /(?:^|[;&|]\s*)\b(?:cat|md5sum|ls|grep|find|wc|head|tail|python3?|node|bun|stat)\b|json\.load|open\s*\([^)]*['"]r['"]|\bSELECT\b|\bsed\s+-n\b|\bawk\b/i;
 
-export type CtExecVerdict =
+export type ExecVerdict =
   | { verdict: 'ALLOW'; reason: 'READ' | 'UNRELATED' }
   | {
       verdict: 'BLOCK';
@@ -171,7 +171,7 @@ export type CtExecVerdict =
 // EMITTED). Every transition has a mechanical precondition; the fail-state =
 // INCONCLUSIVE → BLOCK (fail-closed — an unparseable command touching a
 // protected path never passes).
-export function classifyCtExec(command: string): CtExecVerdict {
+export function classifyExec(command: string): ExecVerdict {
   // IDLE → PARSED: the command string non-empty.
   if (!command || typeof command !== 'string') return { verdict: 'ALLOW', reason: 'UNRELATED' };
   const lower = command.toLowerCase();
@@ -216,7 +216,7 @@ export function classifyCtExec(command: string): CtExecVerdict {
   // test caught it). The VERB test runs on the full scan (the mutation verbs
   // in the data are harmless — the pair requires the target too).
   let anyTarget = false;
-  for (const p of CT_MUTATION_PATTERNS) {
+  for (const p of MUTATION_PATTERNS) {
     const targetHit = p.target.test(executableSurface);
     if (!targetHit) continue;
     anyTarget = true;
@@ -228,7 +228,7 @@ export function classifyCtExec(command: string): CtExecVerdict {
         family: p.id,
         familyName: p.familyName,
         matchedVerb: verbMatch[0],
-        evidence: 'the matched verb "' + verbMatch[0] + '" + the protected path pattern "' + p.target.source + '" (ct-anti-derailment.ts:classifyCtExec)',
+        evidence: 'the matched verb "' + verbMatch[0] + '" + the protected path pattern "' + p.target.source + '" (pbk-anti-derailment.ts:classifyExec)',
       };
     }
   }
@@ -245,15 +245,15 @@ export function classifyCtExec(command: string): CtExecVerdict {
     family: 'CTX-02',
     familyName: 'THE FAIL-CLOSED (the protected path present + the intent unparseable)',
     matchedVerb: '(unparseable)',
-    evidence: 'the protected opencode path present + no read verb + no mutation verb → INCONCLUSIVE → BLOCK (ct-anti-derailment.ts:classifyCtExec — the fail-closed per the ISE law)',
+    evidence: 'the protected opencode path present + no read verb + no mutation verb → INCONCLUSIVE → BLOCK (pbk-anti-derailment.ts:classifyExec — the fail-closed per the ISE law)',
   };
 }
 
 // THE BLOCK MESSAGE (the evidence triad + the operator's ruling verbatim + THE
 // PER-FAMILY WARHEAD — 2026-08-10: each family's block names the sanctioned
 // path, never a generic remedy):
-export function buildCtConfigLockMessage(v: Extract<CtExecVerdict, { verdict: 'BLOCK' }>): string {
-  const fam = CT_MUTATION_PATTERNS.find((p) => p.id === v.family);
+export function buildConfigLockMessage(v: Extract<ExecVerdict, { verdict: 'BLOCK' }>): string {
+  const fam = MUTATION_PATTERNS.find((p) => p.id === v.family);
   const warhead = fam && fam.remedy ? fam.remedy : 'THE SANCTIONED PATH: the tool\'s deploy action + the pre-built master image — NEVER the config/auth/db files. THE READS (cat/md5sum/json.load/SELECT) are always allowed — the inspection surface is intact.';
-  return '[CT CONFIG LOCK] ' + v.family + ': ' + v.familyName + ' — this exec command is BLOCKED mechanically (the operator 2026-08-09: "WHY ARE YOU FUCKING WITH THE CONFIG. FOR WHAT REASON. WHY IS THIS NOT BANNED AND BLOCKED BY THE TOOL"). THE EVIDENCE: ' + v.evidence + '. ' + warhead;
+  return '[PBK CONFIG LOCK] ' + v.family + ': ' + v.familyName + ' — this exec command is BLOCKED mechanically (the operator 2026-08-09: "WHY ARE YOU FUCKING WITH THE CONFIG. FOR WHAT REASON. WHY IS THIS NOT BANNED AND BLOCKED BY THE TOOL"). THE EVIDENCE: ' + v.evidence + '. ' + warhead;
 }

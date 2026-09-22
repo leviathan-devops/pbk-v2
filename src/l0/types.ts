@@ -54,7 +54,7 @@ export interface L0Verdict {
 
 // ── THE TYPED MEMBER RECORD (the ISE law §5.1) ──────────────────────────────
 // This is the canonical shape — identical in structure to
-// src/firewalls/ct-anti-derailment.ts:CtMutationPattern.
+// src/firewalls/pbk-anti-derailment.ts:CtMutationPattern.
 //
 // THE REGEX-AS-DETECTOR LAW: the matcher field is the DETECTION layer ONLY —
 // it flags the candidate text. The DECISION lives in the triggerCondition

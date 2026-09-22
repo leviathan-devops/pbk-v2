@@ -76,27 +76,27 @@ describe("V-081 the dispatch-template gate's polarity", () => {
     expect(e.reasons[0]).not.toContain("sentinel[");
   });
 
-  test("F-04 ESCAPE HATCH: OMP_CT_DISPATCH_TEMPLATE_GATE=off makes the gate inert", async () => {
-    const prev = process.env.OMP_CT_DISPATCH_TEMPLATE_GATE;
-    process.env.OMP_CT_DISPATCH_TEMPLATE_GATE = "off";
+  test("F-04 ESCAPE HATCH: PBK_DISPATCH_TEMPLATE_GATE=off makes the gate inert", async () => {
+    const prev = process.env.PBK_DISPATCH_TEMPLATE_GATE;
+    process.env.PBK_DISPATCH_TEMPLATE_GATE = "off";
     try {
       const v = await dispatchTemplateGate(undefined)(ctx({ task: "a bare prompt", agent: "scout" }));
       expect(v).toBeUndefined();
     } finally {
-      if (prev === undefined) delete process.env.OMP_CT_DISPATCH_TEMPLATE_GATE;
-      else process.env.OMP_CT_DISPATCH_TEMPLATE_GATE = prev;
+      if (prev === undefined) delete process.env.PBK_DISPATCH_TEMPLATE_GATE;
+      else process.env.PBK_DISPATCH_TEMPLATE_GATE = prev;
     }
   });
 
-  test("F-04 ESCAPE HATCH: OMP_CT_DISPATCH_TEMPLATE_GATE=warn observes but never blocks", async () => {
-    const prev = process.env.OMP_CT_DISPATCH_TEMPLATE_GATE;
-    process.env.OMP_CT_DISPATCH_TEMPLATE_GATE = "warn";
+  test("F-04 ESCAPE HATCH: PBK_DISPATCH_TEMPLATE_GATE=warn observes but never blocks", async () => {
+    const prev = process.env.PBK_DISPATCH_TEMPLATE_GATE;
+    process.env.PBK_DISPATCH_TEMPLATE_GATE = "warn";
     try {
       const v = await dispatchTemplateGate(undefined)(ctx({ task: "a bare prompt", agent: "scout" }));
       expect(v).toBeUndefined(); // observed in the log, NOT blocked
     } finally {
-      if (prev === undefined) delete process.env.OMP_CT_DISPATCH_TEMPLATE_GATE;
-      else process.env.OMP_CT_DISPATCH_TEMPLATE_GATE = prev;
+      if (prev === undefined) delete process.env.PBK_DISPATCH_TEMPLATE_GATE;
+      else process.env.PBK_DISPATCH_TEMPLATE_GATE = prev;
     }
   });
 

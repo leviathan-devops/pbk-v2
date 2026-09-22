@@ -1,6 +1,6 @@
 # SEAL RECEIPT — paragon-v2 (W0–W6)
 
-**Sealed:** 2026-09-21 06:29  · **fork:** `/home/leviathan/JARVIS_WORKSPACE/OMP/omp-ct-v2` · **dist:** `9d4a1fcda81c6592` (deployed to the rig)
+**Sealed:** 2026-09-21 06:29  · **fork:** `/home/leviathan/JARVIS_WORKSPACE/OMP/pbk-v2` · **dist:** `9d4a1fcda81c6592` (deployed to the rig)
 **Class:** infra_spine (an enforcement layer, not a product) · **density:** multi_front (6 fronts)
 
 ## THE GATES, each with its pasted evidence
@@ -132,7 +132,7 @@ Three things changed after the sections above were written. Stated here rather t
 **ONE BLOCK REMAINS:** `TYPESAFE_AI_API_KEY` — proven wired to the auth boundary (no key →
 `skip_reason: no-key`; a bogus key → `judge error: HTTP 401: Unauthorized`, `ms: 719`). The judge
 selects the rubric's 6 edit+model rules, builds the request, reaches `api.typesafe.ai`, and is
-auth-rejected. Resume: `bun omp-ct-v2/scripts/verify-key-path.mjs` (exit 0 = the two items unblock).
+auth-rejected. Resume: `bun pbk-v2/scripts/verify-key-path.mjs` (exit 0 = the two items unblock).
 
 **A seal receipt that overstated its own gates would be the exact defect this project exists to catch.
 This addendum exists so it cannot.**
@@ -169,7 +169,7 @@ disagree, this one is the record.
 fork suite   242 tests / 32 files / 0 fail · tsc 0
 project      tsc 0 · 439 pass / 0 fail
 dist         4599db718885c657e3883e4973f03896f6692f3ce35d4b9b6a14306994a3f139
-sha trio     repo == deployed (~/.omp/agent/extensions/omp-ct/dist.js) == the fork checkpoint's copy
+sha trio     repo == deployed (~/.omp/agent/extensions/pbk/dist.js) == the fork checkpoint's copy
 checkpoint   Checkpoints/v2-judge-path-hardened/ — self-verifies the same 242 from its own contents
 both repos   0 dirty
 ```
@@ -216,7 +216,7 @@ incident; a reconstructed one proves only what the author believed it was.
 ## THE ONE BLOCK, unchanged and named
 ```
 TYPESAFE_AI_API_KEY  ->  ~/.abide/.env   (chmod 600)
-                        ->  bun omp-ct-v2/scripts/verify-key-path.mjs   (exit 0 unblocks both items)
+                        ->  bun pbk-v2/scripts/verify-key-path.mjs   (exit 0 unblocks both items)
 proven wired:   no key -> skip/no-key    ·    a bogus key -> judge error: HTTP 401, ms 719
 ```
 **A block is never a pass.** The bound-claim PASS and the real-judge act/flag band both stop at this

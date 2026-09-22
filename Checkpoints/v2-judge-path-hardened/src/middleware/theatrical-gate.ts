@@ -158,13 +158,13 @@ export function skipTheatrical(toolName: string, poseidonActive: boolean): boole
 const ESCALATION_THRESHOLD = 3;
 
 const PHASE_B_DEMAND =
-  "[CT THEATRICAL GATE] substitute-frame detected — build the real thing and verify in the sandbox. " +
+  "[PBK THEATRICAL GATE] substitute-frame detected — build the real thing and verify in the sandbox. " +
   "Call the ct-sandbox-test AGENT TOOL (sandbox test) with a 2000-char, 6-section plan (OBJECTIVE / TOOLS UNDER TEST / TEST SCENARIOS 3+ / " +
   "ADVERSARIAL 1+ / EVIDENCE / PASS CRITERIA), then cite ContainerTestResult.json.";
 
 /**
  * Before-gate (v4.4.2 parity): NO hard throw on args patterns. Sets state;
- * escalation ONLY after 3 suggestions → throw [CT THEATRICAL ESCALATE].
+ * escalation ONLY after 3 suggestions → throw [PBK THEATRICAL ESCALATE].
  * Returns undefined (allow) otherwise — the Phase B demand rides the after-gate.
  */
 export function theatricalGate(state: TheatricalStateTracker, opts: { poseidonActive: () => boolean } = { poseidonActive: () => false }): BeforeGate {
@@ -180,7 +180,7 @@ export function theatricalGate(state: TheatricalStateTracker, opts: { poseidonAc
       return {
         action: "block",
         gate: "theatrical",
-        reason: "[CT THEATRICAL ESCALATE] repeated substitute-frame suggestions. Running a REAL container test is MANDATORY.",
+        reason: "[PBK THEATRICAL ESCALATE] repeated substitute-frame suggestions. Running a REAL container test is MANDATORY.",
       };
     }
     return undefined; // allow — Phase B demand appends on the next output
@@ -207,7 +207,7 @@ export function theatricalGateAfter(state: TheatricalStateTracker, containerTest
       .filter((b): b is { type: string; text: string } => typeof b === "object" && b !== null && "text" in b)
       .map((b) => b.text)
       .join("\n");
-    if (already.includes("[CT THEATRICAL GATE]")) return ctx; // no double-append
+    if (already.includes("[PBK THEATRICAL GATE]")) return ctx; // no double-append
     return { ...ctx, content: [...ctx.content, { type: "text" as const, text: "\n" + PHASE_B_DEMAND }] };
   };
 }
