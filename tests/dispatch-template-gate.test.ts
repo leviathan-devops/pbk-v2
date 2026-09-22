@@ -45,7 +45,7 @@ describe("V-081 the dispatch-template gate's polarity", () => {
     const r = await drive({ task: "do the thing", agent: "scout" }, true);
     expect(fired(r)).toBe(true);
     expect(r).toContain("dispatch-template-v2");
-    expect(r).toContain("DISPATCH TEMPLATE GATE v2");
+    expect(r).toContain("DISPATCH TEMPLATE GATE");
   });
 
   test("ADVERSARIAL: an EXTENSION-origin dispatch with the same prompt is EXEMPT (the v1 law)", async () => {
@@ -58,11 +58,46 @@ describe("V-081 the dispatch-template gate's polarity", () => {
     expect(r).toBe("allow");
   });
 
-  test("the evaluator itself names the missing fingerprint and the remedy", () => {
+  test("F-04: the evaluator names the missing sentinel by its TEXT, never by its index", () => {
+    // THE DEFECT THIS PINS (the operator's bricked session, 2026-09-22): the old evaluator said
+    // "missing sentinel[0] of E3" — an INDEX the agent could not act on. The fix prints the literal.
+    const e = evaluateDispatchTemplate({
+      task: "EXECUTE THE FOLLOWING RESEARCH TASK VERBATIM\n" + "x\n".repeat(90),
+    });
+    expect(e.verdict).toBe("block");
+    expect(e.reasons[0]).toContain("THE EXECUTION LAW (this block is binding; it is identical in every task)");
+    expect(e.reasons[0]).not.toContain("sentinel[0]");
+  });
+
+  test("F-04: a bare prompt is named as 'no dispatch template', not as an index", () => {
     const e = evaluateDispatchTemplate({ task: "a bare prompt" });
     expect(e.verdict).toBe("block");
-    expect(e.reasons[0]).toContain("NO ct dispatch template fingerprint");
-    expect(e.reasons[0]).toContain("Remedy:");
+    expect(e.reasons[0]).toContain("no dispatch template");
+    expect(e.reasons[0]).not.toContain("sentinel[");
+  });
+
+  test("F-04 ESCAPE HATCH: OMP_CT_DISPATCH_TEMPLATE_GATE=off makes the gate inert", async () => {
+    const prev = process.env.OMP_CT_DISPATCH_TEMPLATE_GATE;
+    process.env.OMP_CT_DISPATCH_TEMPLATE_GATE = "off";
+    try {
+      const v = await dispatchTemplateGate(undefined)(ctx({ task: "a bare prompt", agent: "scout" }));
+      expect(v).toBeUndefined();
+    } finally {
+      if (prev === undefined) delete process.env.OMP_CT_DISPATCH_TEMPLATE_GATE;
+      else process.env.OMP_CT_DISPATCH_TEMPLATE_GATE = prev;
+    }
+  });
+
+  test("F-04 ESCAPE HATCH: OMP_CT_DISPATCH_TEMPLATE_GATE=warn observes but never blocks", async () => {
+    const prev = process.env.OMP_CT_DISPATCH_TEMPLATE_GATE;
+    process.env.OMP_CT_DISPATCH_TEMPLATE_GATE = "warn";
+    try {
+      const v = await dispatchTemplateGate(undefined)(ctx({ task: "a bare prompt", agent: "scout" }));
+      expect(v).toBeUndefined(); // observed in the log, NOT blocked
+    } finally {
+      if (prev === undefined) delete process.env.OMP_CT_DISPATCH_TEMPLATE_GATE;
+      else process.env.OMP_CT_DISPATCH_TEMPLATE_GATE = prev;
+    }
   });
 
   test("the fingerprint detector recognises a complete template", () => {

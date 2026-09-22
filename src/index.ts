@@ -81,7 +81,10 @@ export default function ctExtension(pi: ExtensionAPI): void {
   chain.useBefore(docDensityGateV2(host));
   chain.useBefore(containerGate());
   chain.useBefore(containerWriteGate());
-  chain.useBefore(dispatchTemplateGate(host));
+  // DISABLED 2026-09-22 — operator: the dispatch-template gate BRICKED subagent dispatch.
+  // A gate that blocks the operator's own ability to work is worse than the defect it guards.
+  // Re-enable only after the fingerprint check is proven not to false-positive on legitimate dispatches.
+  // chain.useBefore(dispatchTemplateGate(host));
   chain.useBefore(dispatchGate());
   chain.useBefore(sttgfGate());
   chain.useBefore(theatricalGate(theatricalTracker));

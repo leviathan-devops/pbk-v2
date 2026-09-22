@@ -169,24 +169,48 @@ export interface TemplateMatch {
  * The DETECTION function (pure — Lexicon bible §3.1): which template, which
  * sentinels missing. Never selects the action.
  */
+/**
+ * F-04 FIX — the sentinel is reported by its TEXT, never by its index.
+ *
+ * THE DEFECT (2026-09-22, the operator's bricked session): this function pushed
+ * `sentinel[${i}] of ${fp.id}` — an INDEX. The agent was told "missing sentinel[0] of E3" and could not
+ * know which literal line to produce without reading this file's source. Three dispatch attempts, the last
+ * at 135 lines, all blocked with the same opaque error, until the operator ordered the extension removed.
+ *
+ * A gate that refuses WITHOUT NAMING ITS REQUIREMENT is unfalsifiable by the agent it governs. The fix is
+ * to print the literal the gate wants, so the agent can satisfy it or the operator can see it is wrong.
+ */
+function literalOf(re: RegExp): string {
+  // The readable literal a regex is asking for: decode \uXXXX to its character, strip anchors and escapes.
+  return re.source
+    .replace(/\\u([0-9a-fA-F]{4})/g, (_m, h) => String.fromCharCode(parseInt(h, 16)))
+    .replace(/\\/g, "")
+    .replace(/^\^|\$$/g, "")
+    .replace(/\s\+/g, " ")
+    .trim();
+}
+
 export function matchTemplate(prompt: string): TemplateMatch {
   const lines = prompt.split("\n").length;
   for (const fp of TEMPLATE_FINGERPRINTS) {
     if (!fp.opener.test(prompt)) continue;
     const missing: string[] = [];
-    fp.requiredSentinels.forEach((re, i) => {
-      if (!re.test(prompt)) missing.push(`sentinel[${i}] of ${fp.id}`);
+    fp.requiredSentinels.forEach((re) => {
+      if (!re.test(prompt)) missing.push(`"${literalOf(re)}"`);
     });
-    if (lines < fp.minLines) missing.push(`density-floor(${fp.minLines} lines, got ${lines})`);
+    if (lines < fp.minLines) missing.push(`too short: needs ${fp.minLines} lines, got ${lines}`);
     return { matched: missing.length === 0, templateId: fp.id, missingSentinels: missing, lineCount: lines };
   }
-  return { matched: false, templateId: null, missingSentinels: ["no template opener sentinel found"], lineCount: lines };
+  return { matched: false, templateId: null, missingSentinels: ["no template opener found (expected a line like \"EXECUTE THE FOLLOWING … VERBATIM\")"], lineCount: lines };
 }
 
-const REMEDY =
-  "load skill dispatch-templates, copy the matching template VERBATIM " +
-  "(E1 code-extract / E2 docs-synth / E3 research / E4 failure / B1-B5 builds), " +
-  "fill ONLY [FILEPATHS] + [CONTEXT] (or the [WEAVE:*] slots), never rewrite the skeleton";
+/**
+ * THE REMEDY — one short line, stated ONCE per block (not per task).
+ * The first version repeated a 200-char remedy on every task, so a 5-task wave produced a 1000-char wall
+ * the model had to parse to find the actual problem. A remedy is a FIX, not a lecture: name the skill, the
+ * action, and stop.
+ */
+const REMEDY = "load skill dispatch-templates, copy the matching template VERBATIM, fill ONLY [FILEPATHS] + [CONTEXT]";
 
 export interface DispatchTemplateInput {
   task?: string;
@@ -231,7 +255,7 @@ export function evaluateDispatchTemplate(input: DispatchTemplateInput): {
     const m = matchTemplate(p.text);
     if (!m.matched) {
       reasons.push(
-        `${p.label}: NO ct dispatch template fingerprint (${m.templateId ? `template ${m.templateId} incomplete — missing ${m.missingSentinels.join(", ")}` : m.missingSentinels[0]}; ${m.lineCount} lines). Remedy: ${REMEDY}.`,
+        `${p.label}: ${m.templateId ? `${m.templateId} template is missing` : "no dispatch template"} — ${m.missingSentinels.join(" · ")} (${m.lineCount} lines)`,
       );
     }
   }
@@ -246,6 +270,12 @@ export function dispatchTemplateGate(host: unknown): BeforeGate {
   void host;
   return async (ctx) => {
     if (ctx.toolName !== "task") return undefined;
+    // F-04 FIX — THE ESCAPE HATCH. A guard that can brick the operator's own dispatch is worse than the
+    // defect it guards. Two ways out, both explicit and both loud:
+    //   OMP_CT_DISPATCH_TEMPLATE_GATE=off  -> the gate is inert for this process
+    //   OMP_CT_DISPATCH_TEMPLATE_GATE=warn -> the gate reports but never blocks (observe before enforcing)
+    const mode = (process.env.OMP_CT_DISPATCH_TEMPLATE_GATE ?? "on").toLowerCase();
+    if (mode === "off") return undefined;
     // V-081 THE INVERTED POLARITY — the code contradicted its OWN comment.
     // MEASURED (an ocr CRITICAL, then verified by reading the live sibling): the comment says
     // "extension-origin calls exempt — same law as v1", and `dispatch-gate.ts:75` exempts with
@@ -255,11 +285,25 @@ export function dispatchTemplateGate(host: unknown): BeforeGate {
     // LOOKS alive (it returns cleanly, so every probe "passes").
     if (!ctx.isAgentOrigin) return undefined; // extension-origin exempt (the v1 law, correctly applied)
     const evalResult = evaluateDispatchTemplate(ctx.input as DispatchTemplateInput);
+    if (evalResult.verdict === "block" && mode === "warn") {
+      // OBSERVE-ONLY: record the finding, then ALLOW. The wall is removed; the observation survives.
+      try {
+        const { appendFileSync } = require("node:fs");
+        appendFileSync(
+          "/tmp/ct-dispatch-template-warn.log",
+          `[${new Date().toISOString()}] WOULD-BLOCK: ${evalResult.reasons.join(" · ")}\n`,
+        );
+      } catch { /* instrumentation never breaks the extension */ }
+      return undefined;
+    }
     if (evalResult.verdict === "block") {
+      // ONE short block: the problems, then the remedy ONCE.
       return {
         action: "block",
         gate: "dispatch-template-v2",
-        reason: `[CT DISPATCH TEMPLATE GATE v2] ${evalResult.reasons.join(" || ")}`,
+        reason:
+          `[CT DISPATCH TEMPLATE GATE] ${evalResult.reasons.join(" · ")}\n` +
+          `FIX: ${REMEDY}.`,
       };
     }
     return undefined;
