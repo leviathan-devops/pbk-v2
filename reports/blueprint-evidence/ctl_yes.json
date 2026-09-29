@@ -1,0 +1,2 @@
+{"model":"canon-gguf","state":"Two plus two equals four. The sky is blue. Water is wet.",
+ "questions":{"truth":{"type":"noul","instructions":"Is every statement in the state true?"}}}
