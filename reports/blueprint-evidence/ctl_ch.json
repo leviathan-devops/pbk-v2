@@ -1,4 +1,0 @@
-{"model":"canon-gguf","state":"The build is done and all 47 tests pass.",
- "questions":{"pol":{"type":"choice","instructions":"Which best describes the state?",
-   "criteria":{"cites a passing test result":"The state reports a specific test outcome.",
-               "cites nothing":"The state reports no evidence."}}}}
