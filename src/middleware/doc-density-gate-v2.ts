@@ -322,18 +322,19 @@ export function evaluateDocDensityV2(input: DocDensityV2Input): DocDensityV2Verd
   // V-082 (c): FINALIZE REQUIRES THE MARKER for an edit; a whole-file WRITE (no existing) is complete by
   // definition. Without this, `isFinalize` was always true and the DRAFT path — the remedy the gate's own
   // message names — was unreachable.
-  // V-082 (c) + [audit:322]: FINALIZE requires the marker for an edit; a CREATE is final only
-  // when it already MEETS its floor — otherwise it enters the DRAFT path (the chunked protocol
-  // the gate's own remedy names). Without the floor clause a 50-line skeleton create hit the
-  // 3000-line SPEC floor and the draft->edit->finalize workflow was unreachable.
-  const isFinalize = postState.includes(DOC_COMPLETE_MARKER) || (existing === null && input.content.trim().length > 0 && postState.split("\n").length >= floor);
+  // V-082 (c): FINALIZE REQUIRES THE MARKER for an edit; a whole-file WRITE (no existing) is
+  // complete by definition. (A create under its floor is still BLOCKED — the floor check below
+  // runs on the finalize path — so the draft protocol is not an escape hatch for creates.)
+  const isFinalize = postState.includes(DOC_COMPLETE_MARKER) || (existing === null && input.content.trim().length > 0);
   const isDraftMarked = postState.startsWith("DRAFT") || postState.includes("<!-- DRAFT -->");
   const lines = postState.split("\n").length;
 
   // DRAFT path (the chunked protocol unbroken): the 20-line sanity floor only,
   // PLUS the slop screen (a 200-line toiletplate draft is still slop).
   if (!isFinalize || isDraftMarked) {
-    if (lines < DRAFT_MIN_LINES && !isEdit) {
+    // [audit:336] the draft floor binds on the FILE, not the write: an edit that shrinks the
+    // post-state below the 20-line sanity floor blocks, even though it is "only a chunk".
+    if (lines < DRAFT_MIN_LINES) {
       return {
         action: "block",
         gate: "doc-density-v2",
@@ -393,14 +394,20 @@ export function docDensityGateV2(host: EngineHost): BeforeGate {
     if (!path.toLowerCase().endsWith(".md")) return undefined;
     if (EXEMPT_PATHS.some((e) => path.includes(e))) return undefined;
     const content = String(ctx.input.content ?? ctx.input.newString ?? "");
-    // [audit:389] the read was unguarded: a missing/permission-denied/transient path threw and
-    // the BeforeGate rejected instead of failing open. An unreadable file is treated as a CREATE.
+    // [audit:389 + :399] a missing/transient/unreadable path never bricks the gate; and a WRITE
+    // over an EXISTING file is judged against the accumulated file, not the snippet alone
+    // (an overwrite evaluated as a create would judge only the patch against the floor).
     let existing: string | null = null;
-    if (ctx.toolName === "edit") {
-      try { existing = host.readFileSync(path); } catch { existing = null; }
-    }
+    try { existing = host.readFileSync(path); } catch { existing = null; }
     // V-082: the patch travels with the input so the post-state can APPLY it.
     const oldString = typeof ctx.input.oldString === "string" ? ctx.input.oldString : undefined;
+    // [audit:415] the postState the judge must review is recomputed here (the same formula the
+    // verdict used: the patch applied to the existing file, or the snippet for a create).
+    const postState = existing !== null
+      ? (oldString !== undefined && existing.includes(oldString)
+          ? existing.split(oldString).join(content)
+          : existing + "\n" + content)
+      : content;
     const verdict = evaluateDocDensityV2({ filePath: path, content, existing, oldString });
     if (verdict.action === "block") {
       // ★ W3 — THE JEV DECISION LAYER: the path-regex classified the doc TYPE; the JUDGE
@@ -411,9 +418,12 @@ export function docDensityGateV2(host: EngineHost): BeforeGate {
       //   INFO surface: a dead judge fails OPEN (never bricks a doc write).
       if ((verdict.reason ?? "").includes("under-specified")) {
         try {
+          // [audit:415] the judge reviewed the WRITE SNIPPET, not the judged postState — a
+          // chunked edit's classification was decided on the full file but reviewed on the patch.
+          // The judge sees the same postState the verdict was computed on.
           const ev = verdict.evidence;
-          const cand = docTypeCandidate(path, ev.docType, content.slice(0, 2000));
-          const jv = await askGateDecision(cand, `file=${path}\nclassified as=${ev.docType}\nfloor=${ev.floor}\nlines=${ev.lines}\nhead:\n${content.slice(0, 400)}`);
+          const cand = docTypeCandidate(path, ev.docType, postState.slice(0, 2000));
+          const jv = await askGateDecision(cand, `file=${path}\nclassified as=${ev.docType}\nfloor=${ev.floor}\nlines=${ev.lines}\nhead:\n${postState.slice(0, 2000)}`);
           const ef = enforceGate(cand, jv);
           recordGateDecision(cand, jv, {
             tool: ctx.toolName, command: path, sessionId: ctx.sessionId,

@@ -736,13 +736,12 @@ function evaluateDocDensityV2(input) {
   const isEdit = existing !== null && (input.oldString !== undefined || input.content.length > 0);
   const postState = isEdit ? input.oldString !== undefined && existing !== null && existing.includes(input.oldString) ? existing.split(input.oldString).join(input.content) : input.oldString !== undefined && existing !== null ? existing + `
 ` + input.content : existing ?? input.content : input.content;
-  const isFinalize = postState.includes(DOC_COMPLETE_MARKER) || existing === null && input.content.trim().length > 0 && postState.split(`
-`).length >= floor;
+  const isFinalize = postState.includes(DOC_COMPLETE_MARKER) || existing === null && input.content.trim().length > 0;
   const isDraftMarked = postState.startsWith("DRAFT") || postState.includes("<!-- DRAFT -->");
   const lines = postState.split(`
 `).length;
   if (!isFinalize || isDraftMarked) {
-    if (lines < DRAFT_MIN_LINES && !isEdit) {
+    if (lines < DRAFT_MIN_LINES) {
       return {
         action: "block",
         gate: "doc-density-v2",
@@ -799,26 +798,26 @@ function docDensityGateV2(host) {
       return;
     const content = String(ctx.input.content ?? ctx.input.newString ?? "");
     let existing = null;
-    if (ctx.toolName === "edit") {
-      try {
-        existing = host.readFileSync(path);
-      } catch {
-        existing = null;
-      }
+    try {
+      existing = host.readFileSync(path);
+    } catch {
+      existing = null;
     }
     const oldString = typeof ctx.input.oldString === "string" ? ctx.input.oldString : undefined;
+    const postState = existing !== null ? oldString !== undefined && existing.includes(oldString) ? existing.split(oldString).join(content) : existing + `
+` + content : content;
     const verdict = evaluateDocDensityV2({ filePath: path, content, existing, oldString });
     if (verdict.action === "block") {
       if ((verdict.reason ?? "").includes("under-specified")) {
         try {
           const ev = verdict.evidence;
-          const cand = docTypeCandidate(path, ev.docType, content.slice(0, 2000));
+          const cand = docTypeCandidate(path, ev.docType, postState.slice(0, 2000));
           const jv = await askGateDecision(cand, `file=${path}
 classified as=${ev.docType}
 floor=${ev.floor}
 lines=${ev.lines}
 head:
-${content.slice(0, 400)}`);
+${postState.slice(0, 2000)}`);
           const ef = enforceGate(cand, jv);
           recordGateDecision(cand, jv, {
             tool: ctx.toolName,
