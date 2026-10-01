@@ -52,12 +52,12 @@ async function askGateDecision(candidate, state, opts = {}) {
     }
     const choice = a.choice;
     const rawConf = typeof a.confidence === "number" ? a.confidence : probs[choice] ?? 0;
-    if (!Number.isFinite(rawConf) || rawConf <= 0 || rawConf > 1) {
+    if (!Number.isFinite(rawConf) || rawConf < 0 || rawConf > 1) {
       throw new Error("GI_TOOLGATE_BAD_CONFIDENCE", { cause: `non-finite or out-of-range confidence ${String(rawConf)}` });
     }
     return mk(choice, rawConf, probs, json.model ?? "jevk5-4b-v0.2-Q8_0", false);
   } catch (e) {
-    return mk("refuse", 0, {}, `unavailable:${e instanceof Error ? e.name : "ERR"}`, true);
+    return mk("refuse", 0, {}, `unavailable:${(e instanceof Error ? e.message : String(e)).slice(0, 80)}`, true);
   }
 }
 function enforceGate(candidate, v) {
@@ -89,7 +89,7 @@ function recordGateDecision(candidate, v, extra = {}) {
       severity: candidate.severity,
       State: { command: scrubSecrets(extra.command ?? "").slice(0, 600), sessionId: extra.sessionId ?? null, tool: extra.tool ?? null },
       Evidence: { judge: v.judge, choice: v.choice, confidence: v.confidence, probabilities: v.probabilities, ms: v.ms, degraded: v.degraded },
-      origin: extra.origin ?? (String(extra.sessionId ?? "").startsWith("/home/leviathan/.omp/agent/sessions/") ? "real" : "harness"),
+      origin: extra.origin ?? (String(extra.sessionId ?? "").startsWith(`${homedir()}/.omp/agent/sessions/`) ? "real" : "harness"),
       enforced: extra.enforced ?? null,
       remedy: extra.remedy ?? null
     }) + `

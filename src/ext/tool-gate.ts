@@ -43,9 +43,10 @@ export const TOOLGATE_URL = process.env.TOOLGATE_URL ?? "http://127.0.0.1:8090/v
 
 /** ★ AUDIT HIGH FIX: scrub credential-shaped tokens before anything is persisted. The ledger
  *  keeps the DECISION evidence, never a pasted key/token. */
-export function scrubSecrets(text: string): string {
-  // ★ AUDIT HIGH FIX (tool-gate.ts:45): callers pass null/undefined — `.replace` on a non-string
-  //   THREW, and the throw propagated into the caller's catch (a silent enforcement skip). Coerce.
+export function scrubSecrets(text: string | null | undefined): string {
+  // ★ AUDIT HIGH FIX (tool-gate.ts:45) + [lane-2]: callers pass null/undefined — `.replace` on a
+  //   non-string THREW, and the throw propagated into the caller's catch (a silent enforcement
+  //   skip). The signature now matches reality (strictNullChecks verifies callers) and coerces.
   return String(text ?? "")
     .replace(/(Bearer|token|api[_-]?key|secret|password|passwd|authorization)\s*[:=]?\s*[A-Za-z0-9_\-./+=~]{8,}/gi, "$1 <redacted>")
     .replace(/(sk|pk|ghp|gho|xox[baprs])[-_][A-Za-z0-9_-]{12,}/g, "<redacted>")
@@ -126,7 +127,10 @@ export async function askGateDecision(
     }
     const choice: "serve" | "refuse" = a.choice;
     const rawConf = typeof a.confidence === "number" ? a.confidence : probs[choice] ?? 0;
-    if (!Number.isFinite(rawConf) || rawConf <= 0 || rawConf > 1) {
+    // [lane-2] the contract documents [0,1] inclusive but the guard rejected exactly 0 —
+    // a zero-confidence answer (the judge fully rejecting the chosen option) became a
+    // degradation. The guard now matches the contract: only a non-finite or out-of-range value throws.
+    if (!Number.isFinite(rawConf) || rawConf < 0 || rawConf > 1) {
       throw new Error("GI_TOOLGATE_BAD_CONFIDENCE", { cause: `non-finite or out-of-range confidence ${String(rawConf)}` });
     }
     return mk(choice, rawConf, probs, json.model ?? "jevk5-4b-v0.2-Q8_0", false);
@@ -135,7 +139,9 @@ export async function askGateDecision(
     //   `choice` directly (without the `degraded` check) would get a silent allow. The choice is
     //   the SAFE default (refuse); `degraded:true` is the discriminator, and enforceGate applies
     //   the per-surface polarity from it.
-    return mk("refuse", 0, {}, `unavailable:${e instanceof Error ? e.name : "ERR"}`, true);
+    // [lane-2] `e.name` was always "Error" (every throw here is `new Error(...)`) — the ledger
+    //   recorded `unavailable:Error` for ALL failures, discarding the distinguishing message.
+    return mk("refuse", 0, {}, `unavailable:${(e instanceof Error ? e.message : String(e)).slice(0, 80)}`, true);
   }
 }
 
@@ -180,9 +186,9 @@ export function recordGateDecision(candidate: GateCandidate, v: GateVerdict, ext
       severity: candidate.severity,
       State: { command: scrubSecrets(extra.command ?? "").slice(0, 600), sessionId: extra.sessionId ?? null, tool: extra.tool ?? null },
       Evidence: { judge: v.judge, choice: v.choice, confidence: v.confidence, probabilities: v.probabilities, ms: v.ms, degraded: v.degraded },
-      // [audit:162] the substring heuristic was spoofable by any sessionId carrying the token.
-      // A caller may pass the trusted origin explicitly; the fallback is a strict PREFIX check.
-      origin: extra.origin ?? (String(extra.sessionId ?? "").startsWith("/home/leviathan/.omp/agent/sessions/") ? "real" : "harness"),
+      // [audit:162 + lane-2] the substring heuristic was spoofable; the fallback is a strict
+      // PREFIX check against the same homedir() the ledger path uses (never a hardcoded home).
+      origin: extra.origin ?? (String(extra.sessionId ?? "").startsWith(`${homedir()}/.omp/agent/sessions/`) ? "real" : "harness"),
       enforced: extra.enforced ?? null,
       remedy: extra.remedy ?? null,
     }) + "\n");
