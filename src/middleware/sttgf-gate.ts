@@ -13,13 +13,15 @@
  * 3. the v6 container-test tool name → the OMP tool name 'container-testing'.
  * 4. v2 D-2 default YES: headless regex also covers -p/--print (one line).
  */
-import type { BeforeGate } from "./chain";
+import type { BeforeGate, AfterContext } from "./chain";
 import {
   checkSmokeTestFirewall,
   sttgfStateTracker,
 } from "../firewalls/semantic-smoke-firewall";
 // ★ W3 — THE JEV DECISION LAYER: the regex marks a SMOKE candidate; the judge decides (the F-141 fix).
 import { askGateDecision, smokeCandidate, recordGateDecision, GATE_THRESHOLD } from "../ext/tool-gate";
+// [audit:153] the container-test ARMS in the BeforeGate and CONFIRMS in the AfterGate.
+const pendingContainerTests = new Map<string, number>();
 // ─── The completion-claim lexicon — v6 hook-chain.ts:984-1018, VERBATIM.
 // A completion-claim word counts as a CLAIM only when its sentence is NOT
 // negated. A completion claim counts ONLY when it is about WORK: a strong
@@ -51,14 +53,18 @@ const CT_ACTIONS: Record<string, true> = { setup: true, run: true, suite: true, 
  */
 export function sttgfGate(): BeforeGate {
   return async (ctx) => {
-    try {
-      const { appendFileSync } = require("node:fs");
-      appendFileSync("/tmp/ct-chain.log", `[${new Date().toISOString()}] gate saw tool=${ctx.toolName} cmd=${String((ctx.input||{}).command||"").slice(0,60)}\n`);
-    } catch { /* instrumentation */ }
+    // ★ AUDIT HIGH FIX (sttgf-gate.ts:54): sync fs logging on EVERY gate invocation blocks the
+    //   event loop on the hot path. Env-gated now (CT_DEBUG=1 only).
+    if (process.env.CT_DEBUG === "1") {
+      try {
+        const { appendFileSync } = require("node:fs");
+        appendFileSync("/tmp/ct-chain.log", `[${new Date().toISOString()}] gate saw tool=${ctx.toolName} cmd=${String((ctx.input||{}).command||"").slice(0,60)}\n`);
+      } catch { /* instrumentation */ }
+    }
     const toolName = ctx.toolName;
     const sid = ctx.sessionId || "default";
-    const input = ctx.input;
-    const args = ctx.input;
+    const input = ctx.input ?? {};
+    const args = input;
     const commandStr = String(input.command ?? "");
     const sessionAgent = String((input as Record<string, unknown>).agentName ?? "");
     const currentMode = String((input as Record<string, unknown>).mode ?? "");
@@ -102,9 +108,12 @@ export function sttgfGate(): BeforeGate {
         }
         // V-031 INSTRUMENT: record the FULL command the gate is about to block, so the loader's
         // own invocation can be identified instead of guessed at (V-030 keyed on the wrong shape).
+        // ★ AUDIT HIGH FIX (sttgf-gate.ts:107): the unscrubbed command was written to a
+        //   world-readable /tmp file — a secret leak. Scrub + bound, consistent with the ledger.
         try {
           const { appendFileSync } = require("node:fs");
-          appendFileSync("/tmp/ct-block-cmd.log", `[${new Date().toISOString()}] ${sttgfResult.category} cmd=${JSON.stringify(commandStr)}
+          const { scrubSecrets } = require("../ext/tool-gate");
+          appendFileSync("/tmp/ct-block-cmd.log", `[${new Date().toISOString()}] ${sttgfResult.category} cmd=${JSON.stringify(scrubSecrets(commandStr).slice(0, 600))}
 `);
         } catch { /* instrumentation */ }
         // v6 :2505-2523 — the escalation check runs INSIDE the gate because
@@ -145,20 +154,48 @@ export function sttgfGate(): BeforeGate {
         reason: `[STTGF BLOCK] INFRA_FAILURE\n\nThe smoke firewall could not evaluate this call (${sttgfErr instanceof Error ? sttgfErr.message.slice(0, 160) : String(sttgfErr)}). The security surface fails CLOSED.\n\nRemedy: retry the call; if it repeats, the firewall itself needs attention (not the command).`,
       };
     }
-    // gating (v6 :2525-2532; theatrical subject-awareness does not exist in
-    // OMP — no getTheatricalState import, so the hatch clears unconditionally).
+    // [audit:153] the hatch ARMS here; the AfterGate CONFIRMS. Clearing on the action name alone
+    // (before the tool ran) let a FAILED or never-completed container-testing call unblock a
+    // completion claim. The pending map is consumed by sttgfGateAfter on a non-error result.
     if (toolName === CT_TOOL) {
       try {
         const ctAction = typeof args.action === "string" ? args.action : "";
         if (CT_ACTIONS[ctAction]) {
-          sttgfStateTracker.setContainerTestRan(sid, true);
-          sttgfStateTracker.setVerificationClaimed(sid, false);
-          ctLog("INFO", "sttgf", "Container test detected (" + ctAction + ") — claim gate cleared");
+          pendingContainerTests.set(sid, Date.now());
+          ctLog("INFO", "sttgf", "Container test ARMED (" + ctAction + ") — awaiting the AfterGate confirmation");
         }
       } catch (ctTrackErr) {
         ctLog("WARN", "sttgf", `Container test tracking failed: ${ctTrackErr instanceof Error ? ctTrackErr.message : String(ctTrackErr)}`);
       }
     }
+  };
+}
+
+/**
+ * [audit:153] The container-test CONFIRMATION — runs on the completed tool call. Only a
+ * SUCCESSFUL container-testing call (isError false) clears the claim gate and records the run;
+ * a failed call clears the pending arm and leaves the claim standing.
+ */
+export function sttgfGateAfter(): (ctx: AfterContext) => Promise<AfterContext> {
+  return async (ctx: AfterContext): Promise<AfterContext> => {
+    if (ctx.toolName !== CT_TOOL) return ctx;
+    // [audit:65] keyed by the SAME session key the BeforeGate armed with (ctx.sessionId, now
+    // carried on the AfterContext). Without this the lookup fell back to "default" and the
+    // armed test never confirmed — the gate stuck and the counter never reset.
+    const sid = ctx.sessionId || "default";
+    try {
+      if (!ctx.isError && pendingContainerTests.has(sid)) {
+        sttgfStateTracker.setContainerTestRan(sid, true);
+        sttgfStateTracker.setVerificationClaimed(sid, false);
+        sttgfStateTracker.resetBlockCount(sid); // [audit:114] compliance clears the escalation
+        pendingContainerTests.delete(sid);
+        ctLog("INFO", "sttgf", "Container test CONFIRMED (non-error) — claim gate cleared, escalation counter reset");
+      } else if (ctx.isError) {
+        pendingContainerTests.delete(sid);
+        ctLog("WARN", "sttgf", "Container test FAILED (isError) — claim gate NOT cleared");
+      }
+    } catch { /* tracking is non-fatal */ }
+    return ctx;
   };
 }
 

@@ -38,6 +38,8 @@ export interface AfterContext {
   details: Record<string, unknown>;
   isError: boolean;
   scope: AgentScope;
+  /** [audit:65] the session key — the BeforeGate keys its state by this; the AfterGate must too. */
+  sessionId: string;
 }
 
 export type AfterGate = (ctx: AfterContext) => Promise<AfterContext>;
@@ -151,6 +153,7 @@ export function attachChain(pi: {
       details: event.details,
       isError: event.isError,
       scope,
+      sessionId: ctx.sessionManager.getSessionFile(),
     }).then((patched) => {
       if (patched.content !== event.content || patched.details !== event.details) {
         return { content: patched.content, details: patched.details };

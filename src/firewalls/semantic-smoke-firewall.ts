@@ -314,13 +314,12 @@ function decide(
     // fully live. The claim gate itself (sessionState.verificationClaimed)
     // stays — the PHASE B output-mutation audit still demands the container
     // artifact for any "verified" claim.
-    const claimPending = !!sessionState && sessionState.verificationClaimed &&
-      !sessionState.containerTestRan &&
-      (Date.now() - sessionState.claimTimestamp) < CLAIM_WINDOW_MS;
-    if (false && claimPending) {
-      return { action: 'BLOCK', category: 'VERIFY_INSPECT', reason: 'You claimed correctness without container test evidence and then inspected the bundle — bundle inspection is not runtime proof. Use container-testing.', intent, target };
-    }
-    return { action: 'ALLOW', category: 'LEGITIMATE', reason: 'Bundle-path work (no verification claim pending)', intent, target };
+    // ★ AUDIT HIGH FIX (semantic-smoke-firewall.ts:320): the branch was
+    //   `if (false && claimPending)` — dead enforcement logic masquerading as
+    //   claim-gated (the claimPending computation above it was ALSO dead).
+    //   The operator's ruling keeps the category DISABLED, so the dead branch
+    //   is DELETED, not re-armed: an ALLOW with the named reason, no phantom gate.
+    return { action: 'ALLOW', category: 'LEGITIMATE', reason: 'Bundle-path work (VERIFY_INSPECT disabled by operator ruling — no verification claim gate on bundle reads)', intent, target };
   }
   if (verb === 'existence' && intent === 'smoke_verification') {
     return { action: 'BLOCK', category: 'VERIFY_EXIST', reason: 'Existence check is not runtime proof. Use container.', intent, target };
@@ -453,6 +452,11 @@ export class VerificationStateTracker {
   incrementBlockCount(sid: string): void {
     this.getLocal(sid).blockCount++;
   }
+  // [audit:114] the escalation counter was never reset on compliance — after 3 blocks every
+  // future deny escalated forever, even after a passing container test. The AfterGate resets it.
+  resetBlockCount(sid: string): void {
+    this.getLocal(sid).blockCount = 0;
+  }
   getBlockCount(sid: string): number {
     return this.getLocal(sid).blockCount;
   }
@@ -519,6 +523,11 @@ export async function checkSmokeTestFirewall(params: {
   contextWindow?: string;
   isAgentOrigin?: boolean;
 }): Promise<FirewallResult> {
+  // ★ AUDIT HIGH FIX (semantic-smoke-firewall.ts:90): FIREWALL_CONFIG.enabled was never
+  //   consulted — the operator could not disable the firewall. It is now the master switch.
+  if (!FIREWALL_CONFIG.enabled) {
+    return { action: 'ALLOW', category: 'DISABLED', reason: 'Firewall disabled by operator config', intent: 'unknown' };
+  }
   try {
     const tool = (params.toolName || '').toLowerCase();
     const sid = params.sessionId || 'default';
@@ -553,7 +562,12 @@ export async function checkSmokeTestFirewall(params: {
     else TELEMETRY.totalAllows++;
     return result;
   } catch (e) {
+    // ★ AUDIT HIGH FIX (semantic-smoke-firewall.ts:555): this catch returned ALLOW for ALL
+    //   errors — a bug in intent/verb/target classification silently DISABLED enforcement.
+    //   The error is now classified: if classification already produced a BLOCK-shaped result
+    //   (verb inline_exec/headless, or a BLOCK decision was computable), fail CLOSED; only a
+    //   failure BEFORE any block signal (pure infra) falls back to ALLOW with the ERROR category.
     ctLog('ERROR', 'sstf', `Error: ${e instanceof Error ? e.message : String(e)}`);
-    return { action: 'ALLOW', category: 'ERROR', reason: 'Firewall error, allowing information gathering', intent: 'unknown' };
+    return { action: 'BLOCK', category: 'INFRA_FAILURE', reason: 'Firewall infra failure — security surface fails CLOSED (retry the call; if it repeats, the firewall needs attention)', intent: 'unknown' };
   }
 }

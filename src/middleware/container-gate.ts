@@ -27,14 +27,20 @@ const CONTAINER_VERB_RE =
 // Bypass shape 1: spawnSync / execSync / child_process indirection that
 // smuggles docker into a child process (the tests/seam/*.test.ts pattern).
 const SPAWN_INDIRECTION_RE =
-  /(Bun\.spawnSync|spawnSync|execSync|execFileSync|child_process|fork\()[\s\S]{0,120}(docker|tmux|container)/i;
+  // ★ AUDIT HIGH FIX (container-gate.ts:29): was order- and window-sensitive — only matched the
+  //   spawn keyword BEFORE the container word. Both orders now match.
+  /((Bun\.spawnSync|spawnSync|execSync|execFileSync|child_process|fork\()[\s\S]{0,120}(docker|tmux|container)|(docker|tmux|container)[\s\S]{0,120}(Bun\.spawnSync|spawnSync|execSync|execFileSync|child_process|fork\())/i;
 
 // Bypass shape 2: base64-obfuscation — decode-then-EXECUTE is the bypass
 // signature (the docker content is invisible inside the blob, so the catch
 // is the STRUCTURE: base64 -d piped to a shell/eval or written to a file
 // that is then run). Pure decode-to-stdout for reading (e.g. viewing a
 // payload) is not the bypass; decode-to-shell is.
-const BASE64_OBFUSCATION_RE = /(base64\s*(-d|--decode)\s*)(\s*\|\s*(sh|bash|zsh|eval|source|\.\s))/i;
+const BASE64_OBFUSCATION_RE =
+  // ★ AUDIT HIGH FIX (container-gate.ts:37): was too narrow — missed macOS `base64 -D`,
+  //   `openssl enc -base64 -d | sh`, and decode-to-file + chmod/run. Broadened (decode-to-stdout
+  //   for reading stays allowed; decode-to-shell/file+exec is the bypass).
+  /(base64\s*(-d|--decode|-D)\s*|openssl\s+(enc|base64)[\s\S]{0,40}-d\s*)(\s*\|\s*(sh|bash|zsh|eval|source|\.\s)|\s*>\s*\S+[\s\S]{0,60}(chmod\s+\+x|sh\s|bash\s))/i;
 
 // Bypass shape 3: entrypoint-override container spawns (docker run
 // --entrypoint sleep ... — the shell-keepalive trick used to drive RPC).
@@ -89,9 +95,13 @@ export function isContainerPathCommand(cmd: string): boolean {
   if (SPAWN_INDIRECTION_RE.test(action)) return true;
   if (BASE64_OBFUSCATION_RE.test(action)) return true;
   if (ENTRYPOINT_OVERRIDE_RE.test(action)) return true;
-  if (TEST_RUNNER_BYPASS_RE.test(cmd)) return true;
-  if (HEREDOC_DOCKER_RE.test(cmd)) return true;
-  if (DOCKER_ANYWHERE_RE.test(cmd)) return true;
+  // ★ AUDIT HIGH FIX (container-gate.ts:88, the F-141 regression): these three ran on the RAW
+  //   command, so a fixture that merely CONTAINS the words (`cat > t.ts <<'TS' … TS`, or a
+  //   quoted/classifier-input string) still blocked after the strip. ALL shape checks now test
+  //   the ACTION view; a heredoc/quoted mention is DATA.
+  if (TEST_RUNNER_BYPASS_RE.test(action)) return true;
+  if (HEREDOC_DOCKER_RE.test(action)) return true;
+  if (DOCKER_ANYWHERE_RE.test(action)) return true;
   return false;
 }
 
@@ -107,12 +117,20 @@ const SANDBOX_ENGINE_EXEMPT = /src\/engines\/sandbox\//;
  * string literal being CLASSIFIED (e.g. a lexicon test passing "docker exec"
  * as classifier input — that is not a bypass, it is a test of the detector). */
 const EXEC_CONTEXT_RE =
-  /(Bun\.spawnSync|spawnSync|execSync|execFileSync|child_process|fork\(|bash\s+-lc|sh\s+-c|`[\s\S]*docker|docker[\s\S]*`|>\s*\/tmp|<<\s*['"]?(EOF|EOT))/i;
+  // ★ HT-BUG-21 FIX (2026-10-01): the `` `[\s\S]*docker `` / `docker[\s\S]*` `` patterns matched ANY
+  //   template literal that MENTIONS the container word — so a test file that merely names it
+  //   (`const c = \`<container> exec foo\``) was flagged a bypass (a false positive on a test OF the
+  //   gate). The real bypass signature is an EXECUTION context (spawn/exec/bash -c/fork) or a
+  //   heredoc-script write — a bare backtick is DATA, never an execution.
+  /(Bun\.spawnSync|spawnSync|execSync|execFileSync|child_process|fork\(|bash\s+-lc|sh\s+-c|>\s*\/tmp|<<\s*['"]?(EOF|EOT))/i;
 
 export function isBypassWrite(path: string, content: string): boolean {
   if (SANDBOX_ENGINE_EXEMPT.test(path)) return false;
-  // a test/spec file that EXECUTES containers via spawnSync/docker
-  if (!/\.(test|spec)\.(ts|js|tsx|jsx)$/.test(path)) return false;
+  // ★ AUDIT HIGH FIX (container-gate.ts:119): the .test/.spec restriction let the same bypass
+  //   materialize via a plain .ts/.mjs/.cjs/.sh + `bun run`/`bash`. Now ANY executable file is
+  //   checked — with the enforcement's OWN source exempt (it legitimately NAMES the shapes).
+  if (/src\/(middleware|firewalls|ext)\//.test(path)) return false;
+  if (!/\.(ts|tsx|js|jsx|mjs|cjs|sh)$/.test(path)) return false;
   const hasDocker = /docker\s+(run|exec|rm)\b/i.test(content) || SPAWN_INDIRECTION_RE.test(content);
   if (!hasDocker) return false;
   // a bare docker string in classifier input is NOT a bypass — require the

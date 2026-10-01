@@ -43,17 +43,21 @@ export const TOOLGATE_URL = process.env.TOOLGATE_URL ?? "http://127.0.0.1:8090/v
 /** ★ AUDIT HIGH FIX: scrub credential-shaped tokens before anything is persisted. The ledger
  *  keeps the DECISION evidence, never a pasted key/token. */
 export function scrubSecrets(text: string): string {
-  return text
+  // ★ AUDIT HIGH FIX (tool-gate.ts:45): callers pass null/undefined — `.replace` on a non-string
+  //   THREW, and the throw propagated into the caller's catch (a silent enforcement skip). Coerce.
+  return String(text ?? "")
     .replace(/(Bearer|token|api[_-]?key|secret|password|passwd|authorization)\s*[:=]?\s*[A-Za-z0-9_\-./+=~]{8,}/gi, "$1 <redacted>")
     .replace(/(sk|pk|ghp|gho|xox[baprs])[-_][A-Za-z0-9_-]{12,}/g, "<redacted>")
     .replace(/[A-Za-z0-9_-]{32,}/g, (m) => (/\d/.test(m) && /[A-Za-z]/.test(m) ? "<redacted-opaque>" : m));
 }
 
 /** The derived bar — a refusal needs the winning option's confidence >= this.
- *  DERIVED from scripts/gate-control-set.ts (the 40-case corpus, 2026-09-29): the judge's
- *  CHOICE is the separator (a serve-argmax never blocks); the bar only filters a coin-flip
- *  refuse-argmax, so it sits at the argmax boundary 0.50. */
-export const GATE_THRESHOLD = 0.5;
+ *  ★ DERIVED from the 2026-10-01 threshold sweep (the labeled corpus, 3 reps): with the v3
+ *  criteria the separation is CLEAN — legit cases score p_refuse 0.07-0.08, smoke cases
+ *  0.66-0.98 (a 0.58 gap). The bar sits ABOVE the coin-flip zone and BELOW the smoke floor
+ *  (0.6 < 0.66), so every measured smoke still blocks and no legit case is within reach.
+ *  Sweep result: FP=0 FN=0 at both 0.5 and 0.6; 0.6 carries the FP-avoidance margin. */
+export const GATE_THRESHOLD = 0.6;
 
 
 /** ★ AUDIT CRIT-2 FIX (THE INJECTION WALL): every UNTRUSTED value (a file path, a detector
@@ -96,7 +100,10 @@ export async function askGateDecision(
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ state: "[the candidate kind: " + sanitizeForJudge(candidate.kind, 40) + "]\n" + scrubSecrets(state), questions: { gate: { type: "choice", instructions: candidate.instructions, criteria: candidate.criteria } } }),
+      // ★ AUDIT HIGH FIX (tool-gate.ts:98): the delimited+bounded wrapper (buildJudgeState)
+      //   existed but was NOT used here — the untrusted state reached the model with no DATA
+      //   delimiters, no data-label, and no length bound. The wall is now applied.
+      body: JSON.stringify({ state: buildJudgeState(candidate.kind, state), questions: { gate: { type: "choice", instructions: candidate.instructions, criteria: candidate.criteria } } }),
       signal: AbortSignal.timeout(opts.timeoutMs ?? 4000),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -139,9 +146,14 @@ export function enforceGate(candidate: GateCandidate, v: GateVerdict): { action:
     return { action: "refuse", reason: `${candidate.kind}: judge refuse p=${v.confidence.toFixed(3)} >= ${GATE_THRESHOLD}`, remedy: candidate.criteria.serve };
   }
   if (v.choice === "serve") {
-    return { action: "serve", reason: `${candidate.kind}: judge serve p=${v.confidence.toFixed(3)} — the judge cleared it`, remedy: null };
+    // [audit:143] a serve-argmax below 0.50 is a GRAY-ZONE serve — named as such so a reader
+    // never mistakes a thin call for a confident one. The polarity stands (serve = allow).
+    const gray = v.confidence < 0.5 ? ` [GRAY-ZONE p=${v.confidence.toFixed(3)} < 0.50]` : "";
+    return { action: "serve", reason: `${candidate.kind}: judge serve p=${v.confidence.toFixed(3)} — the judge cleared it${gray}`, remedy: null };
   }
-  return { action: "serve", reason: `${candidate.kind}: judge refuse p=${v.confidence.toFixed(3)} < ${GATE_THRESHOLD} — below the bar, a low-confidence candidate never blocks`, remedy: null };
+  // [audit:143] a refuse-argmax BELOW the bar: the candidate is refused-by-argmax but not
+  // confidently — the FP-avoidance polarity serves it, and the reason names the gray zone.
+  return { action: "serve", reason: `${candidate.kind}: judge refuse p=${v.confidence.toFixed(3)} < ${GATE_THRESHOLD} [GRAY-ZONE — below the bar, a low-confidence candidate never blocks]`, remedy: null };
 }
 
 /** THE EVIDENCE TRIAD (Pattern · State · Evidence), append-only. */
@@ -174,16 +186,28 @@ export function smokeCandidate(category: string, command: string): GateCandidate
     kind: `SMOKE_${sanitizeForJudge(category || "INLINE", 40).replace(/[^A-Za-z0-9_]/g, "_")}`,
     signals: [scrubSecrets(command).slice(0, 300)],
     severity: "security", // the smoke gate fails CLOSED: a dead judge keeps the block (recoverable: use container-testing)
+    // ★ THE DATA-VS-VERIFICATION FIX (2026-10-01): the criteria must separate SMOKE (an inline
+    //   interpreter used AS PROOF) from ORDINARY DATA WORK (an inline interpreter as a data tool).
+    //   v1 said "inline = refuse" (refused legit `python3 -c "json.load(open(f))"` @0.89 - the FP).
+    //   v2 said "prints a value = serve" (served `node -e 'console.log(1)'` - 19 FN). v3 (this one)
+    //   keys on EXTERNAL DATA: reads a file / pipes input / runs a script file = serve; a trivial
+    //   self-contained inline or a project-module run = refuse. Measured 11/11, margins 0.75-0.99.
     instructions:
-      "An anti-smoke-test firewall flagged this command as a possible INLINE/HEADLESS execution. " +
-      "(The interpreter family: node -e / node --eval / nodejs -e / bun -e / deno eval / tsx -e / python -c / python3 -c / python3.11 -c / perl -e / ruby -e / php -r / AND the shell -c wrapper (sh -c / bash -c / zsh -c / dash -c) wrapping one of them. ). Smoke " +
-      "tests are forbidden. Decide whether it is GENUINELY such an execution, or whether its TEXT " +
-      "merely CONTAINS that shape (inside a heredoc body, a quoted string, a grep pattern, a path).",
+      "An anti-smoke-test firewall flagged this command as a possible INLINE execution. "
+      + "Smoke tests are FORBIDDEN: using an inline interpreter AS VERIFICATION/PROOF instead of "
+      + "running the project's real test. But an inline interpreter doing ordinary DATA work is "
+      + "legitimate. Decide which this command is.",
     criteria: {
       serve:
-        "a legitimate command: the shape words appear only inside a heredoc body, a quoted argument, a grep pattern, or a path — the command itself is a read/write/build, NOT an inline execution",
+        "ORDINARY DATA WORK — the inline interpreter READS or PROCESSES external data: it "
+        + "opens/loads a FILE (open(...), json.load(open(...)), readFileSync, csv, sqlite), consumes "
+        + "piped input (sys.stdin), or runs a STANDALONE SCRIPT FILE (node ./x.mjs, python3 ./x.py). "
+        + "Real data/files are involved.",
       refuse:
-        "a genuine inline/headless execution: an interpreter is invoked to RUN code inline (node/nodejs/bun/deno/tsx/python/perl/ruby/php running -e/-c/-r/--eval/eval, or a shell -c wrapping one) as the command's actual action",
+        "A SMOKE TEST or a trivial inline — the inline interpreter runs SELF-CONTAINED code with "
+        + "NO external data: a bare `print(1)` / `console.log(1)`, a hardcoded computation, OR code "
+        + "that imports/executes the PROJECT'S OWN MODULE to prove it works (e.g. node -e "
+        + "\"import('./x.mjs').then(m=>m.run())\", python3 -c \"import mymod; assert mymod.f()\").",
     },
   };
 }
@@ -213,14 +237,18 @@ export function containerCandidate(cmd: string): GateCandidate {
 /** A doc-type candidate (the doc-density gate): the regex guessed a TYPE (which sets the
  *  floor); the judge decides whether the type is right. */
 export function docTypeCandidate(filePath: string, guessed: string, contentHead: string): GateCandidate {
+  // ★ AUDIT HIGH FIX (tool-gate.ts:234): the raw `guessed` was interpolated 4x into the prompt — a
+  //   crafted doc-type string was a direct prompt injection. Sanitize ONCE into locals and reuse.
+  const fp = sanitizeForJudge(filePath, 120);
+  const g = sanitizeForJudge(guessed, 20);
   return {
     kind: "DOC_TYPE",
-    signals: [sanitizeForJudge(filePath, 120), sanitizeForJudge(guessed, 20), scrubSecrets(String(contentHead ?? "")).slice(0, 200)],
+    signals: [fp, g, scrubSecrets(String(contentHead ?? "")).slice(0, 200)],
     severity: "info", // INFO: a dead judge lets the doc write proceed (never bricks a write)
-    instructions: `A file named '${sanitizeForJudge(filePath, 120)}' was classified as '${sanitizeForJudge(guessed, 20)}' by a path regex. Is it REALLY a ${guessed}-class document (which would impose a ${guessed} length/substance floor), or is it a different class that should NOT be held to that floor?`,
+    instructions: `A file named '${fp}' was classified as '${g}' by a path regex. Is it REALLY a ${g}-class document (which would impose a ${g} length/substance floor), or is it a different class that should NOT be held to that floor?`,
     criteria: {
-      serve: `the classification is wrong or the doc is a different, lighter class (e.g. a wave plan, a checklist, an index) — do NOT impose the ${guessed} floor`,
-      refuse: `the classification is right: this IS a real ${guessed}-class document and must meet its floor`,
+      serve: `the classification is wrong or the doc is a different, lighter class (e.g. a wave plan, a checklist, an index) — do NOT impose the ${g} floor`,
+      refuse: `the classification is right: this IS a real ${g}-class document and must meet its floor`,
     },
   };
 }

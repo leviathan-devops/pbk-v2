@@ -86,7 +86,7 @@ describe("middleware chain — order + block semantics", () => {
     chain.useAfter(async (c) => ({ ...c, details: { ...c.details, a: 1 } }));
     chain.useAfter(async (c) => ({ ...c, details: { ...c.details, b: (c.details as Record<string, number>).a + 1 } }));
     const out = await chain.runAfter({
-      toolName: "bash", toolCallId: "c", input: {}, content: [], details: {} as Record<string, number>, isError: false, scope: "main",
+      toolName: "bash", toolCallId: "c", input: {}, content: [], details: {} as Record<string, number>, isError: false, scope: "main", sessionId: "test-session",
     });
     expect(out.details).toEqual({ a: 1, b: 2 });
   });
@@ -411,7 +411,7 @@ describe("theatrical gate — v4.4.2 semantics: state-set, escalate at 3, USE ne
     // set the state via a first hit
     await gate(baseCtx({ toolName: "write", input: { content: "just mock the result" } }));
     const out = await after({
-      toolName: "bash", toolCallId: "c", input: {}, content: [{ type: "text", text: "done" }], details: {}, isError: false, scope: "main",
+      toolName: "bash", toolCallId: "c", input: {}, content: [{ type: "text", text: "done" }], details: {}, isError: false, scope: "main", sessionId: "test-session",
     });
     expect(out.content.map((b: any) => b.text ?? "").join("")).toContain("[PBK THEATRICAL GATE]");
     // container-test clears
@@ -420,10 +420,10 @@ describe("theatrical gate — v4.4.2 semantics: state-set, escalate at 3, USE ne
     await gate2(baseCtx({ toolName: "write", input: { content: "just mock the result" } }));
     const after2 = theatricalGateAfter(tracker2, () => false);
     await after2({
-      toolName: "ct-sandbox-test", toolCallId: "c", input: {}, content: [], details: {}, isError: false, scope: "main",
+      toolName: "ct-sandbox-test", toolCallId: "c", input: {}, content: [], details: {}, isError: false, scope: "main", sessionId: "test-session",
     });
     const out2 = await after2({
-      toolName: "bash", toolCallId: "c2", input: {}, content: [{ type: "text", text: "done" }], details: {}, isError: false, scope: "main",
+      toolName: "bash", toolCallId: "c2", input: {}, content: [{ type: "text", text: "done" }], details: {}, isError: false, scope: "main", sessionId: "test-session",
     });
     expect(out2.content.map((b: any) => b.text ?? "").join("")).not.toContain("[PBK THEATRICAL GATE]");
   });

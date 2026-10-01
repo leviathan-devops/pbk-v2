@@ -11,7 +11,7 @@ import { docDensityGateV2 } from "./middleware/doc-density-gate-v2";
 import { dispatchGate } from "./middleware/dispatch-gate";
 // V-081 wired: the template gate runs AHEAD of the legacy dispatch gate (its own module note says so).
 import { dispatchTemplateGate } from "./middleware/dispatch-template-gate";
-import { sttgfGate, armClaimFromCompletedMessage } from "./middleware/sttgf-gate";
+import { sttgfGate, sttgfGateAfter, armClaimFromCompletedMessage } from "./middleware/sttgf-gate";
 import { sttgfStateTracker } from "./firewalls/semantic-smoke-firewall";
 import { theatricalGate, theatricalGateAfter, TheatricalStateTracker } from "./middleware/theatrical-gate";
 import { containerGate, containerWriteGate } from "./middleware/container-gate";
@@ -89,6 +89,7 @@ export default function ctExtension(pi: ExtensionAPI): void {
   chain.useBefore(sttgfGate());
   chain.useBefore(theatricalGate(theatricalTracker));
   chain.useAfter(theatricalGateAfter(theatricalTracker, () => recordedRuns.hasAfter(sttgfStateTracker.getState("default").containerTestTimestamp ?? 0, "ct-sandbox-test")));
+  chain.useAfter(sttgfGateAfter());
 
   // ── V-027 FIX ──────────────────────────────────────────────────────────────
   // THE CHAIN WAS BUILT AND NEVER ATTACHED. `attachChain` (which performs the

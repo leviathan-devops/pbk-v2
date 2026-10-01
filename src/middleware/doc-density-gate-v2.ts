@@ -136,7 +136,10 @@ export function detectAnchorlessClaims(content: string): SlopHit {
   // and flags every anchored paragraph anchorless (the live diag: 80/80 on a
   // fully-anchored spec). A PARAGRAPH carrying an engineering verb must carry
   // an anchor somewhere in the same paragraph.
-  const anchorRe = /[:\d]\d+\b|file:line|:[0-9]{2,}|`[a-z0-9_/-]+\.(ts|md|ya?ml|json)`|output:|verification:|SEE /i;
+  // ★ doc-density-gate-v2.ts:139 — the old alternation `[:\d]\d+\b|:[0-9]{2,}` matched
+  //   bare digit runs (e.g. "80 rows in 2026") as if they were anchors. The alternation now
+  //   requires a FILE:LINE shape, never a bare number.
+  const anchorRe = /[a-z0-9_./-]+\.(ts|md|ya?ml|json):\d+\b|file:line|:[0-9]{2,}\b(?=\s|$|[),.;])|`[a-z0-9_/-]+\.(ts|md|ya?ml|json)`|output:|verification:|SEE /i;
   // V-065: THE INFLECTION DEFECT (measured before this fix). The old alternation listed bare stems with
   // `\b…\b` boundaries, so it matched `implements`/`handles`/`verif` but NOT `implemented`, `handled`,
   // `verified`, `enforced`, `dispatched`, `parsed`, `blocked`, `writes`, `returns` — **12 of 18 common
@@ -312,14 +315,18 @@ export function evaluateDocDensityV2(input: DocDensityV2Input): DocDensityV2Verd
   // reconstruction, and the marker check below still governs finalization.)
   const postState = isEdit
     ? (input.oldString !== undefined && existing !== null && existing.includes(input.oldString)
-        ? existing.replace(input.oldString, input.content)
-        : existing ?? input.content)
+        ? existing.split(input.oldString).join(input.content)
+        : (input.oldString !== undefined && existing !== null ? existing + "\n" + input.content : existing ?? input.content))
     : input.content;
 
   // V-082 (c): FINALIZE REQUIRES THE MARKER for an edit; a whole-file WRITE (no existing) is complete by
   // definition. Without this, `isFinalize` was always true and the DRAFT path — the remedy the gate's own
   // message names — was unreachable.
-  const isFinalize = postState.includes(DOC_COMPLETE_MARKER) || (existing === null && input.content.trim().length > 0);
+  // V-082 (c) + [audit:322]: FINALIZE requires the marker for an edit; a CREATE is final only
+  // when it already MEETS its floor — otherwise it enters the DRAFT path (the chunked protocol
+  // the gate's own remedy names). Without the floor clause a 50-line skeleton create hit the
+  // 3000-line SPEC floor and the draft->edit->finalize workflow was unreachable.
+  const isFinalize = postState.includes(DOC_COMPLETE_MARKER) || (existing === null && input.content.trim().length > 0 && postState.split("\n").length >= floor);
   const isDraftMarked = postState.startsWith("DRAFT") || postState.includes("<!-- DRAFT -->");
   const lines = postState.split("\n").length;
 
@@ -386,7 +393,12 @@ export function docDensityGateV2(host: EngineHost): BeforeGate {
     if (!path.toLowerCase().endsWith(".md")) return undefined;
     if (EXEMPT_PATHS.some((e) => path.includes(e))) return undefined;
     const content = String(ctx.input.content ?? ctx.input.newString ?? "");
-    const existing = ctx.toolName === "edit" ? host.readFileSync(path) : null;
+    // [audit:389] the read was unguarded: a missing/permission-denied/transient path threw and
+    // the BeforeGate rejected instead of failing open. An unreadable file is treated as a CREATE.
+    let existing: string | null = null;
+    if (ctx.toolName === "edit") {
+      try { existing = host.readFileSync(path); } catch { existing = null; }
+    }
     // V-082: the patch travels with the input so the post-state can APPLY it.
     const oldString = typeof ctx.input.oldString === "string" ? ctx.input.oldString : undefined;
     const verdict = evaluateDocDensityV2({ filePath: path, content, existing, oldString });
