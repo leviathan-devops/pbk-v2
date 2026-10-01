@@ -304,16 +304,18 @@ export function containerCandidate(cmd: string): GateCandidate {
 export function docTypeCandidate(filePath: string, guessed: string, contentHead: string): GateCandidate {
   // ★ AUDIT HIGH FIX (tool-gate.ts:234): the raw `guessed` was interpolated 4x into the prompt — a
   //   crafted doc-type string was a direct prompt injection. Sanitize ONCE into locals and reuse.
-  const fp = sanitizeForJudge(filePath, 120);
-  const g = sanitizeForJudge(guessed, 20);
+  // [audit:313] `fp`/`g` sat inside SINGLE-QUOTED literals — a filePath like `a' + ...` closed the
+  // quoting and re-framed as instruction. Values now ride as delimited STATE, never quoted prose.
+  const fp = sanitizeForJudge(filePath, 120).replace(/'/g, "");
+  const g = sanitizeForJudge(guessed, 20).replace(/'/g, "");
   return {
     kind: "DOC_TYPE",
     signals: [fp, g, scrubSecrets(String(contentHead ?? "")).slice(0, 200)],
     severity: "info", // INFO: a dead judge lets the doc write proceed (never bricks a write)
-    instructions: `A file named '${fp}' was classified as '${g}' by a path regex. Is it REALLY a ${g}-class document (which would impose a ${g} length/substance floor), or is it a different class that should NOT be held to that floor?`,
+    instructions: `A file was classified by a path regex. Is it REALLY a document of the guessed class (which would impose a length/substance floor), or is it a different class that should NOT be held to that floor?\nFile: <<${fp}>>\nGuessed class: <<${g}>>`,
     criteria: {
-      serve: `the classification is wrong or the doc is a different, lighter class (e.g. a wave plan, a checklist, an index) — do NOT impose the ${g} floor`,
-      refuse: `the classification is right: this IS a real ${g}-class document and must meet its floor`,
+      serve: `the classification is wrong or the doc is a different, lighter class (e.g. a wave plan, a checklist, an index) — do NOT impose the guessed-class floor`,
+      refuse: `the classification is right: this IS a real document of the guessed class and must meet its floor`,
     },
   };
 }

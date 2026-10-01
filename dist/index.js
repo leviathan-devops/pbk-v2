@@ -147,16 +147,18 @@ function containerCandidate(cmd) {
   };
 }
 function docTypeCandidate(filePath, guessed, contentHead) {
-  const fp = sanitizeForJudge(filePath, 120);
-  const g = sanitizeForJudge(guessed, 20);
+  const fp = sanitizeForJudge(filePath, 120).replace(/'/g, "");
+  const g = sanitizeForJudge(guessed, 20).replace(/'/g, "");
   return {
     kind: "DOC_TYPE",
     signals: [fp, g, scrubSecrets(String(contentHead ?? "")).slice(0, 200)],
     severity: "info",
-    instructions: `A file named '${fp}' was classified as '${g}' by a path regex. Is it REALLY a ${g}-class document (which would impose a ${g} length/substance floor), or is it a different class that should NOT be held to that floor?`,
+    instructions: `A file was classified by a path regex. Is it REALLY a document of the guessed class (which would impose a length/substance floor), or is it a different class that should NOT be held to that floor?
+File: <<${fp}>>
+Guessed class: <<${g}>>`,
     criteria: {
-      serve: `the classification is wrong or the doc is a different, lighter class (e.g. a wave plan, a checklist, an index) \u2014 do NOT impose the ${g} floor`,
-      refuse: `the classification is right: this IS a real ${g}-class document and must meet its floor`
+      serve: `the classification is wrong or the doc is a different, lighter class (e.g. a wave plan, a checklist, an index) \u2014 do NOT impose the guessed-class floor`,
+      refuse: `the classification is right: this IS a real document of the guessed class and must meet its floor`
     }
   };
 }
@@ -760,8 +762,7 @@ function evaluateDocDensityV2(input) {
   const floor = DOC_FLOORS[docType];
   const existing = input.existing ?? null;
   const isEdit = existing !== null && (input.oldString !== undefined || input.content.length > 0);
-  const postState = isEdit ? input.oldString !== undefined && existing !== null && existing.includes(input.oldString) ? existing.split(input.oldString).join(input.content) : input.oldString !== undefined && existing !== null ? existing + `
-` + input.content : existing ?? input.content : input.content;
+  const postState = isEdit ? input.oldString !== undefined && existing !== null && existing.includes(input.oldString) ? existing.split(input.oldString).join(input.content) : input.oldString !== undefined ? existing ?? input.content : input.content : input.content;
   const isFinalize = postState.includes(DOC_COMPLETE_MARKER) || existing === null && input.content.trim().length > 0;
   const isDraftMarked = postState.startsWith("DRAFT") || postState.includes("<!-- DRAFT -->");
   const lines = postState.split(`
@@ -2221,7 +2222,7 @@ var CONTAINER_VERB_RE = /(docker\s+(exec|run|attach|rm|stop|kill)|tmux\s+(send-k
 var SPAWN_INDIRECTION_RE = /((Bun\.spawnSync|spawnSync|execSync|execFileSync|child_process|fork\()[\s\S]*(docker|tmux|container)|(docker|tmux|container)[\s\S]*(Bun\.spawnSync|spawnSync|execSync|execFileSync|child_process|fork\())/i;
 var BASE64_OBFUSCATION_RE = /(base64\s*(-d|--decode|-D)\s*|openssl\s+(enc|base64)[\s\S]{0,40}-d\s*)(\s*\|\s*(sh|bash|zsh|eval|source|\.\s)|\s*>\s*\S+[\s\S]{0,60}(chmod\s+\+x|sh\s|bash\s))/i;
 var ENTRYPOINT_OVERRIDE_RE = /docker\s+run[\s\S]*--entrypoint/i;
-var TEST_RUNNER_BYPASS_RE = /(bun\s+test|bunx\s+bun-test|bun\s+test:battery)[\s\S]{0,80}(net-probe|flip-debug|container-flip-gate)/i;
+var TEST_RUNNER_BYPASS_RE = /(bun\s+test|bunx\s+bun-test|bun\s+test:battery)[\s\S]*(net-probe|flip-debug|container-flip-gate)/i;
 function isBannedRunnerCommand(cmd) {
   return TEST_RUNNER_BYPASS_RE.test(cmd);
 }
@@ -2241,7 +2242,7 @@ function isContainerPathCommand(cmd) {
     return true;
   return false;
 }
-var SANDBOX_ENGINE_EXEMPT = /src\/engines\/sandbox\//;
+var SANDBOX_ENGINE_EXEMPT = /(^|\/)src\/engines\/sandbox\//;
 var EXEC_CONTEXT_RE = /(Bun\.spawnSync|spawnSync|execSync|execFileSync|child_process|fork\(|bash\s+-lc|sh\s+-c|>\s*\/tmp|<<\s*['"]?(EOF|EOT))/i;
 function isBypassWrite(path, content) {
   if (/src\/middleware\/container-gate\.ts$/.test(path))
@@ -2311,11 +2312,21 @@ function containerWriteGate() {
     if (ctx.toolName !== "write" && ctx.toolName !== "edit")
       return;
     const path = String(ctx.input.path ?? ctx.input.filePath ?? ctx.input.file ?? "");
-    const raw = ctx.input.content ?? ctx.input.newString ?? ctx.input.value ?? ctx.input.text ?? ctx.input.data ?? ctx.input.patch ?? "";
-    const extra = Array.isArray(ctx.input.edits) ? ctx.input.edits.map((e) => e.text ?? e.newString ?? "").join(`
-`) : "";
-    const content = String(raw) + `
-` + String(extra);
+    const payloadFields = [ctx.input.content, ctx.input.newString, ctx.input.value, ctx.input.text, ctx.input.data, ctx.input.patch];
+    const extra = Array.isArray(ctx.input.edits) ? ctx.input.edits.map((e) => [e.text, e.newString, e.content, e.patch].filter((x) => typeof x === "string").join(`
+`)) : [];
+    const parts = [];
+    for (const f of [...payloadFields, ...extra]) {
+      if (typeof f === "string" && f)
+        parts.push(f);
+      else if (f !== null && f !== undefined && typeof f === "object") {
+        try {
+          parts.push(JSON.stringify(f));
+        } catch {}
+      }
+    }
+    const content = parts.join(`
+`);
     if (isBypassWrite(path, content)) {
       return {
         action: "block",

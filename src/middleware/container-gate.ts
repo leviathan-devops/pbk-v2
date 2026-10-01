@@ -59,7 +59,8 @@ const ENTRYPOINT_OVERRIDE_RE =
 // herdr-visibility) is the TOOL'S OWN verification suite — it runs via bun
 // test and is never a bypass; it tests the st tool's runtime.
 const TEST_RUNNER_BYPASS_RE =
-  /(bun\s+test|bunx\s+bun-test|bun\s+test:battery)[\s\S]{0,80}(net-probe|flip-debug|container-flip-gate)/i;
+  // [audit] the {0,80} window was evadable by flag-padding. Order-insensitive co-occurrence.
+  /(bun\s+test|bunx\s+bun-test|bun\s+test:battery)[\s\S]*(net-probe|flip-debug|container-flip-gate)/i;
 
 // Bypass shape 5: heredoc/pipe writes that materialize docker into a file
 // that is then executed (write a bypass script, then run it).
@@ -115,7 +116,7 @@ export function isContainerPathCommand(cmd: string): boolean {
  * drives containers is the bypass-materialization channel. The st tool's
  * own engine files (src/engines/sandbox/*) are exempt — they ARE the tool.
  */
-const SANDBOX_ENGINE_EXEMPT = /src\/engines\/sandbox\//;
+const SANDBOX_ENGINE_EXEMPT = /(^|\/)src\/engines\/sandbox\//;
 
 /** The execution-context indicators — a docker word is a bypass ONLY when it
  * is executed (spawnSync/bash/shell invocation), not when it is a plain
@@ -216,12 +217,21 @@ export function containerWriteGate(): BeforeGate {
     if (ctx.toolName !== "write" && ctx.toolName !== "edit") return undefined;
     const path = String(ctx.input.path ?? ctx.input.filePath ?? ctx.input.file ?? "");
     // [audit] edit payloads arrive under many field names (patch/edits[]/insert/text/data) and a
-    // two-step edit never presents both signals in one call. Collect every string-bearing field.
-    const raw = ctx.input.content ?? ctx.input.newString ?? ctx.input.value ?? ctx.input.text ?? ctx.input.data ?? ctx.input.patch ?? "";
+    // two-step edit never presents both signals in one call. Collect EVERY string-bearing field —
+    // the old `??` chain inspected only the first present field and ignored the rest.
+    const payloadFields = [ctx.input.content, ctx.input.newString, ctx.input.value, ctx.input.text, ctx.input.data, ctx.input.patch];
     const extra = Array.isArray((ctx.input as { edits?: unknown }).edits)
-      ? ((ctx.input as { edits: Array<{ text?: string; newString?: string }> }).edits.map((e) => e.text ?? e.newString ?? "").join("\n"))
-      : "";
-    const content = String(raw) + "\n" + String(extra);
+      ? ((ctx.input as { edits: Array<{ text?: string; newString?: string; content?: string; patch?: string }> }).edits.map((e) => [e.text, e.newString, e.content, e.patch].filter((x) => typeof x === "string").join("\n")))
+      : [];
+    const parts: string[] = [];
+    for (const f of [...payloadFields, ...extra]) {
+      if (typeof f === "string" && f) parts.push(f);
+      else if (f !== null && f !== undefined && typeof f === "object") {
+        // [audit] String(obj) yields "[object Object]" and hides the payload — serialise.
+        try { parts.push(JSON.stringify(f)); } catch { /* unserialisable */ }
+      }
+    }
+    const content = parts.join("\n");
     if (isBypassWrite(path, content)) {
       return {
         action: "block",

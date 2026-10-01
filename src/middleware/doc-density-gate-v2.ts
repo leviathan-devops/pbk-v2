@@ -316,7 +316,10 @@ export function evaluateDocDensityV2(input: DocDensityV2Input): DocDensityV2Verd
   const postState = isEdit
     ? (input.oldString !== undefined && existing !== null && existing.includes(input.oldString)
         ? existing.split(input.oldString).join(input.content)
-        : (input.oldString !== undefined && existing !== null ? existing + "\n" + input.content : existing ?? input.content))
+        // [audit] the fallback was `existing ?? input.content` → `existing` — a WRITE-over-existing
+        // (oldString absent) judged the OLD file and ignored the overwrite payload. A write
+        // REPLACES the file, so the post-state is the new content.
+        : (input.oldString !== undefined ? existing ?? input.content : input.content))
     : input.content;
 
   // V-082 (c): FINALIZE REQUIRES THE MARKER for an edit; a whole-file WRITE (no existing) is complete by
