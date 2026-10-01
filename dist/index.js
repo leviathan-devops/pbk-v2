@@ -30,7 +30,7 @@ function buildJudgeState(kind, state, max = 6000) {
 <<<END UNTRUSTED DATA>>>`;
 }
 function sanitizeForJudge(v, max = 160) {
-  return String(v ?? "").replace(/[\u0000-\u001f\u007f]+/g, " ").slice(0, max);
+  return String(v ?? "").replace(/[\u0000-\u001f\u007f\u200b-\u200f\u2028-\u2029\u202a-\u202e\u2066-\u2069\ufeff]+/g, " ").slice(0, max);
 }
 async function askGateDecision(candidate, state, opts = {}) {
   const t0 = performance.now();
@@ -82,7 +82,7 @@ function enforceGate(candidate, v) {
   if (v.choice === "refuse" && v.confidence >= GATE_THRESHOLD) {
     return { action: "refuse", reason: `${candidate.kind}: judge refuse p=${v.confidence.toFixed(3)} >= ${GATE_THRESHOLD}`, remedy: candidate.criteria.serve };
   }
-  if (v.choice !== "serve") {
+  if (v.choice !== "serve" && v.choice !== "refuse") {
     if (candidate.severity === "info") {
       return { action: "serve", reason: `${candidate.kind}: judge choice ${JSON.stringify(String(v.choice)).slice(0, 30)} unknown \u2014 info surface fails OPEN, named`, remedy: null };
     }
@@ -1810,7 +1810,8 @@ function sttgfGate() {
     if (process.env.CT_DEBUG === "1") {
       try {
         const { appendFileSync } = __require("fs");
-        appendFileSync("/tmp/ct-chain.log", `[${new Date().toISOString()}] gate saw tool=${ctx.toolName} cmd=${String((ctx.input || {}).command || "").slice(0, 60)}
+        init_tool_gate();
+        appendFileSync("/tmp/ct-chain.log", `[${new Date().toISOString()}] gate saw tool=${ctx.toolName} cmd=${scrubSecrets(String((ctx.input || {}).command || "")).slice(0, 60).replace(/[\r\n]+/g, " ")}
 `);
       } catch {}
     }
@@ -2231,6 +2232,8 @@ function isContainerPathCommand(cmd) {
     return false;
   const action = cmd.replace(/<<-?["']?([A-Za-z_][A-Za-z0-9_]*)["']?[\s\S]*?\n\1\b/g, " <HEREDOC>").replace(/"[^"]*"/g, '""').replace(/'[^']*'/g, "''");
   if (CONTAINER_VERB_RE.test(action))
+    return true;
+  if (/\b(?:sh|bash|zsh|dash|ksh)\s+-[a-zA-Z]*c\b[\s\S]*(docker|tmux)\s+(exec|run|attach|rm|stop|kill)/i.test(cmd))
     return true;
   if (SPAWN_INDIRECTION_RE.test(action))
     return true;

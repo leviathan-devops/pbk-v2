@@ -103,7 +103,7 @@ export function sanitizeForJudge(v: unknown, max = 160): string {
   // them destroyed the DATA-vs-ACTION distinction (the measured 11/11). Structural breakout
   // protection for builders lives in the candidate constructors (bounded, single-line values).
   return String(v ?? "")
-    .replace(/[\u0000-\u001f\u007f]+/g, " ")
+    .replace(/[\u0000-\u001f\u007f\u200b-\u200f\u2028-\u2029\u202a-\u202e\u2066-\u2069\ufeff]+/g, " ")
     .slice(0, max);
 }
 
@@ -191,7 +191,10 @@ export function enforceGate(candidate: GateCandidate, v: GateVerdict): { action:
   }
   // [audit] an UNKNOWN choice (a runtime string outside serve|refuse) must never coerce to serve —
   // the CRIT-1 guarantee. Fail-CLOSED on security, fail-OPEN on info.
-  if (v.choice !== "serve") {
+  // [audit:192] the old branch caught legal low-confidence `refuse` too and mislogged it as
+  // "unknown". Only a genuinely unknown choice lands here now — the low-confidence refuse path
+  // below keeps its own gray-zone reason.
+  if (v.choice !== "serve" && v.choice !== "refuse") {
     if (candidate.severity === "info") {
       return { action: "serve", reason: `${candidate.kind}: judge choice ${JSON.stringify(String(v.choice)).slice(0, 30)} unknown — info surface fails OPEN, named`, remedy: null };
     }

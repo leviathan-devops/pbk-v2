@@ -77,7 +77,10 @@ export function sttgfGate(): BeforeGate {
     if (process.env.CT_DEBUG === "1") {
       try {
         const { appendFileSync } = require("node:fs");
-        appendFileSync("/tmp/ct-chain.log", `[${new Date().toISOString()}] gate saw tool=${ctx.toolName} cmd=${String((ctx.input||{}).command||"").slice(0,60)}\n`);
+        const { scrubSecrets } = require("../ext/tool-gate");
+        // [audit] the debug path wrote the RAW command slice — secrets on a world-readable /tmp
+        // file. Scrubbed + bounded like the block path.
+        appendFileSync("/tmp/ct-chain.log", `[${new Date().toISOString()}] gate saw tool=${ctx.toolName} cmd=${scrubSecrets(String((ctx.input||{}).command||"")).slice(0,60).replace(/[\r\n]+/g, " ")}\n`);
       } catch { /* instrumentation */ }
     }
     const toolName = ctx.toolName;

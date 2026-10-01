@@ -97,7 +97,12 @@ export function isContainerPathCommand(cmd: string): boolean {
     .replace(/<<-?["']?([A-Za-z_][A-Za-z0-9_]*)["']?[\s\S]*?\n\1\b/g, " <HEREDOC>")
     .replace(/"[^"]*"/g, '""')
     .replace(/'[^']*'/g, "''");
+  // [audit] the strip blanks quoted payloads, so `bash -c 'docker exec ...'` became `bash -c ''`
+  // and evaded the verb check. Test BOTH views: the stripped ACTION (quoted DATA excluded) and
+  // the RAW command for the shell-wrapper class (`sh|bash|zsh|dash -c` carrying a container verb
+  // inside its quoted payload — the payload IS the executed action there).
   if (CONTAINER_VERB_RE.test(action)) return true;
+  if (/\b(?:sh|bash|zsh|dash|ksh)\s+-[a-zA-Z]*c\b[\s\S]*(docker|tmux)\s+(exec|run|attach|rm|stop|kill)/i.test(cmd)) return true;
   if (SPAWN_INDIRECTION_RE.test(action)) return true;
   if (BASE64_OBFUSCATION_RE.test(action)) return true;
   if (ENTRYPOINT_OVERRIDE_RE.test(action)) return true;
