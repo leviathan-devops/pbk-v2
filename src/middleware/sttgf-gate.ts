@@ -21,7 +21,23 @@ import {
 // ★ W3 — THE JEV DECISION LAYER: the regex marks a SMOKE candidate; the judge decides (the F-141 fix).
 import { askGateDecision, smokeCandidate, recordGateDecision, GATE_THRESHOLD } from "../ext/tool-gate";
 // [audit:153] the container-test ARMS in the BeforeGate and CONFIRMS in the AfterGate.
-const pendingContainerTests = new Map<string, number>();
+// [audit] the pending map had no TTL/eviction and concurrent arms overwrote each other —
+// a stale arm confirmed a much later claim, and abandoned sessions leaked forever.
+const pendingContainerTests = new Map<string, { armedAt: number; count: number }>();
+const PENDING_TTL_MS = 30 * 60 * 1000;
+const MAX_PENDING = 1000;
+function armPending(sid: string): void {
+  const now = Date.now();
+  for (const [k, v] of pendingContainerTests) {
+    if (now - v.armedAt > PENDING_TTL_MS) pendingContainerTests.delete(k);
+  }
+  if (pendingContainerTests.size >= MAX_PENDING) {
+    const oldest = [...pendingContainerTests.entries()].sort((a, b) => a[1].armedAt - b[1].armedAt)[0]?.[0];
+    if (oldest) pendingContainerTests.delete(oldest);
+  }
+  const cur = pendingContainerTests.get(sid);
+  pendingContainerTests.set(sid, { armedAt: now, count: (cur?.count ?? 0) + 1 });
+}
 // ─── The completion-claim lexicon — v6 hook-chain.ts:984-1018, VERBATIM.
 // A completion-claim word counts as a CLAIM only when its sentence is NOT
 // negated. A completion claim counts ONLY when it is about WORK: a strong
@@ -164,7 +180,7 @@ export function sttgfGate(): BeforeGate {
       try {
         const ctAction = typeof args.action === "string" ? args.action : "";
         if (CT_ACTIONS[ctAction]) {
-          pendingContainerTests.set(sid, Date.now());
+          armPending(sid);
           ctLog("INFO", "sttgf", "Container test ARMED (" + ctAction + ") — awaiting the AfterGate confirmation");
         }
       } catch (ctTrackErr) {
@@ -187,11 +203,21 @@ export function sttgfGateAfter(): (ctx: AfterContext) => Promise<AfterContext> {
     // armed test never confirmed — the gate stuck and the counter never reset.
     const sid = ctx.sessionId || "default";
     try {
-      if (!ctx.isError && pendingContainerTests.has(sid)) {
+      // [audit] the confirm checked only toolName+isError — any benign CT call (status/help)
+      // cleared a pending arm. The completed action must be one of the armed CT_ACTIONS, and
+      // the count decrements (concurrent arms need concurrent confirmations).
+      const doneAction = typeof (ctx.input as Record<string, unknown> | undefined)?.["action"] === "string"
+        ? String((ctx.input as Record<string, unknown>)["action"]) : "";
+      const arm = pendingContainerTests.get(sid);
+      if (!ctx.isError && arm && CT_ACTIONS[doneAction]) {
+        if (arm.count > 1) {
+          pendingContainerTests.set(sid, { armedAt: arm.armedAt, count: arm.count - 1 });
+        } else {
+          pendingContainerTests.delete(sid);
+        }
         sttgfStateTracker.setContainerTestRan(sid, true);
         sttgfStateTracker.setVerificationClaimed(sid, false);
         sttgfStateTracker.resetBlockCount(sid); // [audit:114] compliance clears the escalation
-        pendingContainerTests.delete(sid);
         ctLog("INFO", "sttgf", "Container test CONFIRMED (non-error) — claim gate cleared, escalation counter reset");
       } else if (ctx.isError) {
         pendingContainerTests.delete(sid);
