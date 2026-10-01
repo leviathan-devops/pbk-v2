@@ -15,6 +15,7 @@ var __require = import.meta.require;
 // src/ext/tool-gate.ts
 import { appendFileSync as appendFileSync2, mkdirSync as mkdirSync2 } from "fs";
 import { homedir } from "os";
+import { dirname } from "path";
 function scrubSecrets(text) {
   return String(text ?? "").replace(/(Bearer|token|api[_-]?key|secret|password|passwd|authorization)\s*[:=]?\s*[A-Za-z0-9_\-./+=~]{8,}/gi, "$1 <redacted>").replace(/(sk|pk|ghp|gho|xox[baprs])[-_][A-Za-z0-9_-]{12,}/g, "<redacted>").replace(/[A-Za-z0-9_-]{32,}/g, (m) => /\d/.test(m) && /[A-Za-z]/.test(m) ? "<redacted-opaque>" : m);
 }
@@ -61,10 +62,10 @@ async function askGateDecision(candidate, state, opts = {}) {
 }
 function enforceGate(candidate, v) {
   if (v.degraded) {
-    if (candidate.severity === "security") {
-      return { action: "refuse", reason: `security gate: judge unavailable (${v.judge}) \u2014 fail-CLOSED`, remedy: "the judge at :8090 is required for this surface; start it and re-run" };
+    if (candidate.severity === "info") {
+      return { action: "serve", reason: `info gate: judge unavailable (${v.judge}) \u2014 fail-OPEN, named`, remedy: null };
     }
-    return { action: "serve", reason: `info gate: judge unavailable (${v.judge}) \u2014 fail-OPEN, named`, remedy: null };
+    return { action: "refuse", reason: `security gate: judge unavailable (${v.judge}) \u2014 fail-CLOSED`, remedy: "the judge at :8090 is required for this surface; start it and re-run" };
   }
   if (v.choice === "refuse" && v.confidence >= GATE_THRESHOLD) {
     return { action: "refuse", reason: `${candidate.kind}: judge refuse p=${v.confidence.toFixed(3)} >= ${GATE_THRESHOLD}`, remedy: candidate.criteria.serve };
@@ -78,8 +79,8 @@ function enforceGate(candidate, v) {
 function recordGateDecision(candidate, v, extra = {}) {
   try {
     const p = process.env.GATE_LEDGER ?? `${homedir()}/.omp/run/gate-ledger.jsonl`;
-    const dir = p.slice(0, p.lastIndexOf("/"));
-    if (dir)
+    const dir = dirname(p);
+    if (dir && dir !== ".")
       mkdirSync2(dir, { recursive: true });
     appendFileSync2(p, JSON.stringify({
       ts: new Date().toISOString(),
@@ -88,10 +89,7 @@ function recordGateDecision(candidate, v, extra = {}) {
       severity: candidate.severity,
       State: { command: scrubSecrets(extra.command ?? "").slice(0, 600), sessionId: extra.sessionId ?? null, tool: extra.tool ?? null },
       Evidence: { judge: v.judge, choice: v.choice, confidence: v.confidence, probabilities: v.probabilities, ms: v.ms, degraded: v.degraded },
-      origin: (() => {
-        const sid = String(extra.sessionId ?? "");
-        return sid.includes("/sessions/") ? "real" : "harness";
-      })(),
+      origin: extra.origin ?? (String(extra.sessionId ?? "").startsWith("/home/leviathan/.omp/agent/sessions/") ? "real" : "harness"),
       enforced: extra.enforced ?? null,
       remedy: extra.remedy ?? null
     }) + `
@@ -2177,8 +2175,6 @@ var SPAWN_INDIRECTION_RE = /((Bun\.spawnSync|spawnSync|execSync|execFileSync|chi
 var BASE64_OBFUSCATION_RE = /(base64\s*(-d|--decode|-D)\s*|openssl\s+(enc|base64)[\s\S]{0,40}-d\s*)(\s*\|\s*(sh|bash|zsh|eval|source|\.\s)|\s*>\s*\S+[\s\S]{0,60}(chmod\s+\+x|sh\s|bash\s))/i;
 var ENTRYPOINT_OVERRIDE_RE = /docker\s+run[\s\S]{0,80}--entrypoint/i;
 var TEST_RUNNER_BYPASS_RE = /(bun\s+test|bunx\s+bun-test|bun\s+test:battery)[\s\S]{0,80}(net-probe|flip-debug|container-flip-gate)/i;
-var HEREDOC_DOCKER_RE = /(<<\s*['"]?(EOF|EOT|heredoc)|tee\s+\/tmp|>\/tmp)[\s\S]{0,300}(docker|tmux)[\s\S]{0,80}(exec|run|rm)/i;
-var DOCKER_ANYWHERE_RE = /["'`](docker|tmux)\s+(exec|run|rm|attach|cp|logs)[\s\S]{0,60}(["'`]|$)/i;
 function isBannedRunnerCommand(cmd) {
   return TEST_RUNNER_BYPASS_RE.test(cmd);
 }
@@ -2194,11 +2190,7 @@ function isContainerPathCommand(cmd) {
     return true;
   if (ENTRYPOINT_OVERRIDE_RE.test(action))
     return true;
-  if (TEST_RUNNER_BYPASS_RE.test(action))
-    return true;
-  if (HEREDOC_DOCKER_RE.test(action))
-    return true;
-  if (DOCKER_ANYWHERE_RE.test(action))
+  if (TEST_RUNNER_BYPASS_RE.test(cmd))
     return true;
   return false;
 }

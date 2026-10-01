@@ -95,13 +95,13 @@ export function isContainerPathCommand(cmd: string): boolean {
   if (SPAWN_INDIRECTION_RE.test(action)) return true;
   if (BASE64_OBFUSCATION_RE.test(action)) return true;
   if (ENTRYPOINT_OVERRIDE_RE.test(action)) return true;
-  // ★ AUDIT HIGH FIX (container-gate.ts:88, the F-141 regression): these three ran on the RAW
-  //   command, so a fixture that merely CONTAINS the words (`cat > t.ts <<'TS' … TS`, or a
-  //   quoted/classifier-input string) still blocked after the strip. ALL shape checks now test
-  //   the ACTION view; a heredoc/quoted mention is DATA.
-  if (TEST_RUNNER_BYPASS_RE.test(action)) return true;
-  if (HEREDOC_DOCKER_RE.test(action)) return true;
-  if (DOCKER_ANYWHERE_RE.test(action)) return true;
+  // [audit:79] the NAME-BAN is a policy on a FILENAME, not a shape — it tests the RAW command,
+  // because the strip blanks the very quoted filename the ban exists for (`bun test "net-probe"`).
+  if (TEST_RUNNER_BYPASS_RE.test(cmd)) return true;
+  // [audit:88 + :102] HEREDOC_DOCKER_RE / DOCKER_ANYWHERE_RE are DELETED: tested on the raw they
+  // blocked a fixture that merely MENTIONS the words (the F-141 false positive); tested on the
+  // action they were dead (the strip removes their patterns). The classes they aimed at are
+  // covered — the ACTION verb check (a real invocation) and isBypassWrite (script materialization).
   return false;
 }
 

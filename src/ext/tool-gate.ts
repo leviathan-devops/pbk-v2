@@ -17,6 +17,7 @@
  */
 import { appendFileSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
+import { dirname } from "node:path";
 
 /** The surface a candidate belongs to — the fail-polarity fork. */
 export type GateSurface = "security" | "info";
@@ -142,10 +143,13 @@ export async function askGateDecision(
  *  `remedy` names the permitted form when it refuses. */
 export function enforceGate(candidate: GateCandidate, v: GateVerdict): { action: "serve" | "refuse"; reason: string; remedy: string | null } {
   if (v.degraded) {
-    if (candidate.severity === "security") {
-      return { action: "refuse", reason: `security gate: judge unavailable (${v.judge}) — fail-CLOSED`, remedy: "the judge at :8090 is required for this surface; start it and re-run" };
+    // [audit:139] the branch checked `=== "security"` and fell through to fail-OPEN serve for
+    // ANYTHING else — a corrupted/typo'd severity silently allowed. Fail-CLOSED is now the
+    // default; only an explicit "info" surface fails open.
+    if (candidate.severity === "info") {
+      return { action: "serve", reason: `info gate: judge unavailable (${v.judge}) — fail-OPEN, named`, remedy: null };
     }
-    return { action: "serve", reason: `info gate: judge unavailable (${v.judge}) — fail-OPEN, named`, remedy: null };
+    return { action: "refuse", reason: `security gate: judge unavailable (${v.judge}) — fail-CLOSED`, remedy: "the judge at :8090 is required for this surface; start it and re-run" };
   }
   if (v.choice === "refuse" && v.confidence >= GATE_THRESHOLD) {
     return { action: "refuse", reason: `${candidate.kind}: judge refuse p=${v.confidence.toFixed(3)} >= ${GATE_THRESHOLD}`, remedy: candidate.criteria.serve };
@@ -162,11 +166,13 @@ export function enforceGate(candidate: GateCandidate, v: GateVerdict): { action:
 }
 
 /** THE EVIDENCE TRIAD (Pattern · State · Evidence), append-only. */
-export function recordGateDecision(candidate: GateCandidate, v: GateVerdict, extra: { tool?: string; command?: string; sessionId?: string; enforced?: "served" | "refused"; remedy?: string | null } = {}): void {
+export function recordGateDecision(candidate: GateCandidate, v: GateVerdict, extra: { tool?: string; command?: string; sessionId?: string; enforced?: "served" | "refused"; remedy?: string | null; origin?: "real" | "harness" } = {}): void {
   try {
     const p = process.env.GATE_LEDGER ?? `${homedir()}/.omp/run/gate-ledger.jsonl`;
-    const dir = p.slice(0, p.lastIndexOf("/"));
-    if (dir) mkdirSync(dir, { recursive: true });
+    // [audit] the ledger dir was derived with lastIndexOf("/") — a bare filename/dir or a
+    // trailing slash produced an empty or wrong dir. dirname + an empty guard.
+    const dir = dirname(p);
+    if (dir && dir !== ".") mkdirSync(dir, { recursive: true });
     appendFileSync(p, JSON.stringify({
       ts: new Date().toISOString(),
       Pattern: candidate.kind,
@@ -174,7 +180,9 @@ export function recordGateDecision(candidate: GateCandidate, v: GateVerdict, ext
       severity: candidate.severity,
       State: { command: scrubSecrets(extra.command ?? "").slice(0, 600), sessionId: extra.sessionId ?? null, tool: extra.tool ?? null },
       Evidence: { judge: v.judge, choice: v.choice, confidence: v.confidence, probabilities: v.probabilities, ms: v.ms, degraded: v.degraded },
-      origin: (() => { const sid = String(extra.sessionId ?? ""); return sid.includes("/sessions/") ? "real" : "harness"; })(),
+      // [audit:162] the substring heuristic was spoofable by any sessionId carrying the token.
+      // A caller may pass the trusted origin explicitly; the fallback is a strict PREFIX check.
+      origin: extra.origin ?? (String(extra.sessionId ?? "").startsWith("/home/leviathan/.omp/agent/sessions/") ? "real" : "harness"),
       enforced: extra.enforced ?? null,
       remedy: extra.remedy ?? null,
     }) + "\n");
