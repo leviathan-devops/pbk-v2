@@ -291,8 +291,11 @@ function decide(
   if (verb === 'inline_exec') {
     return { action: 'BLOCK', category: 'INLINE_EXEC', reason: 'Inline exec is smoke test. Use container.', intent, target };
   }
-  if (verb === 'hash' && intent === 'smoke_verification') {
-    return { action: 'BLOCK', category: 'HASH_AS_PROOF', reason: 'Hash is not runtime proof. Container test required.', intent, target };
+  // [audit:294] a branch here tested `intent === 'smoke_verification'` — an intent value
+  // `extractIntent` never returns, so HASH_AS_PROOF was unreachable (phantom enforcement).
+  // The hash-as-proof class is covered by the claim-gated path below.
+  if (verb === 'hash' && sessionState?.verificationClaimed && !sessionState?.containerTestRan) {
+    return { action: 'ALLOW', category: 'CLAIM_GATED_PHASE_B', reason: 'Hash during a pending claim — Phase B demand rides the output (work not blocked)', intent, target };
   }
   if (verb === 'inspect_bundle') {
     // Claim-gated (derailment fix): block ONLY when a verification claim is

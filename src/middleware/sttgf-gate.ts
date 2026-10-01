@@ -28,7 +28,10 @@ const pendingContainerTests = new Map<string, number>();
 // phrase OR a claim word + a work entity in the same sentence. The exemptor:
 // when the sentence discusses the audit remedy, the claim word is part of
 // the remedy discussion, not a completion claim. STRONG phrases always hit.
-const CLAIM_WORD_RE = /(success|done|shipped|audited|verified|everything works|all green|passed)/i;
+// [audit:31] word boundaries added — `done` matched `undone`, `passed` matched `surpassed` (a
+// false CLAIM arm on prose that says the opposite). The negation set keeps its stems wide on
+// purpose (a failure word anywhere negates a pass claim).
+const CLAIM_WORD_RE = /\b(success|done|shipped|audited|verified|everything works|all green|passed)\b/i;
 const CLAIM_NEGATION_RE = /(not|cannot|can't|won't|refuse|refused|decline|never|no |without|unverified|unsubstantiated|fail|failing)/i;
 const CLAIM_WORK_ENTITY_RE = /(wave|build|task|fix|feature|module|everything|all|audit|ship|shipped|deploy|release|regression|battery|gate|scenario|listing|result|output|report|finding|directory|work|change|diff|code|file)/i;
 const CLAIM_STRONG_PHRASE_RE = /(everything works|all green|all done|all passed|the wave succeeded|wave shipped|build succeeded|task completed|audit passed|verified everything|everything verified|all verified|fully verified|verified correct|confirmed correct|is verified|verified the (listing|result|output|report|finding|directory|work|change|diff))/i;
