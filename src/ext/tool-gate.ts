@@ -48,7 +48,11 @@ export function scrubSecrets(text: string | null | undefined): string {
   //   non-string THREW, and the throw propagated into the caller's catch (a silent enforcement
   //   skip). The signature now matches reality (strictNullChecks verifies callers) and coerces.
   return String(text ?? "")
-    .replace(/(Bearer|token|api[_-]?key|secret|password|passwd|authorization)\s*[:=]?\s*[A-Za-z0-9_\-./+=~]{8,}/gi, "$1 <redacted>")
+    .replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, "<redacted-pem>")
+    .replace(/\bAKIA[0-9A-Z]{16}\b/g, "<redacted>")
+    .replace(/\beyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, "<redacted-jwt>")
+    .replace(/github_pat_[A-Za-z0-9_]{20,}/g, "<redacted>")
+    .replace(/(Bearer|token|api[_-]?key|secret|password|passwd|authorization)\s*[:=]?\s*["']?[^"'\s]{8,}["']?/gi, "$1 <redacted>")
     .replace(/(sk|pk|ghp|gho|xox[baprs])[-_][A-Za-z0-9_-]{12,}/g, "<redacted>")
     .replace(/[A-Za-z0-9_-]{32,}/g, (m) => (/\d/.test(m) && /[A-Za-z]/.test(m) ? "<redacted-opaque>" : m));
 }
@@ -110,7 +114,7 @@ export async function askGateDecision(
       // ★ AUDIT HIGH FIX (tool-gate.ts:98): the delimited+bounded wrapper (buildJudgeState)
       //   existed but was NOT used here — the untrusted state reached the model with no DATA
       //   delimiters, no data-label, and no length bound. The wall is now applied.
-      body: JSON.stringify({ state: buildJudgeState(candidate.kind, state), questions: { gate: { type: "choice", instructions: candidate.instructions, criteria: candidate.criteria } } }),
+      body: JSON.stringify({ state: buildJudgeState(candidate.kind, state), questions: { gate: { type: "choice", instructions: sanitizeForJudge(candidate.instructions, 2000), criteria: { serve: sanitizeForJudge(candidate.criteria.serve, 2000), refuse: sanitizeForJudge(candidate.criteria.refuse, 2000) } } } }),
       signal: AbortSignal.timeout(opts.timeoutMs ?? 4000),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
