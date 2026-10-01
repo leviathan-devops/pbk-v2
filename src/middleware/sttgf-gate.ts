@@ -18,6 +18,8 @@ import {
   checkSmokeTestFirewall,
   sttgfStateTracker,
 } from "../firewalls/semantic-smoke-firewall";
+// ★ W3 — THE JEV DECISION LAYER: the regex marks a SMOKE candidate; the judge decides (the F-141 fix).
+import { askGateDecision, smokeCandidate, recordGateDecision, GATE_THRESHOLD } from "../ext/tool-gate";
 // ─── The completion-claim lexicon — v6 hook-chain.ts:984-1018, VERBATIM.
 // A completion-claim word counts as a CLAIM only when its sentence is NOT
 // negated. A completion claim counts ONLY when it is about WORK: a strong
@@ -75,6 +77,29 @@ export function sttgfGate(): BeforeGate {
       if (sttgfResult.action === "BLOCK") {
         sttgfBlockCategory = sttgfResult.category;
         ctLog("WARN", "sttgf", `BLOCKED: ${sttgfResult.category} — ${sttgfResult.reason}`);
+        // ★ W3 — THE JEV DECISION LAYER (the mandate: "ALL DECISION MAKING TO BE DOEN
+        //   THROUGH JEV"). The regex matched an inline/headless SHAPE; the JUDGE decides
+        //   whether it is a GENUINE inline execution (block) or merely TEXT that CONTAINS
+        //   the shape — inside a heredoc body, a quoted arg, a grep pattern (THE F-141 CLASS:
+        //   the regex blocked a `cat > f <<'EOF' … node -e …EOF` write because the heredoc
+        //   body carried the shape). The judge reads the CONTEXT; the regex cannot.
+        //   POLARITY: fail-CLOSED — a dead judge OR a below-bar answer keeps the block (the
+        //   smoke policy stands; the block names its remedy: use container-testing).
+        try {
+          const cand = smokeCandidate(String(sttgfResult.category || "INLINE"), commandStr);
+          const jv = await askGateDecision(cand, `flagged category: ${sttgfResult.category}\nthe command:\n${commandStr.slice(0, 4000)}`);
+          recordGateDecision(cand, jv, {
+            tool: toolName, command: commandStr, sessionId: sid,
+            enforced: !jv.degraded && jv.choice === "serve" && jv.confidence >= GATE_THRESHOLD ? "served" : "refused",
+            remedy: "if this is ordinary work, keep the interpreter words out of the command's action (they may appear inside a quoted body); verification uses the container-testing tool",
+          });
+          if (!jv.degraded && jv.choice === "serve" && jv.confidence >= GATE_THRESHOLD) {
+            ctLog("INFO", "sttgf", `smoke judge CLEARED (serve p=${jv.confidence.toFixed(3)}) — the regex matched TEXT, not a real inline-exec (F-141)`);
+            return undefined; // the judge decided: TEXT, not an execution — do not block
+          }
+        } catch (jevErr) {
+          ctLog("WARN", "sttgf", `smoke judge failed (fail-CLOSED, the block stands): ${jevErr instanceof Error ? jevErr.message : String(jevErr)}`);
+        }
         // V-031 INSTRUMENT: record the FULL command the gate is about to block, so the loader's
         // own invocation can be identified instead of guessed at (V-030 keyed on the wrong shape).
         try {
@@ -110,9 +135,15 @@ export function sttgfGate(): BeforeGate {
         };
       }
     } catch (sttgfErr) {
-      // v6 :2505 — the verbatim entry throws internally on infra failure
-      // paths; enforcement verdicts arrive in the BLOCK branch above.
-      ctLog("WARN", "sttgf", `Firewall check failed: ${sttgfErr instanceof Error ? sttgfErr.message : String(sttgfErr)}`);
+      // ★ AUDIT CRIT-1 FIX: this catch was FAIL-OPEN — a firewall infra failure silently
+      //   allowed the call, bypassing enforcement entirely. The security surface fails CLOSED:
+      //   the failure BLOCKS with a named reason and a remedy (the recoverability law).
+      ctLog("WARN", "sttgf", `Firewall check failed (fail-CLOSED): ${sttgfErr instanceof Error ? sttgfErr.message : String(sttgfErr)}`);
+      return {
+        action: "block" as const,
+        gate: "sttgf",
+        reason: `[STTGF BLOCK] INFRA_FAILURE\n\nThe smoke firewall could not evaluate this call (${sttgfErr instanceof Error ? sttgfErr.message.slice(0, 160) : String(sttgfErr)}). The security surface fails CLOSED.\n\nRemedy: retry the call; if it repeats, the firewall itself needs attention (not the command).`,
+      };
     }
     // gating (v6 :2525-2532; theatrical subject-awareness does not exist in
     // OMP — no getTheatricalState import, so the hatch clears unconditionally).

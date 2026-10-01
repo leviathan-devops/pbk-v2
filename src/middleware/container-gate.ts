@@ -10,11 +10,19 @@
  */
 import type { BeforeGate } from "./chain";
 import { classifyExec, buildConfigLockMessage } from "../firewalls/pbk-anti-derailment.js";
+// ★ W3 — THE JEV DECISION LAYER: the regex marks the container SHAPE; the judge decides.
+import { askGateDecision, enforceGate, containerCandidate, recordGateDecision } from "../ext/tool-gate";
 import { ctLog } from "../utils.js";
 
 // Direct container verbs — the original v4.4.2 surface.
 const CONTAINER_VERB_RE =
-  /(docker\s+(exec|run|attach|logs|cp|stop|rm|start|kill|wait|top|inspect|port)|tmux\s+(send-keys|capture-pane|pipe-pane|new-session|new-window|split-window)|pkill\s+-f\s+omp)\b/i;
+  // ★ HT-BUG-12 FIX (2026-10-01): the verb list wrongly included READ/STAGE ops
+  //   (cp|logs|inspect|port|top|wait|start). `docker cp` STAGES a build artifact into a
+  //   container (the operator's own workflow — refused live); `docker logs/inspect/ps` READ
+  //   state. Only EXECUTING code in a container (exec|run|attach — the bypass of the
+  //   container-testing tool) and DESTROYING one (rm|stop|kill — a bypass of the evidence)
+  //   are the class.
+  /(docker\s+(exec|run|attach|rm|stop|kill)|tmux\s+(send-keys|capture-pane|pipe-pane|new-session|new-window|split-window)|pkill\s+-f\s+omp)\b/i;
 
 // Bypass shape 1: spawnSync / execSync / child_process indirection that
 // smuggles docker into a child process (the tests/seam/*.test.ts pattern).
@@ -58,12 +66,29 @@ const DOCKER_ANYWHERE_RE =
  * decides. Never a classifier; a match is a hard block (the operator's
  * "no bypass" law).
  */
+/** THE BAN LIST — a deterministic POLICY, not a shape judgment: invoking the TEST RUNNER on a
+ *  KNOWN bypass file (net-probe / flip-debug / container-flip-gate) is banned BY NAME. A name ban
+ *  is not a question of intent, so the judge does not adjudicate it; the SHAPES (a verb, an
+ *  indirection, base64-to-shell, a heredoc) are judged (text-vs-genuine). */
+export function isBannedRunnerCommand(cmd: string): boolean {
+  return TEST_RUNNER_BYPASS_RE.test(cmd);
+}
+
 export function isContainerPathCommand(cmd: string): boolean {
   if (!cmd) return false;
-  if (CONTAINER_VERB_RE.test(cmd)) return true;
-  if (SPAWN_INDIRECTION_RE.test(cmd)) return true;
-  if (BASE64_OBFUSCATION_RE.test(cmd)) return true;
-  if (ENTRYPOINT_OVERRIDE_RE.test(cmd)) return true;
+  // ★ HT-BUG-13 FIX (2026-10-01, reproduced LIVE): the verb test ran on the RAW command, so a
+  //   HEREDOC BODY that merely CONTAINS container strings (`cat > t.ts <<'TS' … docker exec … TS`)
+  //   matched — a test-fixture write was refused as a bypass (the F-141 class). The smoke gate
+  //   already strips quoted spans; this gate must strip QUOTED SPANS + HEREDOC BODIES (DATA) and
+  //   test only the command's own ACTION.
+  const action = cmd
+    .replace(/<<-?["']?([A-Za-z_][A-Za-z0-9_]*)["']?[\s\S]*?\n\1\b/g, " <HEREDOC>")
+    .replace(/"[^"]*"/g, '""')
+    .replace(/'[^']*'/g, "''");
+  if (CONTAINER_VERB_RE.test(action)) return true;
+  if (SPAWN_INDIRECTION_RE.test(action)) return true;
+  if (BASE64_OBFUSCATION_RE.test(action)) return true;
+  if (ENTRYPOINT_OVERRIDE_RE.test(action)) return true;
   if (TEST_RUNNER_BYPASS_RE.test(cmd)) return true;
   if (HEREDOC_DOCKER_RE.test(cmd)) return true;
   if (DOCKER_ANYWHERE_RE.test(cmd)) return true;
@@ -116,6 +141,37 @@ export function containerGate(): BeforeGate {
       ctLog("WARN", "container-gate", "the anti-derailment lexicon check failed (non-gate): " + (e instanceof Error ? e.message : String(e)));
     }
     if (isContainerPathCommand(cmd)) {
+      // ★ W3 — THE JEV DECISION LAYER (the mandate). The regex matched the container SHAPE;
+      //   the JUDGE decides whether it is a GENUINE bypass or TEXT that merely contains the
+      //   shape (a quoted string, a grep pattern, a classifier test fixture — THE F-141 CLASS).
+      //   SECURITY surface: fail-CLOSED — a dead judge keeps the block (it names its remedy).
+      if (isBannedRunnerCommand(cmd)) {
+        // a NAME BAN is policy, never a judgment (the judge does not adjudicate a list)
+        return {
+          action: "block",
+          gate: "container",
+          reason: "[PBK CONTAINER GATE] the test runner was pointed at a KNOWN bypass file (a name-ban policy): net-probe / flip-debug / container-flip-gate. Use the ct-sandbox-test AGENT TOOL.",
+        };
+      }
+      try {
+        const cand = containerCandidate(cmd);
+        const jv = await askGateDecision(cand, `the command:
+${cmd.slice(0, 4000)}`);
+        const ef = enforceGate(cand, jv);
+        recordGateDecision(cand, jv, {
+          tool: "bash", command: cmd, sessionId: ctx.sessionId,
+          enforced: ef.action === "refuse" ? "refused" : "served", remedy: ef.remedy,
+        });
+        if (ef.action === "serve") {
+          ctLog("INFO", "container-gate", `judge CLEARED (${jv.choice} p=${jv.confidence.toFixed(3)}) — the shape is TEXT, not a container bypass`);
+          return undefined;
+        }
+      } catch (jevErr) {
+        // ★ AUDIT HIGH FIX: the comment said fail-OPEN while the control flow kept the BLOCK.
+        //   The surface is SECURITY (containerCandidate.severity="security"), so the CORRECT
+        //   posture is fail-CLOSED — the block stands, and the log now says so.
+        ctLog("WARN", "container-gate", `judge failed (fail-CLOSED, the block stands): ${jevErr instanceof Error ? jevErr.message : String(jevErr)}`);
+      }
       return {
         action: "block",
         gate: "container",

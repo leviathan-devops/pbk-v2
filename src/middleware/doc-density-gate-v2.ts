@@ -34,6 +34,8 @@
  */
 import { BeforeGate } from "./chain";
 import type { EngineHost } from "../host";
+// ★ W3 — THE JEV DECISION LAYER: the path-regex classifies the doc TYPE; the judge confirms it.
+import { askGateDecision, enforceGate, docTypeCandidate, recordGateDecision } from "../ext/tool-gate";
 
 // ─── floors (forked verbatim from v4 / hook-chain warhead-7 table) ───
 
@@ -389,6 +391,30 @@ export function docDensityGateV2(host: EngineHost): BeforeGate {
     const oldString = typeof ctx.input.oldString === "string" ? ctx.input.oldString : undefined;
     const verdict = evaluateDocDensityV2({ filePath: path, content, existing, oldString });
     if (verdict.action === "block") {
+      // ★ W3 — THE JEV DECISION LAYER: the path-regex classified the doc TYPE; the JUDGE
+      //   confirms whether that class (and the floor it imposes) is right. THE F-140/F-141
+      //   CLASS: a path-regex read a `WAVE_PLAN.md` as a SPEC and demanded a 3000-line floor
+      //   it was never meant to meet. Consult the judge for the FLOOR ("under-specified")
+      //   block only; the slop screen is a real quality check the judge does not override.
+      //   INFO surface: a dead judge fails OPEN (never bricks a doc write).
+      if ((verdict.reason ?? "").includes("under-specified")) {
+        try {
+          const ev = verdict.evidence;
+          const cand = docTypeCandidate(path, ev.docType, content.slice(0, 2000));
+          const jv = await askGateDecision(cand, `file=${path}\nclassified as=${ev.docType}\nfloor=${ev.floor}\nlines=${ev.lines}\nhead:\n${content.slice(0, 400)}`);
+          const ef = enforceGate(cand, jv);
+          recordGateDecision(cand, jv, {
+            tool: ctx.toolName, command: path, sessionId: ctx.sessionId,
+            enforced: ef.action === "refuse" ? "refused" : "served", remedy: ef.remedy,
+          });
+          if (ef.action === "serve") {
+            host.log("INFO", "pbk", `doc-density judge CLEARED the classification (${jv.choice} p=${jv.confidence.toFixed(3)}) for ${path} — allow`);
+            return undefined; // the judge decided the classification is wrong — do not block
+          }
+        } catch (jevErr) {
+          host.log("WARN", "pbk", `doc-density judge failed (fail-OPEN, the block stands): ${jevErr instanceof Error ? jevErr.message : String(jevErr)}`);
+        }
+      }
       return { action: "block", gate: verdict.gate, reason: verdict.reason ?? "[DOC DENSITY GATE v2] doc-density floor violated" };
     }
     return undefined;

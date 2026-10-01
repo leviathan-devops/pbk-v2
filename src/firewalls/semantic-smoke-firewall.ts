@@ -206,7 +206,30 @@ export function classifyVerb(toolName: string, args: Record<string, unknown>, co
     if (/\b(?:opencode|omp|jarvis)[\s-]+(?:run\b|-p\b|--print\b)/i.test(cmd)) return 'headless';
     if (/\b(bun|npm|yarn|pnpm)\s+(build|run\s+build)\b/i.test(cmd) || /\btsc\b/i.test(cmd)) return 'build';
     if (/\b(sha256sum|md5sum|shasum)\b/i.test(cmd)) return 'hash';
-    if (/\b(node|bun)[\\\s]+(?:-[ex]\b|--eval\b|--print\b|--evaluate\b)/i.test(cmd) || /\bnpx\s+-e\b/i.test(cmd)) return 'inline_exec';
+    // ★ THE OVER-BREADTH FIX (2026-09-29 — the operator's live catch: a pure READ whose
+    //   PATTERN text contained the shape, `grep -c 'bun -e' <file>`, was classified
+    //   inline_exec and ESCALATED — the loop was disturbed by its own data). The shape
+    //   inside a QUOTED span is DATA, not a command: the test now runs on the UNQUOTED
+    //   view (quoted spans blanked), the shell's own rule. The real executable shapes
+    //   (`node -e 'code'` — a quoted CODE arg, matched on the unquoted `node -e ""`) are
+    //   untouched.
+    // ★ THE MISSED-VARIANT FIX (same round): the family was `node|bun` ONLY — a Python
+    //   `-c`/`-m`, a Perl `-e`, a Ruby `-e`, a PHP `-r` all SURVIVED the gate (the same
+    //   smoke class, four runtime families un-guarded). The interpreter family is now
+    //   covered with its eval flags (-c -e -x -m -r + the long forms).
+    const unquoted = cmd.replace(/"[^"]*"/g, '""').replace(/'[^']*'/g, "''");
+    // ★ THE MISSED-FAMILY FIX #2 (2026-10-01, the flaw hunt): the first missed-variant fix
+    //   covered python/python3 + perl/ruby/php but MISSED (measured by the classifyVerb probe):
+    //   the VERSIONED pythons (python2/python3.11/python3.12 — `python3?` cannot match the `2`
+    //   or the `.11`), the `nodejs` spelling, and the SHELL `-c` WRAPPER. All 8 survived the gate.
+    if (/\b(node|nodejs|bun|deno|tsx|python\d*(?:\.\d+)?|perl|ruby|php)\s+(?:--(?:eval|print|evaluate|module)\b|-[a-zA-Z]*[ecxrm]\b)/i.test(unquoted) || /\bnpx\s+-e\b/i.test(unquoted)) return 'inline_exec';
+    // the SHELL `-c` wrapper: a shell interpreter running code inline (the same smoke class).
+    //   The `-l`/`-x` forms stay unflagged; only the command flag bites.
+    if (/\b(?:sh|bash|zsh|dash|ksh)\s+-[a-zA-Z]*c\b/i.test(unquoted)) return 'inline_exec';
+    // ★ THE SUB-VERB FORM (same round): `deno eval 'code'` is the flagless variant of the
+    //   same class (the leaks list caught it). JS runtimes only — `eval` as a bare word is
+    //   too common in prose to test unanchored, so it requires the runtime head + the arg.
+    if (/\b(node|bun|deno|tsx)\s+eval\s+\S/i.test(unquoted)) return 'inline_exec';
     // PER-SUBCOMMAND evaluation (derailment fix): a head/grep in one subcommand
     // must NOT poison an unrelated bundle-path reference in another. Batched
     // build commands like "ls ... | head -10; wc -l .../forge-bundle.js" were
