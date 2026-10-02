@@ -47,7 +47,8 @@ const BASE64_OBFUSCATION_RE =
   // ★ AUDIT HIGH FIX (container-gate.ts:37): was too narrow — missed macOS `base64 -D`,
   //   `openssl enc -base64 -d | sh`, and decode-to-file + chmod/run. Broadened (decode-to-stdout
   //   for reading stays allowed; decode-to-shell/file+exec is the bypass).
-  /(base64\s*(-d|--decode|-D)\s*|openssl\s+(enc|base64)[\s\S]{0,40}-d\s*)(\s*\|\s*(sh|bash|zsh|eval|source|\.\s)|\s*>\s*\S+[\s\S]{0,60}(chmod\s+\+x|sh\s|bash\s))/i;
+  // [audit:50] `base64 -d payload.b64 | sh` has a FILENAME between -d and the pipe — allowed now.
+  /(base64\s+(?:-\S+\s+)*(?:-d|--decode|-D)\s*\S*\s*|openssl\s+(?:enc|base64)[\s\S]{0,40}-d\s*\S*\s*)(\|\s*(?:sh|bash|zsh|eval|source|\.\s)|>\s*\S+[\s\S]{0,60}(?:chmod\s+\+x|sh\s|bash\s))/i;
 
 // Bypass shape 3: entrypoint-override container spawns (docker run
 // --entrypoint sleep ... — the shell-keepalive trick used to drive RPC).
@@ -135,7 +136,10 @@ const EXEC_CONTEXT_RE =
   //   (`const c = \`<container> exec foo\``) was flagged a bypass (a false positive on a test OF the
   //   gate). The real bypass signature is an EXECUTION context (spawn/exec/bash -c/fork) or a
   //   heredoc-script write — a bare backtick is DATA, never an execution.
-  /(Bun\.spawnSync|spawnSync|execSync|execFileSync|child_process|fork\(|bash\s+-lc|sh\s+-c|>\s*\/tmp|<<\s*['"]?(EOF|EOT))/i;
+  // [audit:138] `> /tmp` missed `> ./run.sh`, `> /var/tmp/x`, `> $HOME/a.sh`; the heredoc delims
+  //   missed `<<SCRIPT`/`<<'PAYLOAD'`. Broadened to any redirect target (excluding `<`, so a TS
+  //   generic `Array<X>` does not match) + any heredoc delimiter.
+  /(Bun\.spawnSync|spawnSync|execSync|execFileSync|child_process|fork\(|bash\s+-lc|sh\s+-c|>\s*(?!<)\S+|<<-?\s*['"]?[A-Za-z_])/i;
 
 export function isBypassWrite(path: string, content: string): boolean {
   // [audit] the old exemption was a whole-directory substring (`src/middleware/` etc) — any new

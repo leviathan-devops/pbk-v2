@@ -2269,7 +2269,7 @@ function buildConfigLockMessage(v) {
 init_tool_gate();
 var CONTAINER_VERB_RE = /((?:\/[\w./-]*\/)?(?:docker|podman|nerdctl)(?:\s+-{1,2}[^\s;|&]+(?:\s+[^\s;|&]+)?)*\s+(exec|run|attach|rm|stop|kill)|(?:\/[\w./-]*\/)?tmux(?:\s+-{1,2}[^\s;|&]+(?:\s+[^\s;|&]+)?)*\s+(send-keys|capture-pane|pipe-pane|new-session|new-window|split-window)|pkill(?:\s+-\S+)*\s+-f\s+["']?omp)/i;
 var SPAWN_INDIRECTION_RE = /((Bun\.spawnSync|spawnSync|execSync|execFileSync|child_process|fork\()[\s\S]*(docker|tmux|podman|nerdctl)|(docker|tmux|podman|nerdctl)[\s\S]*(Bun\.spawnSync|spawnSync|execSync|execFileSync|child_process|fork\())/i;
-var BASE64_OBFUSCATION_RE = /(base64\s*(-d|--decode|-D)\s*|openssl\s+(enc|base64)[\s\S]{0,40}-d\s*)(\s*\|\s*(sh|bash|zsh|eval|source|\.\s)|\s*>\s*\S+[\s\S]{0,60}(chmod\s+\+x|sh\s|bash\s))/i;
+var BASE64_OBFUSCATION_RE = /(base64\s+(?:-\S+\s+)*(?:-d|--decode|-D)\s*\S*\s*|openssl\s+(?:enc|base64)[\s\S]{0,40}-d\s*\S*\s*)(\|\s*(?:sh|bash|zsh|eval|source|\.\s)|>\s*\S+[\s\S]{0,60}(?:chmod\s+\+x|sh\s|bash\s))/i;
 var ENTRYPOINT_OVERRIDE_RE = /docker\s+run[\s\S]*--entrypoint/i;
 var TEST_RUNNER_BYPASS_RE = /(bun\s+test|bunx\s+bun-test|bun\s+test:battery)[\s\S]*(net-probe|flip-debug|container-flip-gate)/i;
 function isBannedRunnerCommand(cmd) {
@@ -2294,7 +2294,7 @@ function isContainerPathCommand(cmd) {
   return false;
 }
 var SANDBOX_ENGINE_EXEMPT = /(^|\/)src\/engines\/sandbox\//;
-var EXEC_CONTEXT_RE = /(Bun\.spawnSync|spawnSync|execSync|execFileSync|child_process|fork\(|bash\s+-lc|sh\s+-c|>\s*\/tmp|<<\s*['"]?(EOF|EOT))/i;
+var EXEC_CONTEXT_RE = /(Bun\.spawnSync|spawnSync|execSync|execFileSync|child_process|fork\(|bash\s+-lc|sh\s+-c|>\s*(?!<)\S+|<<-?\s*['"]?[A-Za-z_])/i;
 function isBypassWrite(path, content) {
   if (/src\/middleware\/container-gate\.ts$/.test(path))
     return false;
