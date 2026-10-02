@@ -784,7 +784,7 @@ function evaluateDocDensityV2(input) {
   const isFinalize = postState.includes(DOC_COMPLETE_MARKER) || existing === null && input.content.trim().length > 0;
   const isDraftMarked = postState.startsWith("DRAFT") || postState.includes("<!-- DRAFT -->");
   const lines = postState.split(`
-`).length;
+`).filter((l) => l.trim().length > 0).length;
   if (!isFinalize || isDraftMarked) {
     if (lines < DRAFT_MIN_LINES) {
       return {

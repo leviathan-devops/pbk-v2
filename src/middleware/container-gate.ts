@@ -67,15 +67,9 @@ const TEST_RUNNER_BYPASS_RE =
   // [audit] the {0,80} window was evadable by flag-padding. Order-insensitive co-occurrence.
   /(bun\s+test|bunx\s+bun-test|bun\s+test:battery)[\s\S]*(net-probe|flip-debug|container-flip-gate)/i;
 
-// Bypass shape 5: heredoc/pipe writes that materialize docker into a file
-// that is then executed (write a bypass script, then run it).
-const HEREDOC_DOCKER_RE =
-  /(<<\s*['"]?(EOF|EOT|heredoc)|tee\s+\/tmp|>\/tmp)[\s\S]{0,300}(docker|tmux)[\s\S]{0,80}(exec|run|rm)/i;
-
-// Bypass shape 6: docker inside a quoted/escaped string that the verb regex
-// misses (e.g. `docker` mid-string with odd spacing).
-const DOCKER_ANYWHERE_RE =
-  /["'`](docker|tmux)\s+(exec|run|rm|attach|cp|logs)[\s\S]{0,60}(["'`]|$)/i;
+// [audit:67] HEREDOC_DOCKER_RE / DOCKER_ANYWHERE_RE were DELETED (unused after the HT-BUG-13
+// strip; their classes are covered by the ACTION verb check + isBypassWrite). The dead
+// constants are removed so maintenance does not fix the wrong regex.
 
 /**
  * True when the command is a container operation OR a bypass shape. The

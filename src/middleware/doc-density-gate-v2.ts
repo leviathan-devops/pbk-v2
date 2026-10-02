@@ -338,7 +338,9 @@ export function evaluateDocDensityV2(input: DocDensityV2Input): DocDensityV2Verd
   // runs on the finalize path — so the draft protocol is not an escape hatch for creates.)
   const isFinalize = postState.includes(DOC_COMPLETE_MARKER) || (existing === null && input.content.trim().length > 0);
   const isDraftMarked = postState.startsWith("DRAFT") || postState.includes("<!-- DRAFT -->");
-  const lines = postState.split("\n").length;
+  // [audit:333] `split("\n").length` counted blank/trailing rows — a 3000-newline shell of
+  // nothing passed the floor. Count NON-EMPTY lines so the floor measures content.
+  const lines = postState.split("\n").filter((l) => l.trim().length > 0).length;
 
   // DRAFT path (the chunked protocol unbroken): the 20-line sanity floor only,
   // PLUS the slop screen (a 200-line toiletplate draft is still slop).

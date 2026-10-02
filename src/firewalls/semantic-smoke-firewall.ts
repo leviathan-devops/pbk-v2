@@ -71,7 +71,8 @@ export function appendToContextWindow(sessionId: string, entry: MessageEntry): v
 }
 
 export function getContextWindow(sessionId: string): MessageEntry[] {
-  return contextWindows.get(sessionId) || [];
+  // [audit:73] returned the LIVE array — a caller could push past MAX_WINDOW_SIZE. Copy.
+  return [...(contextWindows.get(sessionId) || [])];
 }
 export const getSTTGFContextWindow = getContextWindow;
 export const getSttgfContextWindow = getContextWindow;
@@ -490,17 +491,22 @@ export const sttgfStateTracker = sstfStateTracker;
 export const STTGFStateTracker = sstfStateTracker;
 
 // ─── API-compat shims (hooks import these) ───
+// [audit:494] the shim was a silent no-op — callers saw empty history. Now delegated to the
+// real globalThis-backed store (appendToContextWindow/getContextWindow) via a session key.
 
+const __shimWindowKey = "__shim__";
 export class ContextWindow {
-  append(): void {}
-  recent(): any[] { return []; }
-  lastN(): any[] { return []; }
-  clear(): void {}
+  private key: string;
+  constructor(key: string = __shimWindowKey) { this.key = key; }
+  append(entry: MessageEntry): void { appendToContextWindow(this.key, entry); }
+  recent(): MessageEntry[] { return getContextWindow(this.key); }
+  lastN(n: number): MessageEntry[] { return getContextWindow(this.key).slice(-n); }
+  clear(): void { contextWindows.delete(this.key); }
 }
 export const sstfContextWindows = {
-  getOrCreate(): ContextWindow { return new ContextWindow(); },
-  clear(): void {},
-  clearAll(): void {},
+  getOrCreate(sessionId: string = __shimWindowKey): ContextWindow { return new ContextWindow(sessionId); },
+  clear(sessionId: string = __shimWindowKey): void { contextWindows.delete(sessionId); },
+  clearAll(): void { contextWindows.clear(); },
 };
 export const sttgfContextWindows = sstfContextWindows;
 export const STTGFContextWindows = sstfContextWindows;
