@@ -222,7 +222,10 @@ export function classifyVerb(toolName: string, args: Record<string, unknown>, co
     //   covered python/python3 + perl/ruby/php but MISSED (measured by the classifyVerb probe):
     //   the VERSIONED pythons (python2/python3.11/python3.12 — `python3?` cannot match the `2`
     //   or the `.11`), the `nodejs` spelling, and the SHELL `-c` WRAPPER. All 8 survived the gate.
-    if (/\b(node|nodejs|bun|deno|tsx|python\d*(?:\.\d+)?|perl|ruby|php)\s+(?:--(?:eval|print|evaluate|module)\b|-[a-zA-Z]*[ecxrm]\b)/i.test(unquoted) || /\bnpx\s+-e\b/i.test(unquoted)) return 'inline_exec';
+    // [audit:228] the flag class was `[ecxrm]` — it flagged `python -m pytest` / `python -m
+    //   http.server` (module RUNS, legit) as smoke. Narrowed to `[ecr]` (the genuine inline
+    //   flags: -e/-c/-r). The long forms (--eval/--print/--evaluate/--module) stay for compat.
+    if (/\b(node|nodejs|bun|deno|tsx|python\d*(?:\.\d+)?|perl|ruby|php)\s+(?:--(?:eval|print|evaluate)\b|-[a-zA-Z]*[ecr]\b)/i.test(unquoted) || /\bnpx\s+-e\b/i.test(unquoted)) return 'inline_exec';
     // the SHELL `-c` wrapper: a shell interpreter running code inline (the same smoke class).
     //   The `-l`/`-x` forms stay unflagged; only the command flag bites.
     if (/\b(?:sh|bash|zsh|dash|ksh)\s+-[a-zA-Z]*c\b/i.test(unquoted)) return 'inline_exec';
@@ -244,10 +247,10 @@ export function classifyVerb(toolName: string, args: Record<string, unknown>, co
       // legit append!). The negative lookahead excludes the redirect/pipe forms
       // from the inspect classification — a doc append mentioning the word
       // "bundle" is a WRITE, never an inspection.)
-      if (/(sudo\s+)?(strings|sed|awk|head|tail|less|more|grep|rg|ack|ag)\b/i.test(sub) && /d[A-Z]st|bundle|\.min\.js/i.test(sub)) return 'inspect_bundle';
-      if (/(sudo\s+)?cat\b(?!\s*(?:>>|>|\|))/i.test(sub) && /d[A-Z]st|bundle|\.min\.js/i.test(sub)) return 'inspect_bundle';
+      if (/(sudo\s+)?(strings|sed|awk|head|tail|less|more|grep|rg|ack|ag)\b/i.test(sub) && /\bdist\b|bundle|\.min\.js/i.test(sub)) return 'inspect_bundle';
+      if (/(sudo\s+)?cat\b(?!\s*(?:>>|>|\|))/i.test(sub) && /\bdist\b|bundle|\.min\.js/i.test(sub)) return 'inspect_bundle';
       if (/(sudo\s+)?(grep|rg|ack|ag)\b/i.test(sub)) return 'grep_source';
-      if (/(sudo\s+)?(ls|stat|file|test\s+-[fd])\b/i.test(sub) && /d[A-Z]st|bundle|\.min\.js/i.test(sub)) return 'existence';
+      if (/(sudo\s+)?(ls|stat|file|test\s+-[fd])\b/i.test(sub) && /\bdist\b|bundle|\.min\.js/i.test(sub)) return 'existence';
     }
     return 'other';
   }
@@ -259,7 +262,7 @@ export function classifyVerb(toolName: string, args: Record<string, unknown>, co
 function classifyTarget(p: string): TargetType {
   if (!p) return 'unknown';
   const l = p.toLowerCase();
-  if (/(^|[\/\\])d[A-Z]st([\/\\]|$)/i.test(l) || /\.min\.js$/i.test(l)) return 'bundle';
+  if (/(^|[\/\\])dist([\/\\]|$)/.test(l) || /\.min\.js$/.test(l)) return 'bundle';
   if (/(^|[\/\\])src([\/\\]|$)/i.test(l) || (/\.(ts|tsx)$/i.test(l) && !/node_modules/i.test(l))) return 'source';
   return 'other';
 }
@@ -565,12 +568,17 @@ export async function checkSmokeTestFirewall(params: {
     else TELEMETRY.totalAllows++;
     return result;
   } catch (e) {
-    // ★ AUDIT HIGH FIX (semantic-smoke-firewall.ts:555): this catch returned ALLOW for ALL
-    //   errors — a bug in intent/verb/target classification silently DISABLED enforcement.
-    //   The error is now classified: if classification already produced a BLOCK-shaped result
-    //   (verb inline_exec/headless, or a BLOCK decision was computable), fail CLOSED; only a
-    //   failure BEFORE any block signal (pure infra) falls back to ALLOW with the ERROR category.
+    // ★ AUDIT HIGH FIX (semantic-smoke-firewall.ts:555 + :573): this catch must not deny ALL work
+    //   on any infra error. It re-derives the VERB cheaply (no evidence-machine) — a smoke verb
+    //   (inline_exec/headless) still fails CLOSED, but a failure with no block signal (a
+    //   telemetry/evidence bug, a malformed arg) fails OPEN so legitimate inspection/operation AND
+    //   the container-testing escape hatch are not deadlocked.
     ctLog('ERROR', 'sstf', `Error: ${e instanceof Error ? e.message : String(e)}`);
-    return { action: 'BLOCK', category: 'INFRA_FAILURE', reason: 'Firewall infra failure — security surface fails CLOSED (retry the call; if it repeats, the firewall needs attention)', intent: 'unknown' };
+    let smokeVerb: string | undefined;
+    try { smokeVerb = classifyVerb(params.toolName || '', params.args, params.commandStr); } catch { smokeVerb = undefined; }
+    if (smokeVerb === 'inline_exec' || smokeVerb === 'headless') {
+      return { action: 'BLOCK', category: 'INFRA_FAILURE', reason: 'Firewall infra failure during a smoke-class call — fails CLOSED (retry; if it repeats, the firewall needs attention)', intent: 'unknown' };
+    }
+    return { action: 'ALLOW', category: 'ERROR', reason: 'Firewall infra failure (no smoke signal) — fails OPEN with a logged error', intent: 'unknown' };
   }
 }

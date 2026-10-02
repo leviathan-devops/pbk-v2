@@ -132,12 +132,16 @@ export function sttgfGate(): BeforeGate {
         // own invocation can be identified instead of guessed at (V-030 keyed on the wrong shape).
         // ★ AUDIT HIGH FIX (sttgf-gate.ts:107): the unscrubbed command was written to a
         //   world-readable /tmp file — a secret leak. Scrub + bound, consistent with the ledger.
-        try {
-          const { appendFileSync } = require("node:fs");
-          const { scrubSecrets } = require("../ext/tool-gate");
-          appendFileSync("/tmp/ct-block-cmd.log", `[${new Date().toISOString()}] ${sttgfResult.category} cmd=${JSON.stringify(scrubSecrets(commandStr).slice(0, 600))}
+        // [audit:135] this ran UNCONDITIONALLY on every block (sync I/O on the hot path) — now
+        //   gated behind CT_DEBUG like the chain log.
+        if (process.env.CT_DEBUG === "1") {
+          try {
+            const { appendFileSync } = require("node:fs");
+            const { scrubSecrets } = require("../ext/tool-gate");
+            appendFileSync("/tmp/ct-block-cmd.log", `[${new Date().toISOString()}] ${sttgfResult.category} cmd=${JSON.stringify(scrubSecrets(commandStr).slice(0, 600))}
 `);
-        } catch { /* instrumentation */ }
+          } catch { /* instrumentation */ }
+        }
         // v6 :2505-2523 — the escalation check runs INSIDE the gate because
         // the OMP hook surface returns (it does not throw): no throw means
         // the catch path below would be dead code here.
@@ -222,8 +226,15 @@ export function sttgfGateAfter(): (ctx: AfterContext) => Promise<AfterContext> {
         sttgfStateTracker.setVerificationClaimed(sid, false);
         sttgfStateTracker.resetBlockCount(sid); // [audit:114] compliance clears the escalation
         ctLog("INFO", "sttgf", "Container test CONFIRMED (non-error) — claim gate cleared, escalation counter reset");
-      } else if (ctx.isError) {
-        pendingContainerTests.delete(sid);
+      } else if (ctx.isError && arm && CT_ACTIONS[doneAction]) {
+        // [audit:225] the failure branch deleted the arm unconditionally — one failed benign
+        // action (status/help) wiped N concurrent arms. It now clears only when the FAILED
+        // action was itself an armed one, and decrements like the success path.
+        if (arm.count > 1) {
+          pendingContainerTests.set(sid, { armedAt: arm.armedAt, count: arm.count - 1 });
+        } else {
+          pendingContainerTests.delete(sid);
+        }
         ctLog("WARN", "sttgf", "Container test FAILED (isError) — claim gate NOT cleared");
       }
     } catch { /* tracking is non-fatal */ }

@@ -115,7 +115,17 @@ export async function askGateDecision(
   opts: { timeoutMs?: number; url?: string } = {},
 ): Promise<GateVerdict> {
   const t0 = performance.now();
-  const url = opts.url ?? TOOLGATE_URL;
+  // [audit:118] `opts.url` flowed straight into fetch — an SSRF/exfiltration vector. Only the
+  // configured judge host is allowed; a custom URL requires the explicit TOOLGATE_ALLOW_URL opt-in.
+  let url = opts.url ?? TOOLGATE_URL;
+  try {
+    const u = new URL(url);
+    const defaultHost = new URL(TOOLGATE_URL).host;
+    const allowCustom = process.env.TOOLGATE_ALLOW_URL === "1";
+    if ((u.protocol !== "http:" && u.protocol !== "https:") || (u.host !== defaultHost && !allowCustom)) {
+      url = TOOLGATE_URL;
+    }
+  } catch { url = TOOLGATE_URL; }
   // [audit] an unvalidated timeoutMs (0/negative/NaN = instant abort = permanent fail-CLOSED DoS
   // on the security surface; huge = the gate hangs) is clamped to a sane range.
   const timeoutMs = Number.isFinite(opts.timeoutMs) ? Math.min(Math.max(opts.timeoutMs as number, 500), 15000) : 4000;

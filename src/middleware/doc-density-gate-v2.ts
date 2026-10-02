@@ -115,7 +115,9 @@ export function detectRepeatedParagraphs(content: string): SlopHit {
 
 /** TOILET-2 marketing filler: the buzzword density per 100 lines. */
 const FILLER_RE =
-  /\b(seamless|seamlessly|leverage|leveraging|utilize|utilizing|cutting[- ]edge|state[- ]of[- ]the[- ]art|robust|comprehensive|holistic|synerg|paradigm|best[- ]in[- ]class|world[- ]class|enterprise[- ]grade|blazingly fast|game[- ]chang)\b/gi;
+  // [audit:117] the truncated stems `synerg`/`game[- ]chang` with a trailing `\b` could never
+  // match their real forms (`synergy`, `game-changer`). Suffixes added.
+  /\b(seamless|seamlessly|leverage|leveraging|utilize|utilizing|cutting[- ]edge|state[- ]of[- ]the[- ]art|robust|comprehensive|holistic|synerg\w*|paradigm|best[- ]in[- ]class|world[- ]class|enterprise[- ]grade|blazingly fast|game[- ]chang(?:er|ing|ers)?)\b/gi;
 
 export function detectFillerDensity(content: string): SlopHit {
   const lines = Math.max(1, content.split("\n").length);
@@ -136,10 +138,10 @@ export function detectAnchorlessClaims(content: string): SlopHit {
   // and flags every anchored paragraph anchorless (the live diag: 80/80 on a
   // fully-anchored spec). A PARAGRAPH carrying an engineering verb must carry
   // an anchor somewhere in the same paragraph.
-  // ★ doc-density-gate-v2.ts:139 — the old alternation `[:\d]\d+\b|:[0-9]{2,}` matched
-  //   bare digit runs (e.g. "80 rows in 2026") as if they were anchors. The alternation now
-  //   requires a FILE:LINE shape, never a bare number.
-  const anchorRe = /[a-z0-9_./-]+\.(ts|md|ya?ml|json):\d+\b|file:line|:[0-9]{2,}\b(?=\s|$|[),.;])|`[a-z0-9_/-]+\.(ts|md|ya?ml|json)`|output:|verification:|SEE /i;
+  // ★ doc-density-gate-v2.ts:139 + [audit:142] — the old alternation `[:\d]\d+\b|:[0-9]{2,}`
+  //   matched bare digit runs and colon-numbers (`12:30`, `count: 80`) as if they were anchors.
+  //   An anchor is now a FILE:LINE shape or an explicit receipt token, never a bare number.
+  const anchorRe = /[a-z0-9_./-]+\.(ts|md|ya?ml|json):\d+\b|file:line|`[a-z0-9_/-]+\.(ts|md|ya?ml|json)`|output:|verification:|SEE /i;
   // V-065: THE INFLECTION DEFECT (measured before this fix). The old alternation listed bare stems with
   // `\b…\b` boundaries, so it matched `implements`/`handles`/`verif` but NOT `implemented`, `handled`,
   // `verified`, `enforced`, `dispatched`, `parsed`, `blocked`, `writes`, `returns` — **12 of 18 common
@@ -314,12 +316,15 @@ export function evaluateDocDensityV2(input: DocDensityV2Input): DocDensityV2Verd
   // target is not found the patch cannot be applied and the file stands as it is; that is the honest
   // reconstruction, and the marker check below still governs finalization.)
   const postState = isEdit
-    ? (input.oldString !== undefined && existing !== null && existing.includes(input.oldString)
-        ? existing.split(input.oldString).join(input.content)
+    ? (input.oldString !== undefined && input.oldString !== "" && existing !== null && existing.includes(input.oldString)
+        // [audit:316] a single-occurrence replace matches real edit semantics (an edit applies
+        // once); split/join replaced ALL occurrences. The empty-target guard prevents the
+        // split("") per-char explosion (includes("") is always true).
+        ? existing.replace(input.oldString, input.content)
         // [audit] the fallback was `existing ?? input.content` → `existing` — a WRITE-over-existing
         // (oldString absent) judged the OLD file and ignored the overwrite payload. A write
         // REPLACES the file, so the post-state is the new content.
-        : (input.oldString !== undefined ? existing ?? input.content : input.content))
+        : (input.oldString !== undefined && input.oldString !== "" ? existing ?? input.content : input.content))
     : input.content;
 
   // V-082 (c): FINALIZE REQUIRES THE MARKER for an edit; a whole-file WRITE (no existing) is complete by
@@ -404,12 +409,14 @@ export function docDensityGateV2(host: EngineHost): BeforeGate {
     try { existing = host.readFileSync(path); } catch { existing = null; }
     // V-082: the patch travels with the input so the post-state can APPLY it.
     const oldString = typeof ctx.input.oldString === "string" ? ctx.input.oldString : undefined;
-    // [audit:415] the postState the judge must review is recomputed here (the same formula the
-    // verdict used: the patch applied to the existing file, or the snippet for a create).
+    // [audit:415 + :409] the postState the judge reviews MUST be the same formula the verdict
+    // used: the patch applied to the existing file, the new content for a write-over-existing
+    // (a write REPLACES), or the snippet for a create. A divergent append formula here meant the
+    // judge reviewed a different file state than the verdict judged.
     const postState = existing !== null
-      ? (oldString !== undefined && existing.includes(oldString)
-          ? existing.split(oldString).join(content)
-          : existing + "\n" + content)
+      ? (oldString !== undefined && oldString !== "" && existing.includes(oldString)
+          ? existing.replace(oldString, content)
+          : (oldString !== undefined && oldString !== "" ? existing + "\n" + content : content))
       : content;
     const verdict = evaluateDocDensityV2({ filePath: path, content, existing, oldString });
     if (verdict.action === "block") {
@@ -437,7 +444,11 @@ export function docDensityGateV2(host: EngineHost): BeforeGate {
             return undefined; // the judge decided the classification is wrong — do not block
           }
         } catch (jevErr) {
-          host.log("WARN", "pbk", `doc-density judge failed (fail-OPEN, the block stands): ${jevErr instanceof Error ? jevErr.message : String(jevErr)}`);
+          // [audit:439] the header promises "a dead judge fails OPEN (never bricks a doc write)" —
+          // the catch logged "fail-OPEN" while the code fell through to BLOCK. INFO surface now
+          // fails OPEN for real: a judge outage lets the doc write proceed.
+          host.log("WARN", "pbk", `doc-density judge failed (INFO surface — fail-OPEN, allowing the write): ${jevErr instanceof Error ? jevErr.message : String(jevErr)}`);
+          return undefined;
         }
       }
       return { action: "block", gate: verdict.gate, reason: verdict.reason ?? "[DOC DENSITY GATE v2] doc-density floor violated" };
