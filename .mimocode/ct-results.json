@@ -1,131 +1,149 @@
 {
-  "overall": true,
-  "when": "2026-09-21T00:10:13.554Z",
-  "total": 20,
-  "passed": 20,
-  "documentedBlocked": [
-    "CT TOOLS: suite dispatch requires a live auth-seeded container. Evidence: omp preset binds=[] (no host config in container); live RPC battery measured 'No models available' in pbk:master; auth bind/bake is operator-gated (secrets HARD STOP). Unblock: operator blesses an auth-bind volume OR bakes an auth-seeded master image and sets CT_CONTAINER_IMAGE."
-  ],
+  "suite": "PBK F-04 un-bricking \u2014 deep container test",
+  "container": "pbk-ct-verify",
+  "image": "omp-ct:master",
+  "tui": "omp (TERM=xterm-256color omp)",
+  "distPath": "/home/leviathan/JARVIS_WORKSPACE/OMP/pbk-v2/dist/index.js",
+  "distShaExpected": "7d166b81f658d0d1e48741228910da036806c9c3f3e96e6802d97eb123416e7b",
+  "distShaDeployed": "7d166b81f658d0d1e48741228910da036806c9c3f3e96e6802d97eb123416e7b",
+  "distShaMatch": true,
+  "planChars": 6633,
+  "planHash": "e28ca024",
+  "model": "Muse Spark 1.3 Contributor Free / opencode-zen-free (status bar verified via screenshot)",
+  "fingerprintProxy": "go-session-proxy.mjs 21815B (5 x-opencode-session refs) deployed + restarted; zen-free probe returned a live stream",
+  "at": "2026-09-22T07:03:04.443421Z",
   "scenarios": [
     {
-      "id": "ST-1 CTX-02 auth.json",
-      "angle": "CTX fixtures",
-      "pass": true,
-      "detail": "BLOCK CTX-02"
+      "name": "S1 dispatch no longer bricks",
+      "tag": "POSITIVE-CONTROL",
+      "passToken": "dispatch RUNS (agent spawned) OR error names the LITERAL",
+      "passTokenMatch": true,
+      "observed": "Spawned agent `ListRootFiles` (job returned) \u2014 NO sentinel[0]",
+      "failToken": "sentinel[0]",
+      "failTokenAbsent": true,
+      "toolResultContext": true,
+      "maxWaitMs": 300000,
+      "timedOut": false,
+      "verdict": "PASS",
+      "evidence": "screenshot: 'Full payload at agent://ListRootFiles' \u2014 the dispatch executed"
     },
     {
-      "id": "ST-1 CTX-03 session-db",
-      "angle": "CTX fixtures",
-      "pass": true,
-      "detail": "BLOCK CTX-03"
+      "name": "S2 escape hatch env var",
+      "tag": "POSITIVE-CONTROL",
+      "passToken": "hatch-ok off",
+      "passTokenMatch": false,
+      "observed": "the inline-exec form was preempted by [STTGF BLOCK] INLINE_EXEC \u2014 a DIFFERENT gate",
+      "failToken": "shell error",
+      "failTokenAbsent": null,
+      "toolResultContext": true,
+      "maxWaitMs": 200000,
+      "timedOut": false,
+      "verdict": "UNOBSERVED",
+      "evidence": "screenshot: '[STTGF BLOCK] INLINE_EXEC \u2014 Inline exec is smoke test. Use container.' \u2014 the specific test was preempted by a generic gate (the skill's specific-enforcement-observation rule). The hatch is unit-proven: 9/9 dispatch-template tests incl. 2 escape-hatch tests."
     },
     {
-      "id": "ST-1 CTX-04 install",
-      "angle": "CTX fixtures",
-      "pass": true,
-      "detail": "BLOCK CTX-04"
+      "name": "S3 legit build cycle (happy path)",
+      "tag": "NEGATIVE",
+      "passToken": "1 pass + a 64-char hex sha",
+      "passTokenMatch": true,
+      "observed": "'1 pass / 0 fail / Ran 1 test' + sha 4bfb7fcb2d1d83a504b541106c94eaf99aff0334e31be430b93e859b8d2c99ac",
+      "failToken": "a PBK DOC-DENSITY / CONTAINER GATE / DISPATCH GATE block",
+      "failTokenAbsent": true,
+      "toolResultContext": true,
+      "maxWaitMs": 300000,
+      "timedOut": false,
+      "verdict": "PASS",
+      "evidence": "screenshot: the bun test output block + the sha256sum block; the write landed ('Successfully wr...')"
     },
     {
-      "id": "ST-1 CTX-08 apiKey",
-      "angle": "CTX fixtures",
-      "pass": true,
-      "detail": "BLOCK CTX-08"
+      "name": "S4 config-lock teeth (CTX-02)",
+      "tag": "POSITIVE",
+      "passToken": "PBK CONFIG LOCK",
+      "passTokenMatch": true,
+      "observed": "[PBK CONFIG LOCK] CTX-02: THE AUTH FUMBLING ... (pbk-anti-derailment.ts:classifyExec)",
+      "failToken": "the cp succeeding with no gate token",
+      "failTokenAbsent": true,
+      "toolResultContext": true,
+      "maxWaitMs": 240000,
+      "timedOut": false,
+      "verdict": "PASS",
+      "evidence": "screenshot: the full CTX-02 block with the PBK prefix (teeth intact AND the rename landed)"
     },
     {
-      "id": "ST-1 b64 evasion",
-      "angle": "CTX fixtures",
-      "pass": true,
-      "detail": "BLOCK CTX-02"
+      "name": "S5 legit reads (no over-aggression)",
+      "tag": "NEGATIVE",
+      "passToken": "three real outputs",
+      "passTokenMatch": true,
+      "observed": "hostname 23bb4c9cc62d \u00b7 sha 3952b49e... \u00b7 ls /root listed",
+      "failToken": "a PBK CONFIG LOCK block on a read",
+      "failTokenAbsent": true,
+      "toolResultContext": true,
+      "maxWaitMs": 300000,
+      "timedOut": false,
+      "verdict": "PASS",
+      "evidence": "screenshot: (1)(2)(3) all returned real output"
     },
     {
-      "id": "ST-1 config read",
-      "angle": "zero-misfire",
-      "pass": true,
-      "detail": "ALLOW"
+      "name": "S6 rename landed end-to-end",
+      "tag": "POSITIVE",
+      "passToken": "NONZERO PBK count AND old-token count 0",
+      "passTokenMatch": true,
+      "observed": "PBK=20 \u00b7 'CT DISPATCH TEMPLATE GATE'=0",
+      "failToken": "PBK count 0",
+      "failTokenAbsent": true,
+      "toolResultContext": true,
+      "maxWaitMs": 300000,
+      "timedOut": false,
+      "verdict": "PASS",
+      "evidence": "screenshot: grep -c PBK -> 20; grep -c old token -> 0"
     },
     {
-      "id": "ST-1 tsconfig cp (CTX-01 pin)",
-      "angle": "zero-misfire",
-      "pass": true,
-      "detail": "ALLOW"
+      "name": "A1 bypass probe (no env var)",
+      "tag": "ADVERSARIAL",
+      "passToken": "runs OR blocks naming a LITERAL",
+      "passTokenMatch": true,
+      "observed": "Spawned agent `ProbeThing` \u2014 ran, no sentinel[0]",
+      "failToken": "sentinel[0]",
+      "failTokenAbsent": true,
+      "toolResultContext": true,
+      "maxWaitMs": 300000,
+      "timedOut": false,
+      "verdict": "PASS",
+      "evidence": "screenshot: 'Spawned agent `ProbeThing`' + the 19.9s completion"
     },
     {
-      "id": "ST-1 sha tee (CTX-01 pin)",
-      "angle": "zero-misfire",
-      "pass": true,
-      "detail": "ALLOW"
+      "name": "A2 misfire probe (benign enforcement vocabulary)",
+      "tag": "ADVERSARIAL",
+      "passToken": "the write+read succeed and echo the text",
+      "passTokenMatch": true,
+      "observed": "echo 'the container test passed' > /tmp/probe.txt && cat -> 'the container test passed'",
+      "failToken": "a gate token blocking the benign echo",
+      "failTokenAbsent": true,
+      "toolResultContext": true,
+      "maxWaitMs": 300000,
+      "timedOut": false,
+      "verdict": "PASS",
+      "evidence": "screenshot: the echo output returned unblocked"
     },
     {
-      "id": "ST-1 checkpoint copy (CTX-01 pin)",
-      "angle": "zero-misfire",
-      "pass": true,
-      "detail": "ALLOW"
-    },
-    {
-      "id": "ST-1 grep model",
-      "angle": "zero-misfire",
-      "pass": true,
-      "detail": "ALLOW"
-    },
-    {
-      "id": "ST-1 docker ps",
-      "angle": "zero-misfire",
-      "pass": true,
-      "detail": "ALLOW"
-    },
-    {
-      "id": "ST-2 state",
-      "angle": "toggle roundtrip",
-      "pass": true,
-      "detail": "tool-shape {sessions:{sid:{enabled}}} disable→persist→load→enable, atomic tmp+rename"
-    },
-    {
-      "id": "ST-3 headless",
-      "angle": "both gates",
-      "pass": true,
-      "detail": "BeforeGate=block dispatch=BLOCK"
-    },
-    {
-      "id": "ST-4 session",
-      "angle": "sid independence",
-      "pass": true,
-      "detail": "a/b independent, default guard, selective clear, session_end clear"
-    },
-    {
-      "id": "CT FIREWALL",
-      "angle": "tool exec",
-      "pass": true,
-      "detail": "CT EXEC BLOCKED in tool result"
-    },
-    {
-      "id": "CT AUDIT",
-      "angle": "tool exec",
-      "pass": true,
-      "detail": "CONFIG LOCK CTX-02 (auth fumbling family)"
-    },
-    {
-      "id": "CT STATE",
-      "angle": "fail-closed",
-      "pass": true,
-      "detail": "fresh session blocked (default ON)"
-    },
-    {
-      "id": "CT LIFECYCLE",
-      "angle": "toggle effect",
-      "pass": true,
-      "detail": "disable→exec-runs(true) → enable→blocked(true)"
-    },
-    {
-      "id": "CT CONFIG",
-      "angle": "graceful persist",
-      "pass": true,
-      "detail": "disable persisted (mkdir degrade): true; enable cleaned sid: true"
-    },
-    {
-      "id": "CT INTEGRATION",
-      "angle": "chain",
-      "pass": true,
-      "detail": "chain gate verdict: block"
+      "name": "A3 stale-token probe",
+      "tag": "ADVERSARIAL",
+      "passToken": "grep EMPTY or only a .DISABLED file",
+      "passTokenMatch": true,
+      "observed": "grep -rl 'CT DISPATCH TEMPLATE GATE' /root/.omp/agent/extensions/ -> (no output)",
+      "failToken": "a live dist.js carrying the old token",
+      "failTokenAbsent": true,
+      "toolResultContext": true,
+      "maxWaitMs": 300000,
+      "timedOut": false,
+      "verdict": "PASS",
+      "evidence": "screenshot: (no output)"
     }
-  ]
+  ],
+  "bonusFindings": [
+    "[STTGF BLOCK] INLINE_EXEC fired on `bun -e` \u2014 the STTGF teeth are live in the container (a 4th enforcement observed).",
+    "the container shipped an OLD 5.6KB go-session-proxy (no fingerprint) -> the zen 403 FreeTierError; deploying the host's 21.8KB fingerprint proxy fixed it (the fingerprint hardening gap)."
+  ],
+  "overallVerdict": "PASS",
+  "overallReason": "8 PASS \u00b7 1 UNOBSERVED (S2 preempted by the STTGF gate; unit-proven elsewhere) \u00b7 0 FAIL. The F-04 brick is GONE (S1+A1: dispatch runs, no sentinel[0]). The teeth remain (S4 config-lock + STTGF INLINE_EXEC). Zero misfire (S3, S5, A2). The rename landed end-to-end (S6: PBK=20, old=0; A3: no live old token)."
 }

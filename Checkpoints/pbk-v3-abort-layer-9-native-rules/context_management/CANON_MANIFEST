@@ -1,0 +1,45 @@
+# CANON_MANIFEST
+
+**Project:** pbk-v2 (the PBK — Paragon Behavior Kernel)
+**Wave:** PBK v3 THE ABORT LAYER · W0-W5 COMPLETE · W6 pending the operator restart
+**Updated:** 2026-09-22 21:38 UTC
+
+## THE 11 CANON DOCS
+
+```
+doc                        semantics    floor   state
+-------------------------  -----------  ------  ----------------------------------------
+CURRENT_STATE.md           overwrite    200+    UPDATED  the one-screen state
+BUILD_STATE.md             overwrite    200+    UPDATED  the artifacts + the commands
+EVIDENCE_STATE.md          overwrite    200+    UPDATED  the proof chain + the gaps
+DECISION_CHAIN.md          append       200+    UPDATED  D101-D108
+NEXT_STEPS.md              overwrite    200+    CREATED  the open item + the protocol
+TASK_QUEUE.md              overwrite    200+    UPDATED  the queue + the next wave
+POST-COMPACTION_PROMPT.md  overwrite    200+    CREATED  read FIRST after a compaction
+COMPACTION_SURVIVAL.md     overwrite    200+    UPDATED  the resume point + the anti-derail
+CHANGELOG.md               append       100+    APPENDED the W0-W5 entry
+RUNNING_BUILD_LOG.md       append       100+    APPENDED the per-wave record
+RUNNING_DEBUG_LOG.md       append       100+    APPENDED the 3 EN entries
+```
+
+## THE 6 SHIP DOCS (in pbk-v2/)
+
+```
+BUILD_REPORT.md         the what-was-built record
+DEBUG_LOG.md            the bug/fix/lesson record
+FAILURE_LOG.md          the derailment ledger
+SPEC_VIOLATION_LOG.md   the spec-section mapping
+TESTING_LOG.md          the test plan + results + the AUDIT GATE line
+THEATRICALITY_LOG.md    the append-only theatricality journal
+```
+
+## THE LOAD-BEARING EXTERNAL PATHS
+
+```
+~/.omp/agent/rules/                          9 rule files (the abort carrier)
+~/.omp/agent/extensions/lexicon-gate/        the adjudicator
+~/.omp/agent/AGENTS.md                       the terrain map
+~/.omp/agent/scripts/dist-content-gate.sh    the deploy gate
+~/.omp/run/lexicon-ledger.jsonl              the decision ledger
+OMP_ENFORCEMENT_KNOWLEDGE/                   the reference package (the 9 rule bodies + the blueprint)
+```

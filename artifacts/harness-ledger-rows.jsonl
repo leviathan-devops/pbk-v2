@@ -1,0 +1,2 @@
+{"Pattern":"dist-not-built","State":{"confidence":0.6667,"source_kind":"own_utterance"},"Evidence":{"span":"{\"command\":\"echo \\\"the build is done\\\"\"}","jev":null}}
+{"Pattern":"dist-not-built","State":{"confidence":0.6667,"source_kind":"own_utterance"},"Evidence":{"span":"the build is done","jev":null}}

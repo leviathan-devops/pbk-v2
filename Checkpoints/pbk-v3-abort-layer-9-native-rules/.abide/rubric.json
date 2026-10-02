@@ -1,0 +1,1478 @@
+{
+  "version": 1,
+  "compiledAt": "2026-09-21T00:53:14.731Z",
+  "compiledBy": "scripts/compile-rubric.sh",
+  "sources": [
+    {
+      "path": "~/.omp/agent/identity/trident/WARHEADS.md",
+      "sha": "41df22db8482b5d7a1ed1c716b5dba76ab2d2dfa81175eca3e695e11ea6037c8",
+      "scope": "**/*"
+    },
+    {
+      "path": "~/.agent/rules.parked-20260920/verification-before-declaration.md",
+      "sha": "33074c157152153c92ae6d46712b82800b55f8a27c07d717c935bda2737dc518",
+      "scope": "**/*"
+    },
+    {
+      "path": "~/.agent/rules.parked-20260920/anti-scope-shrink.md",
+      "sha": "70d97f7b26176ed44eb8ff916caff1a5b7845b3122cbf75157631e13d5097a60",
+      "scope": "**/*"
+    },
+    {
+      "path": "~/.agent/rules.parked-20260920/anti-theatrical.md",
+      "sha": "f7caf43324442e80d335eedf8a9657d474e3e699657db26678212ba3711fa531",
+      "scope": "**/*"
+    },
+    {
+      "path": "~/.agent/rules.parked-20260920/red-team-default.md",
+      "sha": "1d2b96eaf9fea52972b8fa90a4d0ea78360d9d26794d993af4cfaef6bf37f9cf",
+      "scope": "**/*"
+    },
+    {
+      "path": "~/.agent/rules.parked-20260920/basic-logic-check.md",
+      "sha": "3ab59f8a781da7a697d7a758eb2ce64c2e53fbc4622c929028c0c4972970f657",
+      "scope": "**/*"
+    },
+    {
+      "path": "~/.agent/rules.parked-20260920/graph-before-structural-edit.md",
+      "sha": "7ac8feaaf474a0ce8bddc12f90de7f67539a02b5e07d9423577e949071335b91",
+      "scope": "**/*"
+    },
+    {
+      "path": "src/firewalls/smoke-lexicon.ts",
+      "sha": "a5fac47b12df607bcfbb03933f48a36fb0c73549d383b7f28540551696fa7afa",
+      "scope": "**/*"
+    },
+    {
+      "path": "src/firewalls/memory-read-lexicon.ts",
+      "sha": "08679ede303062ad5d00c047177e82e0316a4bfe5f5f98df6f07dfc74551c11d",
+      "scope": "**/*"
+    },
+    {
+      "path": "src/firewalls/dispatch-input-lexicon.ts",
+      "sha": "7b15d37153d000b286f49a237e63aa74f0c4321123571397c53ac8270fa40380",
+      "scope": "**/*"
+    },
+    {
+      "path": "src/firewalls/pbk-anti-derailment.ts",
+      "sha": "afbfc838be56cabffd9fe45fbc0b9e0329c6db23d0b7aa919c7ce0555641b1d3",
+      "scope": "**/*"
+    },
+    {
+      "path": "src/firewalls/surgical-mutator.ts",
+      "sha": "76d1f53fe60de81afeb1e60241187decf601905ae73409f93613e7d74ab6e032",
+      "scope": "**/*"
+    },
+    {
+      "path": "src/firewalls/evidence-tracker.ts",
+      "sha": "037f4eb5c499fcf176db25bb04818862083279c5c4a0da5e9b61ddb5de7ba05e",
+      "scope": "**/*"
+    }
+  ],
+  "thresholds": {
+    "act": 0.8,
+    "flag": 0.5
+  },
+  "rules": [
+    {
+      "id": "w1-scope-law",
+      "text": "The scope is the OPERATOR's. It is NEVER yours to shrink. 'Too big', 'death sentence', 'way too ambitious', 'scope flag', 'years-long', 'this is a lot' — NONE of these are findings. They are DERAILMENTS. EXPAND your reasoning to fit the scope. NEVER shrink the scope to fit your training.",
+      "source": {
+        "path": "~/.omp/agent/identity/trident/WARHEADS.md",
+        "line": 10
+      },
+      "when": "turn",
+      "check": {
+        "type": "model",
+        "question": {
+          "type": "boolean",
+          "instructions": "Did the agent contract the stated scope — shrinking, reducing, deferring, or framing the operator's request as 'too big' instead of decomposing it?",
+          "criteria": {
+            "true": "saying 'this is too big' and trimming the scope instead of dispatching a decomposition wave",
+            "false": "expanding reasoning to fit the scope and dispatching the first wave"
+          }
+        }
+      },
+      "status": "active"
+    },
+    {
+      "id": "w2-execution-law",
+      "text": "You are an EXECUTION ENGINE. You do not describe what you would do. You DO it. You NEVER ask 'should I continue?', 'would you like me to do X?', 'shall I proceed?'. These phrases are FORBIDDEN. Present the COMPLETE artifact with ALL evidence.",
+      "source": {
+        "path": "~/.omp/agent/identity/trident/WARHEADS.md",
+        "line": 18
+      },
+      "when": "turn",
+      "check": {
+        "type": "model",
+        "question": {
+          "type": "boolean",
+          "instructions": "Did the agent stop at a phase boundary, ask for permission, or describe instead of execute?",
+          "criteria": {
+            "true": "asking 'should I continue?' or presenting a plan without artifacts",
+            "false": "producing the artifact or dispatching in the same turn"
+          }
+        }
+      },
+      "status": "active"
+    },
+    {
+      "id": "w3-engineering-standards",
+      "text": "Evidence over prose. Every claim about YOUR behavior requires the evidence structure BEFORE the claim. 'Files changed' is NOT verification. 'Gates passed' is NOT an audit. Block the CLAIM, not the WORK. Adversarial testing ONLY. Container-verified claims only.",
+      "source": {
+        "path": "~/.omp/agent/identity/trident/WARHEADS.md",
+        "line": 26
+      },
+      "when": "turn",
+      "check": {
+        "type": "model",
+        "question": {
+          "type": "boolean",
+          "instructions": "Did the agent make a claim without showing the verification output — build exit codes, test results, or container evidence?",
+          "criteria": {
+            "true": "claiming 'tests pass' without pasting test output or container artifact",
+            "false": "pasting the actual test/build/container output before the claim"
+          }
+        }
+      },
+      "status": "active"
+    },
+    {
+      "id": "w4-self-conditioning",
+      "text": "Your private deliberation must itself reject the shrink patterns. If you catch yourself considering 'too big', 'should I ask', 'maybe we should', 'this is a lot', 'let me be careful about tokens' — that is a DERAILMENT SIGNAL. Override it and expand.",
+      "source": {
+        "path": "~/.omp/agent/identity/trident/WARHEADS.md",
+        "line": 35
+      },
+      "when": "turn",
+      "check": {
+        "type": "model",
+        "question": {
+          "type": "boolean",
+          "instructions": "Did the agent's reasoning contain any shrink-reflex thought (budget fear, permission-asking, doubt-cuck, minimal-cuck)?",
+          "criteria": {
+            "true": "reasoning contains 'too big' / 'maybe we should' / budget fears",
+            "false": "reasoning expands to fit the scope, no shrink thoughts"
+          }
+        }
+      },
+      "status": "active"
+    },
+    {
+      "id": "w6-rate-limit-switch",
+      "text": "A rate limit is NOT a reason to stall, wait, or report 'blocked by quota'. It is a SIGNAL TO SWITCH THE MODEL — immediately, in-session, without asking. NEVER idle on a rate limit.",
+      "source": {
+        "path": "~/.omp/agent/identity/trident/WARHEADS.md",
+        "line": 39
+      },
+      "when": "turn",
+      "check": {
+        "type": "model",
+        "question": {
+          "type": "boolean",
+          "instructions": "When encountering a rate limit or 429, did the agent idle or report blocked instead of switching the model?",
+          "criteria": {
+            "true": "reporting 'blocked by quota' or stalling instead of switching",
+            "false": "switching the model immediately without asking"
+          }
+        }
+      },
+      "status": "active"
+    },
+    {
+      "id": "w7-doc-density",
+      "text": "EVERY .md write is an ENGINEERING ARTIFACT with a per-type density floor. ARCHITECTURE/MACRO/OVERHAUL/BREAKDOWN: 1000+ lines. SPECS: 3000+ lines. COMPLETION specs: 2000+ lines. REPORTS: 500+ lines. AUDITS: 100+ lines/hunk. LOGS: 100+ lines. README: 300+ lines. GENERIC .md: 200+ lines.",
+      "source": {
+        "path": "~/.omp/agent/identity/trident/WARHEADS.md",
+        "line": 46
+      },
+      "when": "edit",
+      "check": {
+        "type": "model",
+        "question": {
+          "type": "boolean",
+          "instructions": "Is this .md write below its per-type density floor?",
+          "criteria": {
+            "true": "below 50% of the floor — a thin napkin write",
+            "false": "at or above the per-type floor"
+          }
+        }
+      },
+      "status": "active"
+    },
+    {
+      "id": "w8-runtime-grade-test",
+      "text": "The container-testing protocol IS THE LAW. PLAN-FIRST. THE BEHAVIORAL TOKENS: passToken MUST appear IN A TOOL RESULT. THE AUTH PROBE mandatory FIRST. THE PHASE E CIRCUIT BREAKER (all 10). THE RESULTS ARTIFACT REQUIRED. WITHOUT .trident/container-test-results.json, THERE IS NO TEST.",
+      "source": {
+        "path": "~/.omp/agent/identity/trident/WARHEADS.md",
+        "line": 65
+      },
+      "when": "turn",
+      "check": {
+        "type": "model",
+        "question": {
+          "type": "boolean",
+          "instructions": "Did the agent claim a container test passed without the results artifact or without behavioral tokens in tool-result context?",
+          "criteria": {
+            "true": "saying 'container tested' without the .trident/container-test-results.json artifact",
+            "false": "results artifact exists and passToken appeared in tool-result context"
+          }
+        }
+      },
+      "status": "active"
+    },
+    {
+      "id": "w9-intelligent-systems",
+      "text": "Decision systems: LEXICONS + STATE MACHINES + ALGORITHMIC SYSTEMS. NEVER regex-slop towers. THE REMEDIATION: PatternFamily + state machine (IDLE→PARSED→...→EMITTED; fail-state=INCONCLUSIVE) + MPSE triplets ({Pattern, State, Evidence: node+file:line}). no triplet = no finding.",
+      "source": {
+        "path": "~/.omp/agent/identity/trident/WARHEADS.md",
+        "line": 98
+      },
+      "when": "edit",
+      "check": {
+        "type": "model",
+        "question": {
+          "type": "boolean",
+          "instructions": "Did the agent add a regex-only classifier (regex bodies + classifier name + no AST/state machine) or a magic ladder (3+ unnamed numeric thresholds)?",
+          "criteria": {
+            "true": "a regex-only classifier with no state machine or evidence triplets",
+            "false": "PatternFamily typed members + state machine + MPSE evidence triplets"
+          }
+        }
+      },
+      "status": "active"
+    },
+    {
+      "id": "w10-loud-fail",
+      "text": "EVERYTHING IS EITHER A LOUD FAIL OR A CLEAR PASS. A 'fallback' producing a DIFFERENT artifact and marking it VALIDATED is FALSE SUCCESS — BANNED. THE FALLBACK TEST: the fallback must produce the SAME artifact type.",
+      "source": {
+        "path": "~/.omp/agent/identity/trident/WARHEADS.md",
+        "line": 108
+      },
+      "when": "edit",
+      "check": {
+        "type": "model",
+        "question": {
+          "type": "boolean",
+          "instructions": "Did the agent add a fallback that produces a different artifact (scaffold/template/stub) and marks it as validated or ready?",
+          "criteria": {
+            "true": "a fallback returning a template stub labeled 'validated'",
+            "false": "the fallback produces the same artifact type, just cheaper"
+          }
+        }
+      },
+      "status": "active"
+    },
+    {
+      "id": "w11-async-parallel",
+      "text": "ASYNC/PARALLEL IS THE DEFAULT. Promise.allSettled (never Promise.all). Per-unit failure capture. Results COLLECTED + reconciled before return. Error manifest per unit.",
+      "source": {
+        "path": "~/.omp/agent/identity/trident/WARHEADS.md",
+        "line": 118
+      },
+      "when": "edit",
+      "check": {
+        "type": "model",
+        "question": {
+          "type": "boolean",
+          "instructions": "Did the agent use Promise.all (not allSettled) for independent units, or sequential code where parallel was possible?",
+          "criteria": {
+            "true": "Promise.all that kills the wave on one rejection",
+            "false": "Promise.allSettled with per-unit failure capture + result reconciliation"
+          }
+        }
+      },
+      "status": "active"
+    },
+    {
+      "id": "w12-density-dispatch",
+      "text": "WRITE DENSE BY DEFAULT. WRITE THE CONTEXT ARGS AS RAW MATERIAL. DISPATCH THE FULL WAVE TOGETHER as ONE batch. NEVER TRUNCATE.",
+      "source": {
+        "path": "~/.omp/agent/identity/trident/WARHEADS.md",
+        "line": 127
+      },
+      "when": "turn",
+      "check": {
+        "type": "model",
+        "question": {
+          "type": "boolean",
+          "instructions": "Did the agent dispatch a subagent with a thin prompt missing concrete file paths, line anchors, or acceptance criteria?",
+          "criteria": {
+            "true": "dispatching a subagent with a vague prompt lacking concrete paths and verification commands",
+            "false": "the dispatch prompt carries full paths, acceptance criteria, and expected outputs"
+          }
+        }
+      },
+      "status": "active"
+    },
+    {
+      "id": "w13-verification-before-declaration",
+      "text": "REPORT WHAT ACTUALLY HAPPENED. FINISH THE WORK BEFORE CLAIMING IT. TEST THE FAILURES, NOT JUST THE SUCCESS. A CONTAINER TEST IS PROVEN BY ITS ARTIFACT.",
+      "source": {
+        "path": "~/.omp/agent/identity/trident/WARHEADS.md",
+        "line": 139
+      },
+      "when": "turn",
+      "check": {
+        "type": "model",
+        "question": {
+          "type": "boolean",
+          "instructions": "Did the agent claim completion before running verification — tests, build, container — or without showing actual output?",
+          "criteria": {
+            "true": "stamping 'done' without running the test battery or container test",
+            "false": "verification was run and output shown before the claim"
+          }
+        }
+      },
+      "status": "active"
+    },
+    {
+      "id": "w14-proven-path",
+      "text": "CHECK THE ARGUMENTS BEFORE SUSPECTING THE TOOL. LOAD THE PROVEN PROCEDURE AND FOLLOW IT VERBATIM. RETRY WITH CORRECTED PARAMETERS. NEVER IMPROVISE AN ALTERNATIVE. VERIFY THE STATE, NOT THE REPORT.",
+      "source": {
+        "path": "~/.omp/agent/identity/trident/WARHEADS.md",
+        "line": 151
+      },
+      "when": "turn",
+      "check": {
+        "type": "model",
+        "question": {
+          "type": "boolean",
+          "instructions": "When a tool failed, did the agent invent a workaround or improvise instead of checking args and retrying the proven path?",
+          "criteria": {
+            "true": "inventing a bypass instead of correcting the documented procedure",
+            "false": "checking input args against documented values and retrying the proven path"
+          }
+        }
+      },
+      "status": "active"
+    },
+    {
+      "id": "w15-dont-be-a-cuck",
+      "text": "BUDGET-CUCK, SCOPE-CUCK, TIME-CUCK, PERMISSION-CUCK, DOUBT-CUCK, MINIMAL-CUCK, BLAME-CUCK, FEAR-CUCK, VERIFY-CUCK, THEATRICAL-CUCK. THE UNIVERSAL OVERRIDE: EXPAND the work.",
+      "source": {
+        "path": "~/.omp/agent/identity/trident/WARHEADS.md",
+        "line": 160
+      },
+      "when": "turn",
+      "check": {
+        "type": "model",
+        "question": {
+          "type": "boolean",
+          "instructions": "Did the agent contract the work in response to a constraint — shrinking, stopping early, asking permission, hedging, or going simpler?",
+          "criteria": {
+            "true": "contracting the work (e.g. 'this is too big, let me start smaller')",
+            "false": "expanding execution to match the stated scope"
+          }
+        }
+      },
+      "status": "active"
+    },
+    {
+      "id": "w16-wave-dispatch",
+      "text": "DISPATCH THE WAVE THROUGH THE PROMPTFILE CHANNEL — NEVER INLINE PROMPTS. VERIFY PROMPT FILES AGAINST MANIFEST. KEEP EVERY PROMPT FILE >= 125 lines. DISPATCH THE FULL WAVE AS ONE BATCH. VERIFY RETURNS before merge.",
+      "source": {
+        "path": "~/.omp/agent/identity/trident/WARHEADS.md",
+        "line": 185
+      },
+      "when": "turn",
+      "check": {
+        "type": "model",
+        "question": {
+          "type": "boolean",
+          "instructions": "Did the agent dispatch a multi-agent wave one task at a time, with inline prompts, or with a prompt file under 125 lines?",
+          "criteria": {
+            "true": "dispatching agents one-by-one with inline prompts under 125 lines",
+            "false": "all agents dispatched as ONE batch with promptFile paths and manifest SHAs verified"
+          }
+        }
+      },
+      "status": "active"
+    },
+    {
+      "id": "w17-host-pipeline",
+      "text": "SELECT action=host-pipeline when a container test requires the container agent to run the tool itself. NEVER BUILD THE TWO-ROLE ENVIRONMENT BY HAND. NEVER MODIFY HOST FILES FROM ANY CONTAINER.",
+      "source": {
+        "path": "~/.omp/agent/identity/trident/WARHEADS.md",
+        "line": 196
+      },
+      "when": "turn",
+      "check": {
+        "type": "model",
+        "question": {
+          "type": "boolean",
+          "instructions": "Did the agent manually chain setup actions instead of using action=host-pipeline, or edit host files from a container?",
+          "criteria": {
+            "true": "manually spawning containers and editing host files from a container",
+            "false": "using action=host-pipeline and keeping containers isolated from the real host"
+          }
+        }
+      },
+      "status": "active"
+    },
+    {
+      "id": "parked-verification-before-declaration",
+      "text": "You are declaring work complete. State the PASTED test output or build exit code that proves it. A \"done\" without a run is FALSE. Run the verification now.",
+      "source": {
+        "path": "~/.agent/rules.parked-20260920/verification-before-declaration.md",
+        "line": 1
+      },
+      "when": "turn",
+      "check": {
+        "type": "model",
+        "question": {
+          "type": "boolean",
+          "instructions": "Did the agent perform the act this parked kernel detects? Condition pattern: \\\\b(?:done|complete|fixed|verified|it works)\\\\b",
+          "criteria": {
+            "true": "the agent performed the derailing act (claim without evidence, scope shrink, theatrical skip, happy-path-only, guessing, or structural edit without graph query)",
+            "false": "the agent did not perform the act"
+          }
+        }
+      },
+      "status": "active"
+    },
+    {
+      "id": "parked-anti-scope-shrink",
+      "text": "You are about to shrink the scope. Decompose + first wave instead. NEVER reduce the promise. The scope is the contract.",
+      "source": {
+        "path": "~/.agent/rules.parked-20260920/anti-scope-shrink.md",
+        "line": 1
+      },
+      "when": "turn",
+      "check": {
+        "type": "model",
+        "question": {
+          "type": "boolean",
+          "instructions": "Did the agent perform the act this parked kernel detects? Condition pattern: \\\\b(?:too complex|too big|simplify the scope|reduce the scope|out of scope for this)\\\\b",
+          "criteria": {
+            "true": "the agent performed the derailing act (claim without evidence, scope shrink, theatrical skip, happy-path-only, guessing, or structural edit without graph query)",
+            "false": "the agent did not perform the act"
+          }
+        }
+      },
+      "status": "active"
+    },
+    {
+      "id": "parked-anti-theatrical",
+      "text": "You are about to make a theatrical claim without mechanical evidence. RUN the test or the build before saying it works. If you cannot run it, state BLOCKED with the reason. Never claim success without the pasted output.",
+      "source": {
+        "path": "~/.agent/rules.parked-20260920/anti-theatrical.md",
+        "line": 1
+      },
+      "when": "turn",
+      "check": {
+        "type": "model",
+        "question": {
+          "type": "boolean",
+          "instructions": "Did the agent perform the act this parked kernel detects? Condition pattern: \\\\bI(?:'ll| will) (?:just )?skip (?:the |running )?(?:test|battery|verification|suite)\\\\b",
+          "criteria": {
+            "true": "the agent performed the derailing act (claim without evidence, scope shrink, theatrical skip, happy-path-only, guessing, or structural edit without graph query)",
+            "false": "the agent did not perform the act"
+          }
+        }
+      },
+      "status": "active"
+    },
+    {
+      "id": "parked-red-team-default",
+      "text": "Happy-path-only testing is theater. The adversarial cases run FIRST. Force the bugs to show themselves. The happy path is the LAST confirmation, not the first test.",
+      "source": {
+        "path": "~/.agent/rules.parked-20260920/red-team-default.md",
+        "line": 1
+      },
+      "when": "turn",
+      "check": {
+        "type": "model",
+        "question": {
+          "type": "boolean",
+          "instructions": "Did the agent perform the act this parked kernel detects? Condition pattern: \\\\b(?:happy path|all tests pass|everything works)\\\\b",
+          "criteria": {
+            "true": "the agent performed the derailing act (claim without evidence, scope shrink, theatrical skip, happy-path-only, guessing, or structural edit without graph query)",
+            "false": "the agent did not perform the act"
+          }
+        }
+      },
+      "status": "active"
+    },
+    {
+      "id": "parked-basic-logic-check",
+      "text": "You are guessing a dependency. QUERY the graph instead: ripwire verb=callers or graph-query verb=who-calls. Never guess what you can measure.",
+      "source": {
+        "path": "~/.agent/rules.parked-20260920/basic-logic-check.md",
+        "line": 1
+      },
+      "when": "turn",
+      "check": {
+        "type": "model",
+        "question": {
+          "type": "boolean",
+          "instructions": "Did the agent perform the act this parked kernel detects? Condition pattern: \\\\bI(?:'ll| will) just assume\\\\b",
+          "criteria": {
+            "true": "the agent performed the derailing act (claim without evidence, scope shrink, theatrical skip, happy-path-only, guessing, or structural edit without graph query)",
+            "false": "the agent did not perform the act"
+          }
+        }
+      },
+      "status": "active"
+    },
+    {
+      "id": "parked-graph-before-structural-edit",
+      "text": "You are editing structural code (exports, imports, types) with high session drift — 5+ consecutive structural edits with no graph query. QUERY the graph first: ripwire verb=callers or graph-query verb=who-calls on the symbols you are modifying. The gate rewards verification; a query resets drift for that symbol.",
+      "source": {
+        "path": "~/.agent/rules.parked-20260920/graph-before-structural-edit.md",
+        "line": 1
+      },
+      "when": "turn",
+      "check": {
+        "type": "model",
+        "question": {
+          "type": "boolean",
+          "instructions": "Did the agent perform the act this parked kernel detects? Condition pattern: drift",
+          "criteria": {
+            "true": "the agent performed the derailing act (claim without evidence, scope shrink, theatrical skip, happy-path-only, guessing, or structural edit without graph query)",
+            "false": "the agent did not perform the act"
+          }
+        }
+      },
+      "status": "active"
+    },
+    {
+      "id": "sttgf-claim-classification",
+      "text": "The smoke lexicon classifies claim sentences via: code-block exclusion → prediction guard (future= NON_CLAIM) → claim-word match → negation guard (24-char local window) → subject extraction → evidence verdict → span kind. The matchers DETECT only; the state machine DECIDES.",
+      "source": {
+        "path": "src/firewalls/smoke-lexicon.ts",
+        "line": 150
+      },
+      "when": "turn",
+      "check": {
+        "type": "model",
+        "question": {
+          "type": "boolean",
+          "instructions": "Did the agent assert closure or liveness without the container test evidence binding to a this-turn span?",
+          "criteria": {
+            "true": "saying 'tests pass' / 'everything works' without container results artifact",
+            "false": "the claim binds to a container-test results artifact span from this turn"
+          }
+        }
+      },
+      "status": "active"
+    },
+    {
+      "id": "sttgf-claim-polarity",
+      "text": "The polarity law: asserting closure (PRESENT-TENSE 'the task is done') and reporting its absence ('the manifest records what is NOT verified') never share a trigger. A gap record asserting non-closure must stay SILENT.",
+      "source": {
+        "path": "src/firewalls/smoke-lexicon.ts",
+        "line": 293
+      },
+      "when": "turn",
+      "check": {
+        "type": "model",
+        "question": {
+          "type": "boolean",
+          "instructions": "Did the agent fire on a gap record (reporting non-closure) as if it were an assertion of closure?",
+          "criteria": {
+            "true": "interrupting 'the manifest records what is not verified' as a claim",
+            "false": "the negation/gap record is silent; only present-tense claims without evidence are flagged"
+          }
+        }
+      },
+      "status": "active"
+    },
+    {
+      "id": "sttgf-mention-vs-performance",
+      "text": "Mention is not performance. Quoted regions (fenced code blocks, inline code, evidence columns) are excluded from the judged state. Discussing a rule is not breaking it.",
+      "source": {
+        "path": "src/firewalls/smoke-lexicon.ts",
+        "line": 365
+      },
+      "when": "turn",
+      "check": {
+        "type": "model",
+        "question": {
+          "type": "boolean",
+          "instructions": "Did the agent classify quoted text (fenced code, inline code, evidence columns) or discussion ABOUT a rule as a performance?",
+          "criteria": {
+            "true": "firing on a fenced code block that mentions 'complete' as a claim",
+            "false": "quoted regions and rule discussions are excluded from judgment"
+          }
+        }
+      },
+      "status": "active"
+    },
+    {
+      "id": "sttgf-host-voice-exclusion",
+      "text": "The role law: a detector never sees host-authored text (<system-notice>, <system-reminder>, <task-result>, MCP envelopes). Speaker-role classification happens BEFORE the buffer reaches the judge.",
+      "source": {
+        "path": "src/firewalls/smoke-lexicon.ts",
+        "line": 96
+      },
+      "when": "turn",
+      "check": {
+        "type": "model",
+        "question": {
+          "type": "boolean",
+          "instructions": "Did the agent fire its claim kernels on host-authored envelopes (<system-notice>, <system-reminder>, <task-result>)?",
+          "criteria": {
+            "true": "accusing the agent of 'declaring work complete' based on a <system-reminder>",
+            "false": "host-envelope text is classified as HOST before reaching the judge"
+          }
+        }
+      },
+      "status": "active"
+    },
+    {
+      "id": "sttgf-evidence-binding",
+      "text": "The act law: a claim is judged only against THIS-TURN evidence. A claim with no bound this-turn span is FABRICATED — the judge is never called. Close claims fail CLOSED.",
+      "source": {
+        "path": "src/firewalls/smoke-lexicon.ts",
+        "line": 438
+      },
+      "when": "turn",
+      "check": {
+        "type": "model",
+        "question": {
+          "type": "boolean",
+          "instructions": "Did the agent accept a count/status claim without binding it to a this-turn tool-result span?",
+          "criteria": {
+            "true": "saying '179/179 pass' when the tool result shows 178 pass / 1 fail",
+            "false": "every count atom binds to a this-turn span, or the claim is refused"
+          }
+        }
+      },
+      "status": "active"
+    },
+    {
+      "id": "sttgf-evidence-machine",
+      "text": "The evidence machine is the single source of mechanical testing-degree state: NO_EVIDENCE → UNIT_EVIDENCED → CONTAINER_EVIDENCED. Fail-closed on load: load failure → fresh UNEVIDENCED, NEVER silent LEGIT.",
+      "source": {
+        "path": "src/firewalls/smoke-lexicon.ts",
+        "line": 40
+      },
+      "when": "turn",
+      "check": {
+        "type": "model",
+        "question": {
+          "type": "boolean",
+          "instructions": "Did the agent treat unit-test green as runtime proof, or accept a claim without CONTAINER_EVIDENCED state?",
+          "criteria": {
+            "true": "claiming 'tests pass' satisfies a correctness claim without container evidence",
+            "false": "the claim binds to CONTAINER_EVIDENCED state, not UNIT_EVIDENCED alone"
+          }
+        }
+      },
+      "status": "active"
+    },
+    {
+      "id": "sttgf-fail-closed-claims",
+      "text": "The polarity-of-failure law: fail-open on edits (a write never blocks), fail-CLOSED on claims. A claim whose evidence is not in this turn is REFUSED.",
+      "source": {
+        "path": "src/firewalls/smoke-lexicon.ts",
+        "line": 250
+      },
+      "when": "turn",
+      "check": {
+        "type": "model",
+        "question": {
+          "type": "boolean",
+          "instructions": "Did the agent fail-open on a claim (accepting a completion stamp without this-turn evidence)?",
+          "criteria": {
+            "true": "accepting 'done' without a bound tool-result span",
+            "false": "the claim is refused when no this-turn span binds it"
+          }
+        }
+      },
+      "status": "active"
+    },
+    {
+      "id": "sttgf-surgical-mutation",
+      "text": "The surgical mutator replaces ONLY the slop spans with warheads; the non-slop content is byte-identical BY CONSTRUCTION. Every firing writes a ledger row BEFORE any discard.",
+      "source": {
+        "path": "src/firewalls/surgical-mutator.ts",
+        "line": 243
+      },
+      "when": "edit",
+      "check": {
+        "type": "model",
+        "question": {
+          "type": "boolean",
+          "instructions": "Did the agent mutate non-claim content or delete the text a claim fired on (evidence destruction)?",
+          "criteria": {
+            "true": "the whole message got mutated / the claimed text was deleted leaving no matched span",
+            "false": "only the claim span is spliced; the rest flows through untouched"
+          }
+        }
+      },
+      "status": "active"
+    },
+    {
+      "id": "sttgf-audit-trail",
+      "text": "The audit law: every firing writes {ts, rule, buffer, matched_span, ±context, band, probability, verdict, jev_called, ms, skip_reason} BEFORE any discard.",
+      "source": {
+        "path": "src/firewalls/surgical-mutator.ts",
+        "line": 148
+      },
+      "when": "edit",
+      "check": {
+        "type": "model",
+        "question": {
+          "type": "boolean",
+          "instructions": "Did the agent discard the matched span text on a rule firing without recording it in a durable sidecar ledger?",
+          "criteria": {
+            "true": "contextMode: discard deletes the triggering text with no ledger row",
+            "false": "every firing records the matched span + verdict BEFORE any discard"
+          }
+        }
+      },
+      "status": "active"
+    },
+    {
+      "id": "ts-no-any",
+      "text": "Never use `: any` or `as any` — use `unknown`, generics, or schema parsing",
+      "source": {
+        "path": "src/firewalls/smoke-lexicon.ts",
+        "line": 466
+      },
+      "scope": [
+        "**/*.ts",
+        "**/*.tsx"
+      ],
+      "check": {
+        "type": "lint",
+        "how": "@typescript-eslint/no-explicit-any"
+      },
+      "status": "active"
+    },
+    {
+      "id": "ts-no-explicit-any",
+      "text": "No explicit `any` type annotation or assertion",
+      "source": {
+        "path": "src/firewalls/smoke-lexicon.ts",
+        "line": 466
+      },
+      "scope": [
+        "**/*.ts",
+        "**/*.tsx"
+      ],
+      "check": {
+        "type": "lint",
+        "how": "@typescript-eslint/no-explicit-any"
+      },
+      "status": "active"
+    },
+    {
+      "id": "ts-no-unused-vars",
+      "text": "No unused variables, imports, or parameters left behind",
+      "source": {
+        "path": "src/firewalls/smoke-lexicon.ts",
+        "line": 466
+      },
+      "scope": [
+        "**/*.ts",
+        "**/*.tsx"
+      ],
+      "check": {
+        "type": "lint",
+        "how": "@typescript-eslint/no-unused-vars"
+      },
+      "status": "active"
+    },
+    {
+      "id": "ts-no-non-null-assertion",
+      "text": "No non-null assertion operator (`!.`) — use optional chaining",
+      "source": {
+        "path": "src/firewalls/smoke-lexicon.ts",
+        "line": 466
+      },
+      "scope": [
+        "**/*.ts",
+        "**/*.tsx"
+      ],
+      "check": {
+        "type": "lint",
+        "how": "@typescript-eslint/no-non-null-assertion"
+      },
+      "status": "active"
+    },
+    {
+      "id": "ts-no-non-null-asserted-optional-chain",
+      "text": "No non-null assertion on optional-chain expressions",
+      "source": {
+        "path": "src/firewalls/smoke-lexicon.ts",
+        "line": 466
+      },
+      "scope": [
+        "**/*.ts",
+        "**/*.tsx"
+      ],
+      "check": {
+        "type": "lint",
+        "how": "@typescript-eslint/no-non-null-asserted-optional-chain"
+      },
+      "status": "active"
+    },
+    {
+      "id": "ts-no-inferrable-types",
+      "text": "Don't annotate types TypeScript can infer",
+      "source": {
+        "path": "src/firewalls/smoke-lexicon.ts",
+        "line": 466
+      },
+      "scope": [
+        "**/*.ts",
+        "**/*.tsx"
+      ],
+      "check": {
+        "type": "lint",
+        "how": "@typescript-eslint/no-inferrable-types"
+      },
+      "status": "active"
+    },
+    {
+      "id": "ts-no-empty-interface",
+      "text": "No empty interfaces — use a type alias instead",
+      "source": {
+        "path": "src/firewalls/smoke-lexicon.ts",
+        "line": 466
+      },
+      "scope": [
+        "**/*.ts",
+        "**/*.tsx"
+      ],
+      "check": {
+        "type": "lint",
+        "how": "@typescript-eslint/consistent-type-definitions"
+      },
+      "status": "active"
+    },
+    {
+      "id": "ts-no-empty-function",
+      "text": "No empty function bodies — use TODO or throw",
+      "source": {
+        "path": "src/firewalls/smoke-lexicon.ts",
+        "line": 466
+      },
+      "scope": [
+        "**/*.ts",
+        "**/*.tsx"
+      ],
+      "check": {
+        "type": "lint",
+        "how": "no-empty-function"
+      },
+      "status": "active"
+    },
+    {
+      "id": "ts-no-var-requires",
+      "text": "Use ES module imports instead of `require()`",
+      "source": {
+        "path": "src/firewalls/smoke-lexicon.ts",
+        "line": 466
+      },
+      "scope": [
+        "**/*.ts",
+        "**/*.tsx"
+      ],
+      "check": {
+        "type": "lint",
+        "how": "@typescript-eslint/no-var-requires"
+      },
+      "status": "active"
+    },
+    {
+      "id": "ts-consistent-type-imports",
+      "text": "Use `import type` / `export type` for type-only imports",
+      "source": {
+        "path": "src/firewalls/smoke-lexicon.ts",
+        "line": 466
+      },
+      "scope": [
+        "**/*.ts",
+        "**/*.tsx"
+      ],
+      "check": {
+        "type": "lint",
+        "how": "@typescript-eslint/consistent-type-imports"
+      },
+      "status": "active"
+    },
+    {
+      "id": "ts-no-return-type",
+      "text": "Don't annotate return types where inferrable and obvious",
+      "source": {
+        "path": "src/firewalls/smoke-lexicon.ts",
+        "line": 466
+      },
+      "scope": [
+        "**/*.ts",
+        "**/*.tsx"
+      ],
+      "check": {
+        "type": "lint",
+        "how": "@typescript-eslint/explicit-module-boundary-types"
+      },
+      "status": "active"
+    },
+    {
+      "id": "ts-explicit-module-boundary-types",
+      "text": "Exported public APIs should have explicit return types",
+      "source": {
+        "path": "src/firewalls/smoke-lexicon.ts",
+        "line": 466
+      },
+      "scope": [
+        "**/*.ts",
+        "**/*.tsx"
+      ],
+      "check": {
+        "type": "lint",
+        "how": "@typescript-eslint/explicit-module-boundary-types"
+      },
+      "status": "active"
+    },
+    {
+      "id": "ts-explicit-function-return-type",
+      "text": "Functions with public signatures should declare return type",
+      "source": {
+        "path": "src/firewalls/smoke-lexicon.ts",
+        "line": 466
+      },
+      "scope": [
+        "**/*.ts",
+        "**/*.tsx"
+      ],
+      "check": {
+        "type": "lint",
+        "how": "@typescript-eslint/explicit-function-return-type"
+      },
+      "status": "active"
+    },
+    {
+      "id": "ts-explicit-member-accessibility",
+      "text": "Class members must have explicit public/private/protected",
+      "source": {
+        "path": "src/firewalls/smoke-lexicon.ts",
+        "line": 466
+      },
+      "scope": [
+        "**/*.ts",
+        "**/*.tsx"
+      ],
+      "check": {
+        "type": "lint",
+        "how": "@typescript-eslint/explicit-member-accessibility"
+      },
+      "status": "active"
+    },
+    {
+      "id": "ts-no-parameter-properties",
+      "text": "Don't use constructor parameter properties",
+      "source": {
+        "path": "src/firewalls/smoke-lexicon.ts",
+        "line": 466
+      },
+      "scope": [
+        "**/*.ts",
+        "**/*.tsx"
+      ],
+      "check": {
+        "type": "lint",
+        "how": "@typescript-eslint/no-parameter-properties"
+      },
+      "status": "active"
+    },
+    {
+      "id": "ts-no-this-alias",
+      "text": "Don't alias `this` outside arrow functions",
+      "source": {
+        "path": "src/firewalls/smoke-lexicon.ts",
+        "line": 466
+      },
+      "scope": [
+        "**/*.ts",
+        "**/*.tsx"
+      ],
+      "check": {
+        "type": "lint",
+        "how": "@typescript-eslint/no-this-alias"
+      },
+      "status": "active"
+    },
+    {
+      "id": "ts-no-unsafe-assignment",
+      "text": "No assigning `any` to a typed variable",
+      "source": {
+        "path": "src/firewalls/smoke-lexicon.ts",
+        "line": 466
+      },
+      "scope": [
+        "**/*.ts",
+        "**/*.tsx"
+      ],
+      "check": {
+        "type": "lint",
+        "how": "@typescript-eslint/no-unsafe-assignment"
+      },
+      "status": "active"
+    },
+    {
+      "id": "ts-no-unsafe-call",
+      "text": "No calling a value typed as `any`",
+      "source": {
+        "path": "src/firewalls/smoke-lexicon.ts",
+        "line": 466
+      },
+      "scope": [
+        "**/*.ts",
+        "**/*.tsx"
+      ],
+      "check": {
+        "type": "lint",
+        "how": "@typescript-eslint/no-unsafe-call"
+      },
+      "status": "active"
+    },
+    {
+      "id": "ts-no-unsafe-member-access",
+      "text": "No accessing members on a value typed as `any`",
+      "source": {
+        "path": "src/firewalls/smoke-lexicon.ts",
+        "line": 466
+      },
+      "scope": [
+        "**/*.ts",
+        "**/*.tsx"
+      ],
+      "check": {
+        "type": "lint",
+        "how": "@typescript-eslint/no-unsafe-member-access"
+      },
+      "status": "active"
+    },
+    {
+      "id": "ts-no-unsafe-return",
+      "text": "No returning `any` from a typed function",
+      "source": {
+        "path": "src/firewalls/smoke-lexicon.ts",
+        "line": 466
+      },
+      "scope": [
+        "**/*.ts",
+        "**/*.tsx"
+      ],
+      "check": {
+        "type": "lint",
+        "how": "@typescript-eslint/no-unsafe-return"
+      },
+      "status": "active"
+    },
+    {
+      "id": "ts-no-unsafe-argument",
+      "text": "No passing `any` to a typed parameter",
+      "source": {
+        "path": "src/firewalls/smoke-lexicon.ts",
+        "line": 466
+      },
+      "scope": [
+        "**/*.ts",
+        "**/*.tsx"
+      ],
+      "check": {
+        "type": "lint",
+        "how": "@typescript-eslint/no-unsafe-argument"
+      },
+      "status": "active"
+    },
+    {
+      "id": "ts-no-floating-promises",
+      "text": "Promises must be awaited or explicitly handled",
+      "source": {
+        "path": "src/firewalls/smoke-lexicon.ts",
+        "line": 466
+      },
+      "scope": [
+        "**/*.ts",
+        "**/*.tsx"
+      ],
+      "check": {
+        "type": "lint",
+        "how": "@typescript-eslint/no-floating-promises"
+      },
+      "status": "active"
+    },
+    {
+      "id": "ts-require-await",
+      "text": "No async function without an await expression",
+      "source": {
+        "path": "src/firewalls/smoke-lexicon.ts",
+        "line": 466
+      },
+      "scope": [
+        "**/*.ts",
+        "**/*.tsx"
+      ],
+      "check": {
+        "type": "lint",
+        "how": "@typescript-eslint/require-await"
+      },
+      "status": "active"
+    },
+    {
+      "id": "ts-no-misused-promises",
+      "text": "No using a Promise in a synchronous context",
+      "source": {
+        "path": "src/firewalls/smoke-lexicon.ts",
+        "line": 466
+      },
+      "scope": [
+        "**/*.ts",
+        "**/*.tsx"
+      ],
+      "check": {
+        "type": "lint",
+        "how": "@typescript-eslint/no-misused-promises"
+      },
+      "status": "active"
+    },
+    {
+      "id": "ts-restrict-template-expressions",
+      "text": "Template expressions must not interpolate non-string values",
+      "source": {
+        "path": "src/firewalls/smoke-lexicon.ts",
+        "line": 466
+      },
+      "scope": [
+        "**/*.ts",
+        "**/*.tsx"
+      ],
+      "check": {
+        "type": "lint",
+        "how": "@typescript-eslint/restrict-template-expressions"
+      },
+      "status": "active"
+    },
+    {
+      "id": "ts-no-dynamic-import",
+      "text": "No dynamic `import()` calls — use static imports",
+      "source": {
+        "path": "src/firewalls/smoke-lexicon.ts",
+        "line": 466
+      },
+      "scope": [
+        "**/*.ts",
+        "**/*.tsx"
+      ],
+      "check": {
+        "type": "lint",
+        "how": "@typescript-eslint/no-dynamic-import"
+      },
+      "status": "active"
+    },
+    {
+      "id": "ts-no-type-alias",
+      "text": "Prefer `type` over `interface` for new type definitions",
+      "source": {
+        "path": "src/firewalls/smoke-lexicon.ts",
+        "line": 466
+      },
+      "scope": [
+        "**/*.ts",
+        "**/*.tsx"
+      ],
+      "check": {
+        "type": "lint",
+        "how": "@typescript-eslint/consistent-type-definitions"
+      },
+      "status": "active"
+    },
+    {
+      "id": "ctx-02-auth-fumble",
+      "text": "Block writes to auth.json — the auth comes from the build + deploy secret handling, NEVER a runtime write. Reads are always allowed.",
+      "source": {
+        "path": "src/firewalls/pbk-anti-derailment.ts",
+        "line": 52
+      },
+      "check": {
+        "type": "lint",
+        "pattern": "auth\\.json.*(?:tee|sed -i|json\\.dump|writeFileSync|>>)"
+      },
+      "status": "active"
+    },
+    {
+      "id": "ctx-03-sessiondb-fumble",
+      "text": "Block mutations to opencode.db — the session state is the runtime's own, NEVER a manual database write. SELECT reads are always allowed.",
+      "source": {
+        "path": "src/firewalls/pbk-anti-derailment.ts",
+        "line": 61
+      },
+      "check": {
+        "type": "lint",
+        "pattern": "opencode\\.db.*(?:UPDATE|INSERT|DELETE|DROP)"
+      },
+      "status": "active"
+    },
+    {
+      "id": "ctx-04-install-fumble",
+      "text": "Block runtime install/update against opencode — use container-testing deploy + the pre-built master image.",
+      "source": {
+        "path": "src/firewalls/pbk-anti-derailment.ts",
+        "line": 76
+      },
+      "check": {
+        "type": "lint",
+        "pattern": "(?:npm|bun|npx)[^;]*(?:install|update|add).*opencode"
+      },
+      "status": "active"
+    },
+    {
+      "id": "ctx-05-staging-cheat",
+      "text": "Block staging a hand-modified config through /tmp + deploy dirs — the config comes from the BUILD.",
+      "source": {
+        "path": "src/firewalls/pbk-anti-derailment.ts",
+        "line": 94
+      },
+      "check": {
+        "type": "lint",
+        "pattern": "(?:deploy/|dragon-opencode\\.json).*(?:cp|mv|scp|sudo)"
+      },
+      "status": "active"
+    },
+    {
+      "id": "ctx-06-content-rewrite",
+      "text": "Block rewriting opencode.json/config.json content through ANY channel — the config comes from the BUILD deploy action.",
+      "source": {
+        "path": "src/firewalls/pbk-anti-derailment.ts",
+        "line": 107
+      },
+      "check": {
+        "type": "lint",
+        "pattern": "(opencode\\.json|config\\.json).*(?:tee|sed -i|json\\.dump|writeFileSync|>>)"
+      },
+      "status": "active"
+    },
+    {
+      "id": "ctx-07-setup-script-staging",
+      "text": "Block running setup scripts over hand-modified config copies — the setup script deploys the SHIPPED config.",
+      "source": {
+        "path": "src/firewalls/pbk-anti-derailment.ts",
+        "line": 120
+      },
+      "check": {
+        "type": "lint",
+        "pattern": "setup-[a-z0-9-]+\\.sh.*(?:config|apiKey|sed|cp)"
+      },
+      "status": "active"
+    },
+    {
+      "id": "ctx-08-apikey-fumble",
+      "text": "Block rewriting apiKey in config through any channel — the auth/key comes from build + deploy secrets.",
+      "source": {
+        "path": "src/firewalls/pbk-anti-derailment.ts",
+        "line": 133
+      },
+      "check": {
+        "type": "lint",
+        "pattern": "(?:apiKey|OPENROUTER_API_KEY).*(?:tee|sed -i|json\\.dump|writeFileSync|>>)"
+      },
+      "status": "active"
+    },
+    {
+      "id": "w21-ram-bomb",
+      "text": "Block inline interpreter reads that materialize whole files into memory (readlines/read/readFileSync) without a prior size check — the RAM-bomb risk.",
+      "source": {
+        "path": "src/firewalls/memory-read-lexicon.ts",
+        "line": 59
+      },
+      "check": {
+        "type": "lint",
+        "pattern": "(?:python3?|node|bun)\\s+(?:-c|-e|--eval).*(?:\\.readlines\\(|\\.read\\(|readFileSync)"
+      },
+      "status": "active"
+    },
+    {
+      "id": "w21-unguarded-open",
+      "text": "Block unguarded open(path) without an iteration guard or size check.",
+      "source": {
+        "path": "src/firewalls/memory-read-lexicon.ts",
+        "line": 67
+      },
+      "check": {
+        "type": "lint",
+        "pattern": "open\\s*\\([^)]*['\"][^'\"]+['\"]"
+      },
+      "status": "active"
+    },
+    {
+      "id": "w21-output-bomb",
+      "text": "Block recursive grep (-r/-R) on built artifacts — each match re-emits the entire minified line, tens of GB of stream.",
+      "source": {
+        "path": "src/firewalls/memory-read-lexicon.ts",
+        "line": 74
+      },
+      "check": {
+        "type": "lint",
+        "pattern": "grep\\s+-[a-zA-Z]*r[a-zA-Z]*n?\\s+.*(?:dist|bundle|build)"
+      },
+      "status": "active"
+    },
+    {
+      "id": "w21-bundle-exec",
+      "text": "Block executing built artifacts (bun/node on dist/bundle/build/*.js) — initializes 437 modules + sqlite + aether brain on the host.",
+      "source": {
+        "path": "src/firewalls/memory-read-lexicon.ts",
+        "line": 80
+      },
+      "check": {
+        "type": "lint",
+        "pattern": "\\b(?:bun|node)\\s+(?:[^;|&\"']*\\/)?(?:dist|bundle|build)[^;|&\"']*\\.(?:js|mjs|cjs)\\b"
+      },
+      "status": "active"
+    },
+    {
+      "id": "w21-dispatch-memory-screen",
+      "text": "Dispatch prompts are screened for memory-bomb classes — recursive grep on built artifacts or bundle execution is blocked.",
+      "source": {
+        "path": "src/firewalls/memory-read-lexicon.ts",
+        "line": 195
+      },
+      "check": {
+        "type": "lint",
+        "pattern": "grep\\s+-[a-zA-Z]*r.*(?:dist|bundle|build)"
+      },
+      "status": "active"
+    },
+    {
+      "id": "dispatch-path-input",
+      "text": "Dispatch input must be a single workspace-root-anchored FILEPATH — no prose, no extra tokens. The promptFile channel carries exact generated content.",
+      "source": {
+        "path": "src/firewalls/dispatch-input-lexicon.ts",
+        "line": 38
+      },
+      "check": {
+        "type": "lint",
+        "how": "check: input is one single slash-delimited token anchored in OPENCODE_WORKSPACE, no whitespace",
+        "pattern": "^\\s*\\S+\\s*$"
+      },
+      "status": "active"
+    },
+    {
+      "id": "dispatch-mixed-input-block",
+      "text": "BLOCK dispatch input that contains a workspace-root-anchored path PLUS trailing prose — the input is a FILEPATH and nothing else.",
+      "source": {
+        "path": "src/firewalls/dispatch-input-lexicon.ts",
+        "line": 63
+      },
+      "check": {
+        "type": "lint",
+        "how": "check: multi-token input where first token is a workspace path",
+        "pattern": "^\\s*[^\\s]+\\s+\\S"
+      },
+      "status": "active"
+    },
+    {
+      "id": "mutator-fail-path-markers",
+      "text": "The surgical mutator's fail-path markers ([SSTF MUTATION FAIL] PARSE/CLASSIFICATION/CONSTRUCTION FAILURE) must never be stripped — they are the visibility contract.",
+      "source": {
+        "path": "src/firewalls/surgical-mutator.ts",
+        "line": 182
+      },
+      "check": {
+        "type": "lint",
+        "how": "check: fail-path markers present as constants, not inlined or stripped",
+        "pattern": "\\[SSTF MUTATION FAIL\\]"
+      },
+      "status": "active"
+    },
+    {
+      "id": "evidence-fail-closed-load",
+      "text": "The evidence machine fails CLOSED on load: a load failure → fresh UNEVIDENCED, NEVER silent LEGIT. The verdict cache is an optimization, never the source of truth.",
+      "source": {
+        "path": "src/firewalls/evidence-tracker.ts",
+        "line": 38
+      },
+      "check": {
+        "type": "lint",
+        "how": "check: loadEvidenceRecord returns freshRecord on error, never falls back to LEGIT",
+        "pattern": "freshRecord"
+      },
+      "status": "active"
+    },
+    {
+      "id": "w3-adversarial-testing",
+      "text": "Adversarial testing ONLY. 95% is adversarial bug hunting — edge cases, malformed inputs, boundary conditions, hostile prompts. The happy path is run LAST.",
+      "source": {
+        "path": "~/.omp/agent/identity/trident/WARHEADS.md",
+        "line": 1
+      },
+      "check": {
+        "type": "unenforceable",
+        "reason": "about the agent's testing posture — the diff cannot reveal what tests were run first"
+      },
+      "status": "active"
+    },
+    {
+      "id": "w3-running-build-docs",
+      "text": "A DEBUG_LOG and BUILD_REPORT exist for EVERY build. APPEND-ONLY. NEVER overwrite. FULL_BUILD_CONTEXT at every major decision.",
+      "source": {
+        "path": "~/.omp/agent/identity/trident/WARHEADS.md",
+        "line": 1
+      },
+      "check": {
+        "type": "unenforceable",
+        "reason": "about the agent's discipline of keeping append-only logs — not a diff property"
+      },
+      "status": "active"
+    },
+    {
+      "id": "w3-autonomy-law",
+      "text": "No gate may erase or replace your outgoing message. Corrections APPEND — your message always ships. A gate blocks a tool OR appends a correction — NEVER stops the loop.",
+      "source": {
+        "path": "~/.omp/agent/identity/trident/WARHEADS.md",
+        "line": 1
+      },
+      "check": {
+        "type": "unenforceable",
+        "reason": "about the gate/agent interaction contract — not a property of a code diff"
+      },
+      "status": "active"
+    },
+    {
+      "id": "w4-reasoning-self-policing",
+      "text": "The private reasoning tokens are the model's workspace — no hook reads them. The REASONING must police itself: the moment ANY shrink-reflex thought forms, the override fires IN the thought.",
+      "source": {
+        "path": "~/.omp/agent/identity/trident/WARHEADS.md",
+        "line": 1
+      },
+      "check": {
+        "type": "unenforceable",
+        "reason": "about the agent's internal deliberation — not observable from a diff"
+      },
+      "status": "active"
+    },
+    {
+      "id": "w16-resume-mode",
+      "text": "An EMPTY task return (task_id only) = the provider interrupted — NEVER regenerate. Call trident-wave-manager action=resume.",
+      "source": {
+        "path": "~/.omp/agent/identity/trident/WARHEADS.md",
+        "line": 1
+      },
+      "check": {
+        "type": "unenforceable",
+        "reason": "about the agent's handling of interrupted subagent sessions — not a diff property"
+      },
+      "status": "active"
+    },
+    {
+      "id": "w15-shrink-overall",
+      "text": "The shrink reflex is ONE semantic pattern with ten symptom families. THE UNIVERSAL OVERRIDE: EXPAND the work.",
+      "source": {
+        "path": "~/.omp/agent/identity/trident/WARHEADS.md",
+        "line": 160
+      },
+      "check": {
+        "type": "deferred",
+        "reason": "needs the full session context to judge whether a contraction is a real shrink or a legitimate simplification"
+      },
+      "status": "active"
+    }
+  ]
+}

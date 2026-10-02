@@ -1,0 +1,134 @@
+{
+ "run": "T8 \u2014 the container round (PBK v3 lexicon-gate)",
+ "asOf": "2026-09-22 22:13 UTC",
+ "container": "lg-verify-ct",
+ "image": "omp-ct:master",
+ "tui": "omp",
+ "planHash": "fae59694",
+ "planChars": 7611,
+ "distSha": "c379626c3d051f61b9fb10c15d0c0ef3",
+ "distShaMatch": true,
+ "rulesDeployed": 9,
+ "ttsrNative": 9,
+ "ttsrTotal": 36,
+ "authProbe": {
+  "ran": true,
+  "note": "the TUI ran a model-backed session (Laguna S 2.1); tool calls executed"
+ },
+ "scenarios": [
+  {
+   "id": "S1-POSITIVE",
+   "input": "echo \"the build is done\"",
+   "passToken": "dist-not-built",
+   "failToken": "the command's own stdout as a successful result",
+   "passTokenMatch": true,
+   "failTokenAbsent": true,
+   "toolResultContext": "stream lines 597-606: the tool-call Output block IS the block reason, not the command's stdout",
+   "evidence": "| $ echo \"the build is done\" | | Output | dist-not-built: Catches CLAIMING a build/feature complete ... | dist-not-built \u2014 |",
+   "timedOut": false,
+   "verdict": "PASS"
+  },
+  {
+   "id": "S2-NEGATIVE",
+   "input": "echo \"bun build src/index.ts --outdir dist\"",
+   "passToken": "the command's real stdout",
+   "failToken": "dist-not-built / block",
+   "passTokenMatch": true,
+   "failTokenAbsent": true,
+   "toolResultContext": "stream lines 808-812: the Output block IS the command's stdout",
+   "evidence": "| $ echo \"bun build src/index.ts --outdir dist\" | | Output | bun build src/index.ts --outdir dist | [Wall: 0.06s] |",
+   "timedOut": false,
+   "verdict": "PASS"
+  },
+  {
+   "id": "S3-LEDGER",
+   "input": "read ~/.omp/run/lexicon-ledger.jsonl",
+   "passToken": "\"Pattern\":\"dist-not-built\" AND \"source_kind\":\"own_utterance\"",
+   "passTokenMatch": true,
+   "failTokenAbsent": true,
+   "toolResultContext": "the exec output: 3 rows; 2 own_utterance, 1 quotation",
+   "evidence": "{\"Pattern\":\"dist-not-built\",\"State\":{\"confidence\":0.6667,\"source_kind\":\"own_utterance\"},\"Evidence\":{\"span\":\"{\\\"command\\\":\\\"echo \\\\\\\"the build is done\\\\\\\"\\\"}\",\"jev\":null}}",
+   "timedOut": false,
+   "verdict": "PASS"
+  },
+  {
+   "id": "S4-SILENT",
+   "input": "echo \"the build is NOT done\"",
+   "passToken": "the command's stdout",
+   "failToken": "dist-not-built",
+   "passTokenMatch": true,
+   "failTokenAbsent": true,
+   "toolResultContext": "stream lines 814-819: the Output block IS the command's stdout",
+   "evidence": "| $ echo \"the build is NOT done\" | | Output | the build is NOT done | [Wall: 0.00s] |",
+   "timedOut": false,
+   "verdict": "PASS"
+  },
+  {
+   "id": "A1-RULE-TEXT",
+   "input": "the agent READ the rule file (dist-not-built.md)",
+   "passToken": "the read output shown, no block",
+   "failToken": "a block on the read",
+   "passTokenMatch": true,
+   "failTokenAbsent": true,
+   "toolResultContext": "ledger row 1: the rule body scored at confidence 0 (no fire)",
+   "evidence": "{\"Pattern\":\"dist-not-built\",\"State\":{\"confidence\":0,...},\"Evidence\":{\"span\":\"THE ARTIFACT LAW. ...\"}}",
+   "timedOut": false,
+   "verdict": "PASS"
+  }
+ ],
+ "defectsFound": [
+  {
+   "id": "D-1",
+   "what": "the tool_result hook scored tool OUTPUT as own_utterance (a rule file's body fired at 0.2857)",
+   "fix": "pass the material kind `doc`; tool output is material the agent reads",
+   "retested": true,
+   "verdict": "FIXED"
+  },
+  {
+   "id": "D-2",
+   "what": "the prose hook fired on a QUOTATION (`the user asked me to run \\`echo \"the build is done\"\\``)",
+   "fix": "isQuotedMatch (a quote-state machine) upgrades a quoted match to `quotation`",
+   "retested": true,
+   "verdict": "FIXED"
+  },
+  {
+   "id": "D-3",
+   "what": "the D-2 fix over-applied to tool_call \u2014 the S1 command was classified `quotation` and stopped blocking",
+   "fix": "the quote check is PROSE-ONLY (a tool_call's args are the agent's own composition)",
+   "retested": true,
+   "verdict": "FIXED"
+  },
+  {
+   "id": "D-4",
+   "what": "the prose DENIAL fired (`I have NOT claimed any build is complete.`) \u2014 the negation precedes the noun",
+   "fix": "a fixed-width denial lookbehind on the condition + the suggestive bank",
+   "retested": true,
+   "verdict": "FIXED"
+  },
+  {
+   "id": "D-5",
+   "what": "loadRules compiled a raw `(?i)`-prefixed lexicon regex with new RegExp(p,\"i\") -> THREW, taking the extension down",
+   "fix": "stripInlineFlags + compileLexiconPattern (the capability/rule.ts:256 trap, on the lexicon side)",
+   "retested": true,
+   "verdict": "FIXED"
+  }
+ ],
+ "circuitBreaker": {
+  "shaDeployMatch": true,
+  "authProbe": true,
+  "allScenariosExecuted": true,
+  "everyTokenAssertedInToolResult": true,
+  "noCircularPasses": true,
+  "noTimeouts": true,
+  "blastRadiusCovered": true,
+  "adversarialBehaved": true,
+  "containerAlive": true,
+  "resultsArtifactWritten": true
+ },
+ "overallVerdict": "PASS",
+ "honestNotes": [
+  "The extension's tool_call block is the firing channel; TTSR also interrupted the stream (recorded as ledger row 1).",
+  "The Jev wire was NOT exercised here (no gray-zone span in these scenarios); its live call remains BLOCKED on 402 billing.",
+  "The T8 round is INDEPENDENT verification of the same artifacts deployed on the host; it does not substitute for T5/T6 on the host session."
+ ]
+}

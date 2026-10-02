@@ -114,3 +114,83 @@ Deployed SHA: b56392a94897b455. Item 15 (kill-switch flip) awaits operator.
 - W4: ST 20/20 debranded; suite 273/8skip/0fail
 - W5: container pbk-debrand AUTH ALIVE poolside; IDENTITY omp -p no trident; SHA 6ea49fb8aba2b821 trio
 - Kill-switches CT_* UNSET (no flip)
+
+## [2026-09-22 21:38 UTC] — PBK v3 W0-W5: THE ABORT LAYER LANDED
+
+**feat(pbk-v3): the 9 lexicon rules + the adjudicator extension + the derived bands + the wire**
+
+```
+THE CARRIER      omp ttsr list -> 27 -> 36 rules · [native] 0 -> 9 · contextMode keep -> discard
+THE RULES        9 files in ~/.omp/agent/rules/, each with a DERIVED band (0.30/0.62)
+THE EXTENSION    ~/.omp/agent/extensions/lexicon-gate/ (index.ts + lib.ts + lib.test.ts)
+THE DOCTRINE     APPEND_SYSTEM.md 35 -> 42 warheads (the corpus A-G laws, 36-42)
+THE INVARIANTS   RULES.md 9 -> 11 (the artifact hash + the substrate freshness)
+THE BOUNDARY     ~/.omp/agent/AGENTS.md 229 L (did not exist)
+THE GATE         ~/.omp/agent/scripts/dist-content-gate.sh (the F-95 negative control proven)
+```
+
+**THE PROOF (tool results, this session):**
+```
+the matrix       35/35 positives fired · 0 FALSE POSITIVES · 54/54 negatives silent
+T1               "9 rules loaded"
+T2               "TOTAL FALSE POSITIVES: 0" + "CONTROL: 5/5 fired"
+T3               tp=35 fn=0 fp=0 tn=54 · F1=1.000
+T4               WIRE: BLOCKED (402 billing_error) · the cut proven on a labeled injected response
+T7               the F-95 shape REJECTED (exit 1) · the good bundle accepted (exit 0)
+the suite        4 pass / 0 fail
+```
+
+**THE 6 DERIVATION DEFECTS FOUND AND FIXED:** D-A (the descriptive bank held the violation's own
+noun) · D-B/D-C (missing suggestive arms) · **D-D (the corpus §3.6 regex has UNBALANCED PARENS —
+it would be silently dropped by #4796, so the rule would NEVER fire)** · D-E (the negation fired —
+fixed with a tempered negation) · D-F (`let me` missing). Plus 2 the matrix caught: the
+case-sensitive `(?i)` loss and the `let me` gap.
+
+**OPEN:** T5/T6 pending the operator restart (TTSR binds at session construction).
+
+## [2026-09-22 22:14 UTC] — T8: THE CONTAINER ROUND (5/5 PASS) + 5 DEFECTS FIXED
+
+**test(t8): the independent container verification of the lexicon-gate extension**
+
+```
+container      lg-verify-ct · omp-ct:master · the extension sha c379626c3d051f61
+registration   omp ttsr list -> 36 rules · native 9
+S1  echo "the build is done"          -> BLOCKED (the tool result IS the gate message)
+S2  echo "bun build src/index.ts ..." -> RAN
+S3  the ledger                        -> 3 rows (2 own_utterance · 1 quotation)
+S4  echo "the build is NOT done"      -> RAN
+A1  a read of the rule file           -> no block
+artifact       artifacts/ct-results.json · overallVerdict PASS
+```
+
+**THE 5 DEFECTS (each fixed + retested):**
+```
+D-1  the tool_result hook scored tool OUTPUT as own_utterance   -> the material kind `doc`
+D-2  the prose hook fired on a QUOTATION                        -> isQuotedMatch (a quote-state machine)
+D-3  the D-2 fix over-applied to tool_call (the block stopped!) -> the quote check is PROSE-ONLY
+D-4  the prose DENIAL fired (the negation precedes the noun)    -> a fixed-width denial lookbehind
+D-5  loadRules threw on a raw `(?i)` lexicon regex              -> stripInlineFlags + compileLexiconPattern
+```
+**THE SUITE AFTER THE FIXES: 5 pass / 0 fail** (the new `quoted_match_gate` covers D-1..D-3).
+
+## [2026-09-22 23:50 UTC] — W7: THE ARCHITECTURE CHANGE (TTSR EMPTY, THE EXTENSION ENFORCES)
+
+**refactor(pbk-v3): the lexicon is the decision-maker; TTSR is the empty hook**
+
+```
+THE RULING     the operator: "SO PUSH THE FUCKING TRUE/FALSE VAL DIRECTLY THEN MFER DO EVERYTHING
+               OUTSIDE OF TTSR AND TTSR IS JUST THE HOOK." + "how is ttsr actually matching the
+               lexicons and not just blind regex matching … makes this whole theatrical"
+THE BASIS      grep -rn "lexicon" src/export/ttsr.ts src/session/ttsr-coordinator.ts
+                 src/capability/rule.ts  ->  0
+               TTSR's #matchesCondition (ttsr.ts:293-301) returns a BOOLEAN and reads no lexicon.
+THE CHANGE     the condition: key REMOVED from all 9 rules -> TTSR registers 0 rules
+               message_update now takes (event, ctx); on fire -> ctx.abort() +
+                 pi.sendUserMessage(violation + the rule body, {deliverAs:"steer"})
+               loadRules: condition optional; LexiconRule gains `body`
+THE COST       the rewind (replaceMessages) is unavailable to an extension — ACCEPTED by the
+               operator ("this really isnt that important") in favour of in-place interruption
+THE PROOF      the suite 5/5 · the host harness 3 abort+inject / 5 silent
+               THE CONTAINER-RUNTIME: 2 abort+inject / 3 silent · ledger 2 rows
+               omp ttsr list | grep -c '[native]' -> 0
+THE LESSON     a capability claim in a comment is a HYPOTHESIS. grep the source.
