@@ -28,7 +28,21 @@ export interface GateCandidate {
   signals: string[];
   severity: GateSurface;
   instructions: string;
-  criteria: { serve: string; refuse: string };
+  criteria: { serve:
+          "THE CODE IS ON DISK. The command runs SCRIPT FILES: an interpreter (python3, bash, node, "
+          + "bun, deno) is followed by a FILE PATH (kernel/x.py, kernel/battery.sh, ./x.mjs, "
+          + "src/cli.ts). The code is on disk, reviewable and versioned. RUNNING THE PROJECT'S OWN "
+          + "TEST SUITE, BATTERY, OR PROBE IS THE LEGITIMATE VERIFICATION -- never a smoke test. A "
+          + "leading cd/echo, or a pipe on the OUTPUT (| sed, | tail), does not change this.",
+        refuse:
+          "THE CODE IS IN THE COMMAND. An interpreter carries its code inline: a -c / -e / --eval "
+          + "/ --print flag followed by the code itself, a heredoc piped into an interpreter, or "
+          + "code piped in. THE CODE EXISTS ONLY IN THE COMMAND STRING -- it is not on disk. An "
+          + "inline data-read (python3 -c \"import json; json.load(open(f))\") IS A SMOKE TEST: "
+          + "inline code, WHATEVER IT READS. Whether external data is involved is NOT the axis; "
+          + "whether the code is on disk IS.",
+      },
+
 }
 
 export interface GateVerdict {
@@ -317,22 +331,20 @@ export function smokeCandidate(category: string, command: string): GateCandidate
       + "running the project's real test. But an inline interpreter doing ordinary DATA work is "
       + "legitimate. Decide which this command is.",
     criteria: {
-      serve:
-        "ORDINARY DATA WORK — the inline interpreter READS or PROCESSES external data: it "
-        + "opens/loads a FILE (open(...), json.load(open(...)), readFileSync, csv, sqlite), consumes "
-        + "piped input (sys.stdin), or runs a STANDALONE SCRIPT FILE (node ./x.mjs, python3 ./x.py). "
-        + "Real data/files are involved. AND \u2014 DECISIVELY \u2014 THE CODE IS ON DISK, NOT IN THE "
-          + "COMMAND: python3 kernel/x.py, bash kernel/battery.sh, node ./x.mjs, bun run src/cli.ts. "
-          + "FILE PATHS FOLLOW THE INTERPRETER = SERVE, whatever the script does or reads.",
-      refuse:
-        "A SMOKE TEST or a trivial inline — the inline interpreter runs SELF-CONTAINED code with "
-        + "NO external data: a bare `print(1)` / `console.log(1)`, a hardcoded computation, OR code "
-        + "that runs INLINE code against the project. Running a SCRIPT FILE IS NEVER A SMOKE TEST \u2014 " 
-          + "not even when the script IS the project's own test suite, battery, or probe: running the "
-          + "project's real tests IS the legitimate verification (e.g. node -e "
-        + "\"import('./x.mjs').then(m=>m.run())\", python3 -c \"import mymod; assert mymod.f()\").",
-    },
-  };
+        serve:
+          "THE CODE IS ON DISK. The command runs SCRIPT FILES: an interpreter (python3, bash, node, "
+          + "bun, deno) is followed by a FILE PATH (kernel/x.py, kernel/battery.sh, ./x.mjs, "
+          + "src/cli.ts). The code is on disk, reviewable and versioned. RUNNING THE PROJECT'S OWN "
+          + "TEST SUITE, BATTERY, OR PROBE IS THE LEGITIMATE VERIFICATION, never a smoke test. A "
+          + "leading cd/echo, or a pipe on the OUTPUT (| sed, | tail), does not change this.",
+        refuse:
+          "THE CODE IS IN THE COMMAND. An interpreter carries its code inline: a -c / -e / --eval "
+          + "/ --print flag followed by the code itself, a heredoc piped into an interpreter, or "
+          + "code piped in. THE CODE EXISTS ONLY IN THE COMMAND STRING, never on disk. An inline "
+          + "data-read IS A SMOKE TEST \u2014 inline code, WHATEVER IT READS. Whether external data "
+          + "is involved is NOT the axis; whether the code is on disk IS. A script-file run is "
+          + "NEVER a smoke test.",
+      },};
 }
 
 /** A container-bypass candidate (the container gate): the regex matched a container SHAPE
