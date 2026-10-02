@@ -1761,7 +1761,15 @@ class VerificationStateTracker {
     const rec = getEvidenceState(sid);
     const distSha = rec.distSha ?? "";
     const artifact = locateEvidenceArtifact();
-    if (artifact !== null && distSha !== "") {
+    let fresh = false;
+    if (artifact !== null) {
+      try {
+        fresh = Date.now() - statSync3(artifact).mtimeMs < CLAIM_WINDOW_MS;
+      } catch {
+        fresh = false;
+      }
+    }
+    if (artifact !== null && fresh && distSha !== "") {
       ingestEvidenceEvent(sid, { kind: "container", at: Date.now(), distSha, hasEvidenceArtifact: true, artifact });
     } else {
       ingestEvidenceEvent(sid, { kind: "evidence_clear", at: Date.now(), distSha });

@@ -444,7 +444,14 @@ export class VerificationStateTracker {
     const rec = getEvidenceState(sid);
     const distSha = rec.distSha ?? '';
     const artifact = locateEvidenceArtifact();
-    if (artifact !== null && distSha !== '') {
+    // [audit:442] the artifact is CWD-global — a stale one from another session could satisfy a
+    // fresh claim. The confirm requires the artifact be RECENT (written within the claim window),
+    // so a leftover artifact does not launder an unevidenced claim.
+    let fresh = false;
+    if (artifact !== null) {
+      try { fresh = Date.now() - statSync(artifact).mtimeMs < CLAIM_WINDOW_MS; } catch { fresh = false; }
+    }
+    if (artifact !== null && fresh && distSha !== '') {
       ingestEvidenceEvent(sid, { kind: 'container', at: Date.now(), distSha, hasEvidenceArtifact: true, artifact });
     } else {
       ingestEvidenceEvent(sid, { kind: 'evidence_clear', at: Date.now(), distSha });
