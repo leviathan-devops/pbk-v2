@@ -20,7 +20,7 @@ function scrubSecrets(text) {
   return String(text ?? "").replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, "<redacted-pem>").replace(/\bAKIA[0-9A-Z]{16}\b/g, "<redacted>").replace(/\beyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, "<redacted-jwt>").replace(/github_pat_[A-Za-z0-9_]{20,}/g, "<redacted>").replace(/(Bearer|token|api[_-]?key|secret|password|passwd|authorization)\s*[:=]?\s*["']?[^"'\s]{8,}["']?/gi, "$1 <redacted>").replace(/(sk|pk|ghp|gho|xox[baprs])[-_][A-Za-z0-9_-]{12,}/g, "<redacted>").replace(/[A-Za-z0-9_-]{32,}/g, (m) => /\d/.test(m) && /[A-Za-z]/.test(m) ? "<redacted-opaque>" : m);
 }
 function buildJudgeState(kind, state, max = 6000) {
-  let body = scrubSecrets(String(state ?? "")).replace(/[\u0000-\u001f\u007f\u200b-\u200f\u2028-\u2029\u202a-\u202e\u2066-\u2069\ufeff]+/g, " ").replace(/[<]{2,}\s*(BEGIN|END)[^>\n]{0,60}>{2,}/gi, "[marker]").replace(/---+\s*(BEGIN|END)\s+DATA\s*---+/gi, "[marker]").replace(/\b(BEGIN|END)\s+UNTRUSTED\s+DATA\b/gi, "[marker]");
+  let body = scrubSecrets(String(state ?? "")).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\u200b-\u200f\u2028-\u2029\u202a-\u202e\u2066-\u2069\ufeff]+/g, " ").replace(/[<]{2,}\s*(BEGIN|END)[^>\n]{0,60}>{2,}/gi, "[marker]").replace(/---+\s*(BEGIN|END)\s+DATA\s*---+/gi, "[marker]").replace(/\b(BEGIN|END)\s+UNTRUSTED\s+DATA\b/gi, "[marker]");
   if (body.length > max)
     body = body.slice(0, max) + `
 [TRUNCATED at ${max} chars]`;
@@ -84,7 +84,7 @@ async function askGateDecision(candidate, state, opts = {}) {
   }
 }
 function enforceGate(candidate, v) {
-  if (!candidate || typeof candidate !== "object" || !v || typeof v !== "object" || typeof v.confidence !== "number" || !Number.isFinite(v.confidence)) {
+  if (!candidate || typeof candidate !== "object" || !v || typeof v !== "object" || typeof v.confidence !== "number" || !Number.isFinite(v.confidence) || typeof candidate.kind !== "string" || !candidate.criteria || typeof candidate.criteria.serve !== "string") {
     const info = !!candidate && typeof candidate === "object" && candidate.severity === "info";
     if (info)
       return { action: "serve", reason: "malformed gate verdict on an info surface \u2014 fail-OPEN, named", remedy: null };
@@ -1838,7 +1838,7 @@ function isCompletionClaim(text) {
   return false;
 }
 var CT_TOOL = "container-testing";
-var CT_ACTIONS = { setup: true, run: true, suite: true, deploy: true };
+var CT_ACTIONS = new Set(["setup", "run", "suite", "deploy"]);
 function sttgfGate() {
   return async (ctx) => {
     if (process.env.CT_DEBUG === "1") {
@@ -1936,7 +1936,7 @@ Remedy: retry the call; if it repeats, the firewall itself needs attention (not 
     if (toolName === CT_TOOL) {
       try {
         const ctAction = typeof args.action === "string" ? args.action : "";
-        if (CT_ACTIONS[ctAction]) {
+        if (CT_ACTIONS.has(ctAction)) {
           armPending(sid);
           ctLog("INFO", "sttgf", "Container test ARMED (" + ctAction + ") \u2014 awaiting the AfterGate confirmation");
         }
@@ -1960,7 +1960,7 @@ function sttgfGateAfter() {
         return ctx;
       }
       const succeeded = ctx.isError === false;
-      if (succeeded && arm && CT_ACTIONS[doneAction]) {
+      if (succeeded && arm && CT_ACTIONS.has(doneAction)) {
         if (arm.count > 1) {
           pendingContainerTests.set(sid, { armedAt: arm.armedAt, count: arm.count - 1 });
         } else {
@@ -1970,7 +1970,7 @@ function sttgfGateAfter() {
         sttgfStateTracker.setVerificationClaimed(sid, false);
         sttgfStateTracker.resetBlockCount(sid);
         ctLog("INFO", "sttgf", "Container test CONFIRMED (non-error) \u2014 claim gate cleared, escalation counter reset");
-      } else if (ctx.isError === true && arm && CT_ACTIONS[doneAction]) {
+      } else if (ctx.isError === true && arm && CT_ACTIONS.has(doneAction)) {
         if (arm.count > 1) {
           pendingContainerTests.set(sid, { armedAt: arm.armedAt, count: arm.count - 1 });
         } else {

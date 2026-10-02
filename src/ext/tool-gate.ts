@@ -85,7 +85,9 @@ export function buildJudgeState(kind: string, state: string, max = 6000): string
   // [audit:85] the body kept control/zero-width/bidi chars (only `kind` was sanitizeForJudge'd).
   //   The same strip is applied to the body before the marker-defang.
   let body = scrubSecrets(String(state ?? ""))
-    .replace(/[\u0000-\u001f\u007f\u200b-\u200f\u2028-\u2029\u202a-\u202e\u2066-\u2069\ufeff]+/g, " ")
+    // [audit:87] the strip flattened \n/\t — the judge needs line structure to separate DATA from
+    // ACTION in a multi-line/heredoc command. Preserve 0x09/0x0a/0x0d; strip the rest.
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\u200b-\u200f\u2028-\u2029\u202a-\u202e\u2066-\u2069\ufeff]+/g, " ")
     .replace(/[<]{2,}\s*(BEGIN|END)[^>\n]{0,60}>{2,}/gi, "[marker]")
     .replace(/---+\s*(BEGIN|END)\s+DATA\s*---+/gi, "[marker]")
     .replace(/\b(BEGIN|END)\s+UNTRUSTED\s+DATA\b/gi, "[marker]");
@@ -195,7 +197,7 @@ export async function askGateDecision(
 export function enforceGate(candidate: GateCandidate, v: GateVerdict): { action: "serve" | "refuse"; reason: string; remedy: string | null } {
   // [audit:199] a malformed candidate/verdict (undefined confidence, missing criteria, null
   // verdict) crashed on `.toFixed`/`.serve`. Fail-CLOSED on anything but a well-formed info verdict.
-  if (!candidate || typeof candidate !== "object" || !v || typeof v !== "object" || typeof v.confidence !== "number" || !Number.isFinite(v.confidence)) {
+  if (!candidate || typeof candidate !== "object" || !v || typeof v !== "object" || typeof v.confidence !== "number" || !Number.isFinite(v.confidence) || typeof candidate.kind !== "string" || !candidate.criteria || typeof candidate.criteria.serve !== "string") {
     const info = !!candidate && typeof candidate === "object" && (candidate as GateCandidate).severity === "info";
     if (info) return { action: "serve", reason: "malformed gate verdict on an info surface — fail-OPEN, named", remedy: null };
     return { action: "refuse", reason: "malformed gate verdict on a security surface — fail-CLOSED", remedy: "the gate returned a malformed verdict; check the judge wiring" };

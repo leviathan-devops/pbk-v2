@@ -65,7 +65,9 @@ function isCompletionClaim(text: string): boolean {
 }
 import { ctLog } from "../utils";
 const CT_TOOL = "container-testing";
-const CT_ACTIONS: Record<string, true> = { setup: true, run: true, suite: true, deploy: true };
+// [audit:68] a plain object made CT_ACTIONS['toString']/['__proto__'] truthy (prototype chain) —
+// a crafted action could arm/confirm the gate. A Set has no inherited keys.
+const CT_ACTIONS = new Set<string>(["setup", "run", "suite", "deploy"]);
 
 /**
  * The STTGF BeforeGate — v6 hook-chain.ts:2473-2523, verbatim.
@@ -190,7 +192,7 @@ export function sttgfGate(): BeforeGate {
     if (toolName === CT_TOOL) {
       try {
         const ctAction = typeof args.action === "string" ? args.action : "";
-        if (CT_ACTIONS[ctAction]) {
+        if (CT_ACTIONS.has(ctAction)) {
           armPending(sid);
           ctLog("INFO", "sttgf", "Container test ARMED (" + ctAction + ") — awaiting the AfterGate confirmation");
         }
@@ -228,7 +230,7 @@ export function sttgfGateAfter(): (ctx: AfterContext) => Promise<AfterContext> {
         return ctx;
       }
       const succeeded = ctx.isError === false;
-      if (succeeded && arm && CT_ACTIONS[doneAction]) {
+      if (succeeded && arm && CT_ACTIONS.has(doneAction)) {
         if (arm.count > 1) {
           pendingContainerTests.set(sid, { armedAt: arm.armedAt, count: arm.count - 1 });
         } else {
@@ -238,7 +240,7 @@ export function sttgfGateAfter(): (ctx: AfterContext) => Promise<AfterContext> {
         sttgfStateTracker.setVerificationClaimed(sid, false);
         sttgfStateTracker.resetBlockCount(sid); // [audit:114] compliance clears the escalation
         ctLog("INFO", "sttgf", "Container test CONFIRMED (non-error) — claim gate cleared, escalation counter reset");
-      } else if (ctx.isError === true && arm && CT_ACTIONS[doneAction]) {
+      } else if (ctx.isError === true && arm && CT_ACTIONS.has(doneAction)) {
         // [audit:225] the failure branch deleted the arm unconditionally — one failed benign
         // action (status/help) wiped N concurrent arms. It now clears only when the FAILED
         // action was itself an armed one, and decrements like the success path.
