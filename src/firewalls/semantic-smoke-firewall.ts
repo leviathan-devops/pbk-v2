@@ -244,7 +244,8 @@ export function classifyVerb(toolName: string, args: Record<string, unknown>, co
     // build commands like "ls ... | head -10; wc -l .../forge-bundle.js" were
     // wrongly blocked as VERIFY_INSPECT — the smoke path is inspection OF the
     // bundle as verification, not any command string that mentions both words.
-    const subcommands = cmd.split(/\s*(?:;|&&|\|\||\||\n)\s*/);
+    // [audit:247] split the STRIPPED view — a quoted `grep 'bundle'` is DATA, not a bundle ref.
+    const subcommands = unquoted.split(/\s*(?:;|&&|\|\||\||\n)\s*/);
     for (const sub of subcommands) {
       // THE APPEND-CAT EXCLUSION (2026-08-09 — the operator's live catch: the
       // DEBUG_LOG heredoc-append "cat >> DEBUG_LOG_V3.md <<'EOF' ... bundle ..."

@@ -116,11 +116,11 @@ export function sttgfGate(): BeforeGate {
         //   POLARITY: fail-CLOSED — a dead judge OR a below-bar answer keeps the block (the
         //   smoke policy stands; the block names its remedy: use container-testing).
         try {
-          const cand = smokeCandidate(String(sttgfResult.category || "INLINE"), commandStr);
-          // [audit:118] the raw command flowed into the judge + the ledger unscrubbed while the
-          // /tmp block log scrubbed — scrubSecrets on the shared view.
+          // [audit:119] the candidate retains its command (signals) into the judge + ledger — scrub
+          // BEFORE constructing it, so no raw secret rides the candidate.
           const { scrubSecrets } = require("../ext/tool-gate");
           const scrubbedCmd = scrubSecrets(commandStr);
+          const cand = smokeCandidate(String(sttgfResult.category || "INLINE"), scrubbedCmd);
           const jv = await askGateDecision(cand, `flagged category: ${sttgfResult.category}\nthe command:\n${scrubbedCmd.slice(0, 4000)}`);
           recordGateDecision(cand, jv, {
             tool: toolName, command: scrubbedCmd, sessionId: sid,

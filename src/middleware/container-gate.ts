@@ -105,7 +105,9 @@ export function isContainerPathCommand(cmd: string): boolean {
   // [audit:105] the wrapper was only bare `sh|bash|zsh|dash|ksh -c`. Broadened: an optional path
   //   prefix + interposed flags + more shells, so `/bin/bash -c`, `env bash -c`, `bash --login -c`
   //   all match.
-  if (/(?:\/[\w./-]*\/)?(?:sh|bash|zsh|dash|ksh|fish)(?:\s+-[^\s;|&]+)*\s+-[a-zA-Z]*c\b[\s\S]*(docker|tmux)(?:\s+-[^\s;|&]+)*\s+(exec|run|attach|rm|stop|kill|send-keys|new-session)/i.test(cmd)) return true;
+  if (/(?:\/[\w./-]*\/)?(?:sh|bash|zsh|dash|ksh|fish)(?:\s+-[^\s;|&]+)*\s+-[a-zA-Z]*c\b[\s\S]*(docker|tmux|podman|nerdctl)(?:\s+-{1,2}[^\s;|&]+(?:\s+[^\s;|&]+)?)*\s+(exec|run|attach|rm|stop|kill|send-keys|new-session)/i.test(cmd)) return true;
+  // [audit:108] the wrapper's inner binary list was `docker|tmux` — podman/nerdctl evaded.
+  if (/(?:\/[\w./-]*\/)?(?:sh|bash|zsh|dash|ksh|fish)(?:\s+-[^\s;|&]+)*\s+-[a-zA-Z]*c\b[\s\S]*pkill(?:\s+-\S+)*\s+-f\s+["']?omp/i.test(cmd)) return true;
   if (SPAWN_INDIRECTION_RE.test(action)) return true;
   if (BASE64_OBFUSCATION_RE.test(action)) return true;
   if (ENTRYPOINT_OVERRIDE_RE.test(action)) return true;
@@ -150,7 +152,7 @@ export function isBypassWrite(path: string, content: string): boolean {
   //   materialize via a plain .ts/.mjs/.cjs/.sh + `bun run`/`bash`. Now ANY executable file is
   //   checked — with the enforcement's OWN source exempt (it legitimately NAMES the shapes).
   if (!/\.(ts|tsx|js|jsx|mjs|cjs|sh|bash|zsh|py|rb|php|pl|fish)$/i.test(path)) return false;
-  const hasDocker = /(?:docker|podman|nerdctl)\s+(?:-{1,2}\S+\s+\S+\s+)*(run|exec|rm|attach|stop|kill)\b/i.test(content)
+  const hasDocker = /(?:docker|podman|nerdctl|tmux)\s+(?:-{1,2}\S+\s+)*(run|exec|rm|attach|stop|kill|send-keys|new-session)\b/i.test(content)
     || ENTRYPOINT_OVERRIDE_RE.test(content)
     || SPAWN_INDIRECTION_RE.test(content)
     || /(subprocess\.(?:run|Popen|call)|os\.system|os\.popen)[\s\S]*(?:docker|podman|nerdctl)/i.test(content);
@@ -232,13 +234,16 @@ export function containerGate(): BeforeGate {
 export function containerWriteGate(): BeforeGate {
   return async (ctx) => {
     if (ctx.toolName !== "write" && ctx.toolName !== "edit") return undefined;
-    const path = String(ctx.input.path ?? ctx.input.filePath ?? ctx.input.file ?? "");
+    const input = (ctx.input ?? {}) as Record<string, unknown>;
+    // [audit:235] `ctx.input` was dereferenced without a guard (a crash on missing input) and the
+    // path chain omitted common keys — both now handled.
+    const path = String(input.path ?? input.filePath ?? input.file ?? input.filepath ?? input.filename ?? input.uri ?? "");
     // [audit] edit payloads arrive under many field names (patch/edits[]/insert/text/data) and a
     // two-step edit never presents both signals in one call. Collect EVERY string-bearing field —
     // the old `??` chain inspected only the first present field and ignored the rest.
-    const payloadFields = [ctx.input.content, ctx.input.newString, ctx.input.value, ctx.input.text, ctx.input.data, ctx.input.patch];
-    const extra = Array.isArray((ctx.input as { edits?: unknown }).edits)
-      ? ((ctx.input as { edits: Array<{ text?: string; newString?: string; content?: string; patch?: string }> }).edits.map((e) => [e.text, e.newString, e.content, e.patch].filter((x) => typeof x === "string").join("\n")))
+    const payloadFields = [input.content, input.newString, input.new_string, input.value, input.text, input.data, input.patch];
+    const extra = Array.isArray(input.edits)
+      ? ((input.edits as Array<{ text?: string; newString?: string; content?: string; patch?: string }>).map((e) => [e.text, e.newString, e.content, e.patch].filter((x) => typeof x === "string").join("\n")))
       : [];
     const parts: string[] = [];
     for (const f of [...payloadFields, ...extra]) {
