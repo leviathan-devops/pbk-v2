@@ -337,6 +337,11 @@ const settledHandler = async (event: { messages?: unknown[]; message?: { role?: 
       }).filter(Boolean) as Array<Record<string, unknown>>;
       return rows
         .filter((r) => typeof r.matched_span === "string" && r.matched_span)
+        // F-144 (2026-10-02) . THE RING MUST NOT FEED ON THE GATE'S OWN VERDICTS. A claim-bind
+        // FIRING also carries matched_span, so without this filter the gate's own refusal of an
+        // earlier claim became "evidence" for the next one. PROVEN: a ledger holding ONLY a
+        // verdict row yielded a ring of length 1. The ring takes OBSERVED EVIDENCE ONLY.
+        .filter((r) => !new Set(["claim-bind", "claim-lexicon", "kernel-judge", "abide", "doc-type", "smoke-inline-exec", "smoke-inline"]).has(String(r.rule ?? "")))
         .filter((r) => sid !== undefined && r.session === sid)   // V-084: THIS session's rows only
         .slice(-limit)
         .map((r) => ({ text: String(r.matched_span), ts: String(r.ts), source: String(r.rule) }));

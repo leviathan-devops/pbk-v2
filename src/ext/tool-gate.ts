@@ -311,11 +311,15 @@ export function smokeCandidate(category: string, command: string): GateCandidate
         "ORDINARY DATA WORK — the inline interpreter READS or PROCESSES external data: it "
         + "opens/loads a FILE (open(...), json.load(open(...)), readFileSync, csv, sqlite), consumes "
         + "piped input (sys.stdin), or runs a STANDALONE SCRIPT FILE (node ./x.mjs, python3 ./x.py). "
-        + "Real data/files are involved.",
+        + "Real data/files are involved. AND \u2014 DECISIVELY \u2014 THE CODE IS ON DISK, NOT IN THE "
+          + "COMMAND: python3 kernel/x.py, bash kernel/battery.sh, node ./x.mjs, bun run src/cli.ts. "
+          + "FILE PATHS FOLLOW THE INTERPRETER = SERVE, whatever the script does or reads.",
       refuse:
         "A SMOKE TEST or a trivial inline — the inline interpreter runs SELF-CONTAINED code with "
         + "NO external data: a bare `print(1)` / `console.log(1)`, a hardcoded computation, OR code "
-        + "that imports/executes the PROJECT'S OWN MODULE to prove it works (e.g. node -e "
+        + "that runs INLINE code against the project. Running a SCRIPT FILE IS NEVER A SMOKE TEST \u2014 " 
+          + "not even when the script IS the project's own test suite, battery, or probe: running the "
+          + "project's real tests IS the legitimate verification (e.g. node -e "
         + "\"import('./x.mjs').then(m=>m.run())\", python3 -c \"import mymod; assert mymod.f()\").",
     },
   };

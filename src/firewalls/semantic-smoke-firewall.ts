@@ -231,10 +231,14 @@ export function classifyVerb(toolName: string, args: Record<string, unknown>, co
     // [audit:228] the flag class was `[ecxrm]` — it flagged `python -m pytest` / `python -m
     //   http.server` (module RUNS, legit) as smoke. Narrowed to `[ecr]` (the genuine inline
     //   flags: -e/-c/-r). The long forms (--eval/--print/--evaluate/--module) stay for compat.
-    if (/\b(node|nodejs|bun|deno|tsx|python\d*(?:\.\d+)?|perl|ruby|php)\s+(?:--(?:eval|print|evaluate)\b|-[a-zA-Z]*[ecr]\b)/i.test(unquoted) || /\bnpx\s+-e\b/i.test(unquoted)) return 'inline_exec';
+    if (/\b(node|nodejs|bun|deno|tsx|python\d*(?:\.\d+)?|perl|ruby|php)\s+(?:--(?:eval|print|evaluate)\b|-[a-zA-Z]*[ce]\b)/i.test(unquoted) || /\bnpx\s+-e\b/i.test(unquoted)) return 'inline_exec';
     // the SHELL `-c` wrapper: a shell interpreter running code inline (the same smoke class).
     //   The `-l`/`-x` forms stay unflagged; only the command flag bites.
     if (/\b(?:sh|bash|zsh|dash|ksh)\s+-[a-zA-Z]*c\b/i.test(unquoted)) return 'inline_exec';
+    // F-142c (2026-10-02) · CODE PIPED INTO AN INTERPRETER IS INLINE CODE. `echo "..." |
+    // python3` carries the code in the COMMAND, never on disk — the same structural fact the
+    // `-c`/`-e` arms detect. (Found by driving the deployed classifier: 6/7, this was the miss.)
+    if (/\|\s*(?:node|nodejs|bun|deno|tsx|python\d*|perl|ruby|php|sh|bash)\b/i.test(unquoted)) return 'inline_exec';
     // ★ THE SUB-VERB FORM (same round): `deno eval 'code'` is the flagless variant of the
     //   same class (the leaks list caught it). JS runtimes only — `eval` as a bare word is
     //   too common in prose to test unanchored, so it requires the runtime head + the arg.

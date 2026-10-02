@@ -137,7 +137,7 @@ export async function judgeClaimViaTypeSafe(
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), CLAIM_JUDGE_TIMEOUT_MS);
   try {
-    const resp = await fetch('https://api.typesafe.ai/v1/systemone', {
+    const resp = await fetch(process.env.CLAIM_JUDGE_URL ?? process.env.TOOLGATE_URL ?? 'http://127.0.0.1:8090/v1/systemone', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
       body,
