@@ -82,7 +82,10 @@ export function buildJudgeState(kind: string, state: string, max = 6000): string
   // [audit] the defang only covered `>>>`-terminated markers; `>>`-terminated, newline-split,
   // homoglyph/lookalike delimiters, and bare BEGIN/END DATA runs still read as structure to the
   // model. Neutralised broadly + an explicit truncation suffix so the judge knows data was cut.
+  // [audit:85] the body kept control/zero-width/bidi chars (only `kind` was sanitizeForJudge'd).
+  //   The same strip is applied to the body before the marker-defang.
   let body = scrubSecrets(String(state ?? ""))
+    .replace(/[\u0000-\u001f\u007f\u200b-\u200f\u2028-\u2029\u202a-\u202e\u2066-\u2069\ufeff]+/g, " ")
     .replace(/[<]{2,}\s*(BEGIN|END)[^>\n]{0,60}>{2,}/gi, "[marker]")
     .replace(/---+\s*(BEGIN|END)\s+DATA\s*---+/gi, "[marker]")
     .replace(/\b(BEGIN|END)\s+UNTRUSTED\s+DATA\b/gi, "[marker]");
@@ -172,7 +175,10 @@ export async function askGateDecision(
     if (!Number.isFinite(rawConf) || rawConf < 0 || rawConf > 1) {
       throw new Error("GI_TOOLGATE_BAD_CONFIDENCE", { cause: `non-finite or out-of-range confidence ${String(rawConf)}` });
     }
-    return mk(choice, rawConf, probs, json.model ?? "jevk5-4b-v0.2-Q8_0", false);
+    // [audit:175] `json.model` was trusted as the judge id — a compromised judge could inject
+    // control chars / bloat the ledger. Type-checked + bounded.
+    const judgeModel = typeof json.model === "string" && json.model.trim() ? json.model.slice(0, 80).replace(/[\r\n]+/g, " ") : "unknown";
+    return mk(choice, rawConf, probs, judgeModel, false);
   } catch (e) {
     // ★ AUDIT HIGH FIX: a degraded verdict must NOT present as `serve` — a caller reading
     //   `choice` directly (without the `degraded` check) would get a silent allow. The choice is
@@ -187,6 +193,13 @@ export async function askGateDecision(
 /** Apply the threshold + the surface polarity. `action` is what the gate will DO;
  *  `remedy` names the permitted form when it refuses. */
 export function enforceGate(candidate: GateCandidate, v: GateVerdict): { action: "serve" | "refuse"; reason: string; remedy: string | null } {
+  // [audit:199] a malformed candidate/verdict (undefined confidence, missing criteria, null
+  // verdict) crashed on `.toFixed`/`.serve`. Fail-CLOSED on anything but a well-formed info verdict.
+  if (!candidate || typeof candidate !== "object" || !v || typeof v !== "object" || typeof v.confidence !== "number" || !Number.isFinite(v.confidence)) {
+    const info = !!candidate && typeof candidate === "object" && (candidate as GateCandidate).severity === "info";
+    if (info) return { action: "serve", reason: "malformed gate verdict on an info surface — fail-OPEN, named", remedy: null };
+    return { action: "refuse", reason: "malformed gate verdict on a security surface — fail-CLOSED", remedy: "the gate returned a malformed verdict; check the judge wiring" };
+  }
   if (v.degraded) {
     // [audit:139] the branch checked `=== "security"` and fell through to fail-OPEN serve for
     // ANYTHING else — a corrupted/typo'd severity silently allowed. Fail-CLOSED is now the
@@ -319,8 +332,8 @@ export function docTypeCandidate(filePath: string, guessed: string, contentHead:
   //   crafted doc-type string was a direct prompt injection. Sanitize ONCE into locals and reuse.
   // [audit:313] `fp`/`g` sat inside SINGLE-QUOTED literals — a filePath like `a' + ...` closed the
   // quoting and re-framed as instruction. Values now ride as delimited STATE, never quoted prose.
-  const fp = sanitizeForJudge(filePath, 120).replace(/'/g, "");
-  const g = sanitizeForJudge(guessed, 20).replace(/'/g, "");
+  const fp = sanitizeForJudge(filePath, 120).replace(/[<>]/g, "");
+  const g = sanitizeForJudge(guessed, 20).replace(/[<>]/g, "");
   return {
     kind: "DOC_TYPE",
     signals: [fp, g, scrubSecrets(String(contentHead ?? "")).slice(0, 200)],

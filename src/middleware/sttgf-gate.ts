@@ -115,9 +115,13 @@ export function sttgfGate(): BeforeGate {
         //   smoke policy stands; the block names its remedy: use container-testing).
         try {
           const cand = smokeCandidate(String(sttgfResult.category || "INLINE"), commandStr);
-          const jv = await askGateDecision(cand, `flagged category: ${sttgfResult.category}\nthe command:\n${commandStr.slice(0, 4000)}`);
+          // [audit:118] the raw command flowed into the judge + the ledger unscrubbed while the
+          // /tmp block log scrubbed — scrubSecrets on the shared view.
+          const { scrubSecrets } = require("../ext/tool-gate");
+          const scrubbedCmd = scrubSecrets(commandStr);
+          const jv = await askGateDecision(cand, `flagged category: ${sttgfResult.category}\nthe command:\n${scrubbedCmd.slice(0, 4000)}`);
           recordGateDecision(cand, jv, {
-            tool: toolName, command: commandStr, sessionId: sid,
+            tool: toolName, command: scrubbedCmd, sessionId: sid,
             enforced: !jv.degraded && jv.choice === "serve" && jv.confidence >= GATE_THRESHOLD ? "served" : "refused",
             remedy: "if this is ordinary work, keep the interpreter words out of the command's action (they may appear inside a quoted body); verification uses the container-testing tool",
           });
@@ -216,7 +220,15 @@ export function sttgfGateAfter(): (ctx: AfterContext) => Promise<AfterContext> {
       const doneAction = typeof (ctx.input as Record<string, unknown> | undefined)?.["action"] === "string"
         ? String((ctx.input as Record<string, unknown>)["action"]) : "";
       const arm = pendingContainerTests.get(sid);
-      if (!ctx.isError && arm && CT_ACTIONS[doneAction]) {
+      // [audit:218] a stale arm (past the TTL) must NOT confirm a much later claim — drop it.
+      // [audit:229] `!ctx.isError` is true for undefined/null — only an explicit `false` confirms.
+      if (arm && Date.now() - arm.armedAt > PENDING_TTL_MS) {
+        pendingContainerTests.delete(sid);
+        ctLog("WARN", "sttgf", "Container-test arm expired (TTL) — dropped, no confirmation");
+        return ctx;
+      }
+      const succeeded = ctx.isError === false;
+      if (succeeded && arm && CT_ACTIONS[doneAction]) {
         if (arm.count > 1) {
           pendingContainerTests.set(sid, { armedAt: arm.armedAt, count: arm.count - 1 });
         } else {
@@ -226,7 +238,7 @@ export function sttgfGateAfter(): (ctx: AfterContext) => Promise<AfterContext> {
         sttgfStateTracker.setVerificationClaimed(sid, false);
         sttgfStateTracker.resetBlockCount(sid); // [audit:114] compliance clears the escalation
         ctLog("INFO", "sttgf", "Container test CONFIRMED (non-error) — claim gate cleared, escalation counter reset");
-      } else if (ctx.isError && arm && CT_ACTIONS[doneAction]) {
+      } else if (ctx.isError === true && arm && CT_ACTIONS[doneAction]) {
         // [audit:225] the failure branch deleted the arm unconditionally — one failed benign
         // action (status/help) wiped N concurrent arms. It now clears only when the FAILED
         // action was itself an armed one, and decrements like the success path.

@@ -22,10 +22,10 @@ const CONTAINER_VERB_RE =
   //   state. Only EXECUTING code in a container (exec|run|attach — the bypass of the
   //   container-testing tool) and DESTROYING one (rm|stop|kill — a bypass of the evidence)
   //   are the class.
-  // [audit:18] the verb had to follow `docker` IMMEDIATELY — `docker --config /tmp run`,
-  //   `docker -D exec`, `/usr/bin/docker exec` evaded it. Now an optional path prefix + any
-  //   interposed flags are allowed before the verb.
-  /((?:\/[\w./-]*\/)?docker(?:\s+-[^\s;|&]+)*\s+(exec|run|attach|rm|stop|kill)|(?:\/[\w./-]*\/)?tmux(?:\s+-[^\s;|&]+(?:\s+[^\s;|&]+)?)*\s+(send-keys|capture-pane|pipe-pane|new-session|new-window|split-window)|pkill\s+-\S*\s*-f\s+["']?omp)/i;
+  // [audit:18 + :28 + :25] an optional path prefix + any interposed flag+value pair (so
+  //   `docker --config /tmp run`, `docker -H tcp://x exec` match), and the container BINARIES
+  //   include podman/nerdctl (a direct `podman run` had no other gate).
+  /((?:\/[\w./-]*\/)?(?:docker|podman|nerdctl)(?:\s+-{1,2}[^\s;|&]+(?:\s+[^\s;|&]+)?)*\s+(exec|run|attach|rm|stop|kill)|(?:\/[\w./-]*\/)?tmux(?:\s+-{1,2}[^\s;|&]+(?:\s+[^\s;|&]+)?)*\s+(send-keys|capture-pane|pipe-pane|new-session|new-window|split-window)|pkill(?:\s+-\S+)*\s+-f\s+["']?omp)/i;
 
 // Bypass shape 1: spawnSync / execSync / child_process indirection that
 // smuggles docker into a child process (the tests/seam/*.test.ts pattern).
@@ -151,10 +151,11 @@ export function isBypassWrite(path: string, content: string): boolean {
   // ★ AUDIT HIGH FIX (container-gate.ts:119): the .test/.spec restriction let the same bypass
   //   materialize via a plain .ts/.mjs/.cjs/.sh + `bun run`/`bash`. Now ANY executable file is
   //   checked — with the enforcement's OWN source exempt (it legitimately NAMES the shapes).
-  if (!/\.(ts|tsx|js|jsx|mjs|cjs|sh)$/.test(path)) return false;
-  const hasDocker = /docker\s+(run|exec|rm|attach|stop|kill)\b/i.test(content)
+  if (!/\.(ts|tsx|js|jsx|mjs|cjs|sh|bash|zsh|py|rb|php|pl|fish)$/i.test(path)) return false;
+  const hasDocker = /(?:docker|podman|nerdctl)\s+(?:-{1,2}\S+\s+\S+\s+)*(run|exec|rm|attach|stop|kill)\b/i.test(content)
     || ENTRYPOINT_OVERRIDE_RE.test(content)
-    || SPAWN_INDIRECTION_RE.test(content);
+    || SPAWN_INDIRECTION_RE.test(content)
+    || /(subprocess\.(?:run|Popen|call)|os\.system|os\.popen)[\s\S]*(?:docker|podman|nerdctl)/i.test(content);
   if (!hasDocker) return false;
   // a bare docker string in classifier input is NOT a bypass — require the
   // execution context (spawn/bash/shell invocation).

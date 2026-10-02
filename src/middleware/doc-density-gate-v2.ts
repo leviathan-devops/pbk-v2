@@ -78,13 +78,16 @@ export function classifyDocType(filePath: string): DocType {
     if (/readme|master_index|manifest/.test(lower)) return "OVERVIEW";
     if (/package_audit/.test(lower)) return "AUDIT";
   }
-  if (/audit|zero_trust/.test(lower)) return "AUDIT";
-  if (/debug_log|changelog/.test(lower)) return "LOG";
-  if (/spec|dpl1|plan\b/.test(lower)) return "SPEC";
-  if (/completion|definition_of_done/.test(lower)) return "COMPLETION";
-  if (/architect|overhaul|breakdown|blueprint/.test(lower)) return "ARCHITECTURE";
-  if (/report|review|findings/.test(lower)) return "REPORT";
-  if (/readme|index|overview/.test(lower)) return "OVERVIEW";
+  // [audit:83] bare substrings over-classified (`inspection`/`respect`/`perspective` → SPEC,
+  //   `preview` → REPORT, `package_audit` needed `_` to still match). Segment-boundary anchored.
+  const seg = (alts: string): RegExp => new RegExp(`(^|[/_.-])(${alts})([/_.-]|$)`);
+  if (seg("audit|zero_trust").test(lower)) return "AUDIT";
+  if (seg("debug_log|changelog").test(lower)) return "LOG";
+  if (seg("spec|dpl1|plan").test(lower)) return "SPEC";
+  if (seg("completion|definition_of_done").test(lower)) return "COMPLETION";
+  if (seg("architect|overhaul|breakdown|blueprint").test(lower)) return "ARCHITECTURE";
+  if (seg("report|review|findings").test(lower)) return "REPORT";
+  if (seg("readme|index|overview").test(lower)) return "OVERVIEW";
   return "GENERIC";
 }
 
@@ -416,7 +419,7 @@ export function docDensityGateV2(host: EngineHost): BeforeGate {
     const postState = existing !== null
       ? (oldString !== undefined && oldString !== "" && existing.includes(oldString)
           ? existing.replace(oldString, content)
-          : (oldString !== undefined && oldString !== "" ? existing + "\n" + content : content))
+          : (oldString !== undefined && oldString !== "" ? existing : content))
       : content;
     const verdict = evaluateDocDensityV2({ filePath: path, content, existing, oldString });
     if (verdict.action === "block") {

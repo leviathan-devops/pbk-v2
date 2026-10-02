@@ -20,7 +20,7 @@ function scrubSecrets(text) {
   return String(text ?? "").replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, "<redacted-pem>").replace(/\bAKIA[0-9A-Z]{16}\b/g, "<redacted>").replace(/\beyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, "<redacted-jwt>").replace(/github_pat_[A-Za-z0-9_]{20,}/g, "<redacted>").replace(/(Bearer|token|api[_-]?key|secret|password|passwd|authorization)\s*[:=]?\s*["']?[^"'\s]{8,}["']?/gi, "$1 <redacted>").replace(/(sk|pk|ghp|gho|xox[baprs])[-_][A-Za-z0-9_-]{12,}/g, "<redacted>").replace(/[A-Za-z0-9_-]{32,}/g, (m) => /\d/.test(m) && /[A-Za-z]/.test(m) ? "<redacted-opaque>" : m);
 }
 function buildJudgeState(kind, state, max = 6000) {
-  let body = scrubSecrets(String(state ?? "")).replace(/[<]{2,}\s*(BEGIN|END)[^>\n]{0,60}>{2,}/gi, "[marker]").replace(/---+\s*(BEGIN|END)\s+DATA\s*---+/gi, "[marker]").replace(/\b(BEGIN|END)\s+UNTRUSTED\s+DATA\b/gi, "[marker]");
+  let body = scrubSecrets(String(state ?? "")).replace(/[\u0000-\u001f\u007f\u200b-\u200f\u2028-\u2029\u202a-\u202e\u2066-\u2069\ufeff]+/g, " ").replace(/[<]{2,}\s*(BEGIN|END)[^>\n]{0,60}>{2,}/gi, "[marker]").replace(/---+\s*(BEGIN|END)\s+DATA\s*---+/gi, "[marker]").replace(/\b(BEGIN|END)\s+UNTRUSTED\s+DATA\b/gi, "[marker]");
   if (body.length > max)
     body = body.slice(0, max) + `
 [TRUNCATED at ${max} chars]`;
@@ -77,12 +77,19 @@ async function askGateDecision(candidate, state, opts = {}) {
     if (!Number.isFinite(rawConf) || rawConf < 0 || rawConf > 1) {
       throw new Error("GI_TOOLGATE_BAD_CONFIDENCE", { cause: `non-finite or out-of-range confidence ${String(rawConf)}` });
     }
-    return mk(choice, rawConf, probs, json.model ?? "jevk5-4b-v0.2-Q8_0", false);
+    const judgeModel = typeof json.model === "string" && json.model.trim() ? json.model.slice(0, 80).replace(/[\r\n]+/g, " ") : "unknown";
+    return mk(choice, rawConf, probs, judgeModel, false);
   } catch (e) {
     return mk("refuse", 0, {}, `unavailable:${(e instanceof Error ? e.message : String(e)).slice(0, 80)}`, true);
   }
 }
 function enforceGate(candidate, v) {
+  if (!candidate || typeof candidate !== "object" || !v || typeof v !== "object" || typeof v.confidence !== "number" || !Number.isFinite(v.confidence)) {
+    const info = !!candidate && typeof candidate === "object" && candidate.severity === "info";
+    if (info)
+      return { action: "serve", reason: "malformed gate verdict on an info surface \u2014 fail-OPEN, named", remedy: null };
+    return { action: "refuse", reason: "malformed gate verdict on a security surface \u2014 fail-CLOSED", remedy: "the gate returned a malformed verdict; check the judge wiring" };
+  }
   if (v.degraded) {
     if (candidate.severity === "info") {
       return { action: "serve", reason: `info gate: judge unavailable (${v.judge}) \u2014 fail-OPEN, named`, remedy: null };
@@ -157,8 +164,8 @@ function containerCandidate(cmd) {
   };
 }
 function docTypeCandidate(filePath, guessed, contentHead) {
-  const fp = sanitizeForJudge(filePath, 120).replace(/'/g, "");
-  const g = sanitizeForJudge(guessed, 20).replace(/'/g, "");
+  const fp = sanitizeForJudge(filePath, 120).replace(/[<>]/g, "");
+  const g = sanitizeForJudge(guessed, 20).replace(/[<>]/g, "");
   return {
     kind: "DOC_TYPE",
     signals: [fp, g, scrubSecrets(String(contentHead ?? "")).slice(0, 200)],
@@ -623,19 +630,20 @@ function classifyDocType(filePath) {
     if (/package_audit/.test(lower))
       return "AUDIT";
   }
-  if (/audit|zero_trust/.test(lower))
+  const seg = (alts) => new RegExp(`(^|[/_.-])(${alts})([/_.-]|$)`);
+  if (seg("audit|zero_trust").test(lower))
     return "AUDIT";
-  if (/debug_log|changelog/.test(lower))
+  if (seg("debug_log|changelog").test(lower))
     return "LOG";
-  if (/spec|dpl1|plan\b/.test(lower))
+  if (seg("spec|dpl1|plan").test(lower))
     return "SPEC";
-  if (/completion|definition_of_done/.test(lower))
+  if (seg("completion|definition_of_done").test(lower))
     return "COMPLETION";
-  if (/architect|overhaul|breakdown|blueprint/.test(lower))
+  if (seg("architect|overhaul|breakdown|blueprint").test(lower))
     return "ARCHITECTURE";
-  if (/report|review|findings/.test(lower))
+  if (seg("report|review|findings").test(lower))
     return "REPORT";
-  if (/readme|index|overview/.test(lower))
+  if (seg("readme|index|overview").test(lower))
     return "OVERVIEW";
   return "GENERIC";
 }
@@ -841,8 +849,7 @@ function docDensityGateV2(host) {
       existing = null;
     }
     const oldString = typeof ctx.input.oldString === "string" ? ctx.input.oldString : undefined;
-    const postState = existing !== null ? oldString !== undefined && oldString !== "" && existing.includes(oldString) ? existing.replace(oldString, content) : oldString !== undefined && oldString !== "" ? existing + `
-` + content : content : content;
+    const postState = existing !== null ? oldString !== undefined && oldString !== "" && existing.includes(oldString) ? existing.replace(oldString, content) : oldString !== undefined && oldString !== "" ? existing : content : content;
     const verdict = evaluateDocDensityV2({ filePath: path, content, existing, oldString });
     if (verdict.action === "block") {
       if ((verdict.reason ?? "").includes("under-specified")) {
@@ -1857,12 +1864,14 @@ function sttgfGate() {
         ctLog("WARN", "sttgf", `BLOCKED: ${sttgfResult.category} \u2014 ${sttgfResult.reason}`);
         try {
           const cand = smokeCandidate(String(sttgfResult.category || "INLINE"), commandStr);
+          init_tool_gate();
+          const scrubbedCmd = scrubSecrets(commandStr);
           const jv = await askGateDecision(cand, `flagged category: ${sttgfResult.category}
 the command:
-${commandStr.slice(0, 4000)}`);
+${scrubbedCmd.slice(0, 4000)}`);
           recordGateDecision(cand, jv, {
             tool: toolName,
-            command: commandStr,
+            command: scrubbedCmd,
             sessionId: sid,
             enforced: !jv.degraded && jv.choice === "serve" && jv.confidence >= GATE_THRESHOLD ? "served" : "refused",
             remedy: "if this is ordinary work, keep the interpreter words out of the command's action (they may appear inside a quoted body); verification uses the container-testing tool"
@@ -1938,7 +1947,13 @@ function sttgfGateAfter() {
     try {
       const doneAction = typeof ctx.input?.["action"] === "string" ? String(ctx.input["action"]) : "";
       const arm = pendingContainerTests.get(sid);
-      if (!ctx.isError && arm && CT_ACTIONS[doneAction]) {
+      if (arm && Date.now() - arm.armedAt > PENDING_TTL_MS) {
+        pendingContainerTests.delete(sid);
+        ctLog("WARN", "sttgf", "Container-test arm expired (TTL) \u2014 dropped, no confirmation");
+        return ctx;
+      }
+      const succeeded = ctx.isError === false;
+      if (succeeded && arm && CT_ACTIONS[doneAction]) {
         if (arm.count > 1) {
           pendingContainerTests.set(sid, { armedAt: arm.armedAt, count: arm.count - 1 });
         } else {
@@ -1948,7 +1963,7 @@ function sttgfGateAfter() {
         sttgfStateTracker.setVerificationClaimed(sid, false);
         sttgfStateTracker.resetBlockCount(sid);
         ctLog("INFO", "sttgf", "Container test CONFIRMED (non-error) \u2014 claim gate cleared, escalation counter reset");
-      } else if (ctx.isError && arm && CT_ACTIONS[doneAction]) {
+      } else if (ctx.isError === true && arm && CT_ACTIONS[doneAction]) {
         if (arm.count > 1) {
           pendingContainerTests.set(sid, { armedAt: arm.armedAt, count: arm.count - 1 });
         } else {
@@ -2245,7 +2260,7 @@ function buildConfigLockMessage(v) {
 
 // src/middleware/container-gate.ts
 init_tool_gate();
-var CONTAINER_VERB_RE = /((?:\/[\w./-]*\/)?docker(?:\s+-[^\s;|&]+)*\s+(exec|run|attach|rm|stop|kill)|(?:\/[\w./-]*\/)?tmux(?:\s+-[^\s;|&]+(?:\s+[^\s;|&]+)?)*\s+(send-keys|capture-pane|pipe-pane|new-session|new-window|split-window)|pkill\s+-\S*\s*-f\s+["']?omp)/i;
+var CONTAINER_VERB_RE = /((?:\/[\w./-]*\/)?(?:docker|podman|nerdctl)(?:\s+-{1,2}[^\s;|&]+(?:\s+[^\s;|&]+)?)*\s+(exec|run|attach|rm|stop|kill)|(?:\/[\w./-]*\/)?tmux(?:\s+-{1,2}[^\s;|&]+(?:\s+[^\s;|&]+)?)*\s+(send-keys|capture-pane|pipe-pane|new-session|new-window|split-window)|pkill(?:\s+-\S+)*\s+-f\s+["']?omp)/i;
 var SPAWN_INDIRECTION_RE = /((Bun\.spawnSync|spawnSync|execSync|execFileSync|child_process|fork\()[\s\S]*(docker|tmux|podman|nerdctl)|(docker|tmux|podman|nerdctl)[\s\S]*(Bun\.spawnSync|spawnSync|execSync|execFileSync|child_process|fork\())/i;
 var BASE64_OBFUSCATION_RE = /(base64\s*(-d|--decode|-D)\s*|openssl\s+(enc|base64)[\s\S]{0,40}-d\s*)(\s*\|\s*(sh|bash|zsh|eval|source|\.\s)|\s*>\s*\S+[\s\S]{0,60}(chmod\s+\+x|sh\s|bash\s))/i;
 var ENTRYPOINT_OVERRIDE_RE = /docker\s+run[\s\S]*--entrypoint/i;
@@ -2278,9 +2293,9 @@ function isBypassWrite(path, content) {
     return false;
   if (SANDBOX_ENGINE_EXEMPT.test(path))
     return false;
-  if (!/\.(ts|tsx|js|jsx|mjs|cjs|sh)$/.test(path))
+  if (!/\.(ts|tsx|js|jsx|mjs|cjs|sh|bash|zsh|py|rb|php|pl|fish)$/i.test(path))
     return false;
-  const hasDocker = /docker\s+(run|exec|rm|attach|stop|kill)\b/i.test(content) || ENTRYPOINT_OVERRIDE_RE.test(content) || SPAWN_INDIRECTION_RE.test(content);
+  const hasDocker = /(?:docker|podman|nerdctl)\s+(?:-{1,2}\S+\s+\S+\s+)*(run|exec|rm|attach|stop|kill)\b/i.test(content) || ENTRYPOINT_OVERRIDE_RE.test(content) || SPAWN_INDIRECTION_RE.test(content) || /(subprocess\.(?:run|Popen|call)|os\.system|os\.popen)[\s\S]*(?:docker|podman|nerdctl)/i.test(content);
   if (!hasDocker)
     return false;
   return EXEC_CONTEXT_RE.test(content);
