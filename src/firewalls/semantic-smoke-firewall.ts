@@ -229,8 +229,13 @@ export function classifyVerb(toolName: string, args: Record<string, unknown>, co
     //   the VERSIONED pythons (python2/python3.11/python3.12 — `python3?` cannot match the `2`
     //   or the `.11`), the `nodejs` spelling, and the SHELL `-c` WRAPPER. All 8 survived the gate.
     // [audit:228] the flag class was `[ecxrm]` — it flagged `python -m pytest` / `python -m
-    //   http.server` (module RUNS, legit) as smoke. Narrowed to `[ecr]` (the genuine inline
-    //   flags: -e/-c/-r). The long forms (--eval/--print/--evaluate/--module) stay for compat.
+    //   http.server` (module RUNS, legit) as smoke. Narrowed to `[ce]` (the inline flags that are
+    //   unambiguous across interpreters); `-r` is per-interpreter (php run vs node/ruby require)
+    //   and is handled separately below. The long forms stay for compat.
+    // [crash-test 2026-10-02] `-r` was dropped from the flag class to avoid FP-ing `node -r` /
+    //   `ruby -r` (legit --require preloads). But `php -r` IS an inline exec (php's run flag) —
+    //   it was an FN. A php-specific check catches it without touching the require forms.
+    if (/\bphp\s+-[a-zA-Z]*r\b/i.test(unquoted)) return 'inline_exec';
     if (/\b(node|nodejs|bun|deno|tsx|python\d*(?:\.\d+)?|perl|ruby|php)\s+(?:--(?:eval|print|evaluate)\b|-[a-zA-Z]*[ce]\b)/i.test(unquoted) || /\bnpx\s+-e\b/i.test(unquoted)) return 'inline_exec';
     // the SHELL `-c` wrapper: a shell interpreter running code inline (the same smoke class).
     //   The `-l`/`-x` forms stay unflagged; only the command flag bites.

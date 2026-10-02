@@ -9,6 +9,8 @@
  * spawns. The gate catches the INDIRECTION, not just the direct verb.)
  */
 import type { BeforeGate } from "./chain";
+import { readFileSync, statSync } from "node:fs";
+import { homedir } from "node:os";
 import { classifyExec, buildConfigLockMessage } from "../firewalls/pbk-anti-derailment.js";
 // ★ W3 — THE JEV DECISION LAYER: the regex marks the container SHAPE; the judge decides.
 import { askGateDecision, enforceGate, containerCandidate, recordGateDecision } from "../ext/tool-gate";
@@ -114,11 +116,75 @@ export function isContainerPathCommand(cmd: string): boolean {
   // [audit:79] the NAME-BAN is a policy on a FILENAME, not a shape — it tests the RAW command,
   // because the strip blanks the very quoted filename the ban exists for (`bun test "net-probe"`).
   if (TEST_RUNNER_BYPASS_RE.test(cmd)) return true;
-  // [audit:88 + :102] HEREDOC_DOCKER_RE / DOCKER_ANYWHERE_RE are DELETED: tested on the raw they
-  // blocked a fixture that merely MENTIONS the words (the F-141 false positive); tested on the
-  // action they were dead (the strip removes their patterns). The classes they aimed at are
-  // covered — the ACTION verb check (a real invocation) and isBypassWrite (script materialization).
+  // ★ CRASH-TEST FIX (2026-10-02): a written script HIDES the verb — the command text
+  //   (`bash x.sh`, `./x.sh`, `source x`, `. x`, `sh x`) carries no verb and the gate cannot see
+  //   inside. PROVEN LIVE: a `.sh` containing `docker exec` was written (the write gate missed it)
+  //   and `bash x.sh` passed. When the command RUNS a local script file, READ it (capped) and scan
+  //   its content with the same verb check.
+  const scriptPath = localScriptPath(cmd);
+  if (scriptPath !== null) {
+    for (const p of [resolveScriptPath(cmd, scriptPath), scriptPath]) {
+      const body = readScriptCapped(p);
+      if (body !== null && scriptBodyIsBypass(p, body)) return true;
+    }
+  }
   return false;
+}
+
+/** Every executable-script extension the reader understands. */
+const SCRIPT_EXT = "(?:sh|bash|zsh|fish|ksh|py|rb|pl|php|mjs|cjs|js|ts)";
+
+/** The path of a local script the command INVOKES (not merely reads) — null when none. */
+function localScriptPath(cmd: string): string | null {
+  const PATH_RE = "((?:\\/|\\.{1,2}\\/|~\\/)?[\\w./-]+\\.(?:" + SCRIPT_EXT + "))\\b";
+  const patterns = [
+    // a script executed DIRECTLY (its shebang) as the command head: `/tmp/x.sh`, `./x.sh`.
+    new RegExp("(?:^|[;&|]\\s*)((?:\\/|\\.{1,2}\\/)[\\w./-]+\\.(?:" + SCRIPT_EXT + "))"),
+    // `$(cat x)` / `` `cat x` `` — the content is EXECUTED (eval), not merely read.
+    new RegExp("(?:\\$\\(|`)\\s*cat\\s+" + PATH_RE),
+    // a shell keyword or interpreter + optional flags + the script (`bash < x` allows the redirect).
+    new RegExp("(?:^|[;&|]\\s*)(?:sudo\\s+)?(?:bash|sh|zsh|dash|ksh|fish|source|node|nodejs|bun|deno|tsx|python[\\d.]*|perl|ruby|php)(?:\\s+-[^\\s;|&]+)*\\s+(?:<\\s*)?" + PATH_RE),
+    // the dot-source: `. ./x.sh`.
+    new RegExp("(?:^|[;&|]\\s*)\\.\\s+" + PATH_RE),
+    // [crash-test 2026-10-02] the VARIABLE-INDIRECTION form: `S=/tmp/x.sh; bash $S`.
+    new RegExp("(?:^|[;&|]\\s*)([A-Za-z_]\\w*)=((?:\\/|\\.{1,2}\\/|~\\/)?[\\w./-]+\\.(?:" + SCRIPT_EXT + "))\\b[\\s\\S]*?(?:^|[;&|]\\s*|\\b(?:sudo|bash|sh|zsh|dash|ksh|fish|source|node|nodejs|bun|python[\\d.]*|perl|ruby|php)\\s+(?:-\\S+\\s+)*)\\$\\{?\\1\\b"),
+  ];
+  for (const re of patterns) {
+    const m = re.exec(cmd);
+    if (m) return m[m.length - 1].replace(/^~/, homedir());
+  }
+  return null;
+}
+
+/** Resolve a script path: try it as-is, then against any `cd <dir>` in the command. */
+function resolveScriptPath(cmd: string, path: string): string {
+  if (/^\//.test(path)) return path;
+  const cd = /(?:^|[;&|]\s*)cd\s+("[^"]+"|'[^']+'|[^\s;&|]+)/.exec(cmd);
+  if (cd) {
+    const dir = cd[1].replace(/["']/g, "").replace(/^~/, homedir());
+    return `${dir.replace(/\/$/, "")}/${path}`;
+  }
+  return path;
+}
+
+/** Read a script file (bounded) — null on any failure or an oversized/binary file. */
+function readScriptCapped(p: string): string | null {
+  try {
+    const st = statSync(p);
+    if (!st.isFile() || st.size > 256 * 1024) return null;
+    return readFileSync(p, "utf8");
+  } catch { return null; }
+}
+
+/** Does the body of a script file contain a container bypass? (shell vs other interpreted files) */
+function scriptBodyIsBypass(scriptPath: string, body: string): boolean {
+  if (/\.(sh|bash|zsh|fish|ksh)$/i.test(scriptPath)) {
+    // a shell script runs its lines — a verb on any line is the bypass. Comments are DATA.
+    const noComments = body.replace(/^[ \t]*#.*$/gm, "");
+    return CONTAINER_VERB_RE.test(stripShellData(noComments)) || /pkill(?:\s+-\S+)*\s+-f\s+["']?omp/i.test(noComments);
+  }
+  // an interpreted script (node/python/ruby/…) needs a spawn/exec API — the write-gate logic.
+  return isBypassWrite(scriptPath, body);
 }
 
 /**
@@ -141,7 +207,10 @@ const EXEC_CONTEXT_RE =
   // [audit:138] `> /tmp` missed `> ./run.sh`, `> /var/tmp/x`, `> $HOME/a.sh`; the heredoc delims
   //   missed `<<SCRIPT`/`<<'PAYLOAD'`. Broadened to any redirect target (excluding `<`, so a TS
   //   generic `Array<X>` does not match) + any heredoc delimiter.
-  /(Bun\.spawnSync|spawnSync|execSync|execFileSync|child_process|fork\(|bash\s+-lc|sh\s+-c|>\s*(?!<)\S+|<<-?\s*['"]?[A-Za-z_])/i;
+  // [crash-test 2026-10-02] added the remaining exec APIs — `Bun.$`, `subprocess.`, `os.system`,
+  //   `os.popen`, `Runtime.getRuntime`, `ProcessBuilder`, `Command::new` — so a script that RUNS a
+  //   container via one of them is flagged even when the bare-verb regex matched only the array form.
+  /(Bun\.spawnSync|Bun\.\$|spawnSync|execSync|execFileSync|child_process|fork\(|subprocess\.|os\.system|os\.popen|Runtime\.getRuntime|ProcessBuilder|Command::new|bash\s+-lc|sh\s+-c|>\s*(?!<)\S+|<<-?\s*['"]?[A-Za-z_])/i;
 
 export function isBypassWrite(path: string, content: string): boolean {
   // [audit] the old exemption was a whole-directory substring (`src/middleware/` etc) — any new
@@ -152,13 +221,20 @@ export function isBypassWrite(path: string, content: string): boolean {
   //   materialize via a plain .ts/.mjs/.cjs/.sh + `bun run`/`bash`. Now ANY executable file is
   //   checked — with the enforcement's OWN source exempt (it legitimately NAMES the shapes).
   if (!/\.(ts|tsx|js|jsx|mjs|cjs|sh|bash|zsh|py|rb|php|pl|fish)$/i.test(path)) return false;
+  // [crash-test 2026-10-02] the hasDocker regex needed `docker<space>verb` — the ARRAY form
+  //   `["docker","exec"]` (python subprocess / node execFile) evaded it. Both forms now match.
   const hasDocker = /(?:docker|podman|nerdctl|tmux)\s+(?:-{1,2}\S+\s+)*(run|exec|rm|attach|stop|kill|send-keys|new-session)\b/i.test(content)
+    || /["'`](docker|podman|nerdctl|tmux)["'`]?\s*[,)]?\s*["'`](run|exec|rm|attach|stop|kill|send-keys|new-session)["'`]/i.test(content)
     || ENTRYPOINT_OVERRIDE_RE.test(content)
     || SPAWN_INDIRECTION_RE.test(content)
-    || /(subprocess\.(?:run|Popen|call)|os\.system|os\.popen)[\s\S]*(?:docker|podman|nerdctl)/i.test(content);
+    || /(subprocess\.(?:run|Popen|call)|os\.system|os\.popen|Bun\.\$|execFileSync|Runtime\.getRuntime|ProcessBuilder|Command::new)[\s\S]*(?:docker|podman|nerdctl)/i.test(content);
   if (!hasDocker) return false;
-  // a bare docker string in classifier input is NOT a bypass — require the
-  // execution context (spawn/bash/shell invocation).
+  // ★ CRASH-TEST FIX (2026-10-02): a SHELL SCRIPT (.sh/.bash/.zsh/.fish/.ksh) executes its lines
+  //   DIRECTLY — a bare `docker exec …` line IS the program, with no spawn wrapper. The old
+  //   EXEC_CONTEXT requirement let a session WRITE an executable bypass script (proven live: the
+  //   write succeeded AND chmod +x'd). A shell script is flagged on hasDocker alone.
+  if (/\.(sh|bash|zsh|fish|ksh)$/i.test(path)) return true;
+  // other executables need an execution context (else a bare mention in a string/comment is DATA).
   return EXEC_CONTEXT_RE.test(content);
 }
 

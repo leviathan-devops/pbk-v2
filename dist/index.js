@@ -154,8 +154,8 @@ function smokeCandidate(category, command) {
     severity: "security",
     instructions: "An anti-smoke-test firewall flagged this command as a possible INLINE execution. " + "Smoke tests are FORBIDDEN: using an inline interpreter AS VERIFICATION/PROOF instead of " + "running the project's real test. But an inline interpreter doing ordinary DATA work is " + "legitimate. Decide which this command is.",
     criteria: {
-      serve: "ORDINARY DATA WORK \u2014 the inline interpreter READS or PROCESSES external data: it " + "opens/loads a FILE (open(...), json.load(open(...)), readFileSync, csv, sqlite), consumes " + "piped input (sys.stdin), or runs a STANDALONE SCRIPT FILE (node ./x.mjs, python3 ./x.py). " + "Real data/files are involved.",
-      refuse: "A SMOKE TEST or a trivial inline \u2014 the inline interpreter runs SELF-CONTAINED code with " + "NO external data: a bare `print(1)` / `console.log(1)`, a hardcoded computation, OR code " + "that imports/executes the PROJECT'S OWN MODULE to prove it works (e.g. node -e " + `"import('./x.mjs').then(m=>m.run())", python3 -c "import mymod; assert mymod.f()").`
+      serve: "ORDINARY DATA WORK \u2014 the inline interpreter READS or PROCESSES external data: it " + "opens/loads a FILE (open(...), json.load(open(...)), readFileSync, csv, sqlite), consumes " + "piped input (sys.stdin), or runs a STANDALONE SCRIPT FILE (node ./x.mjs, python3 ./x.py). " + "Real data/files are involved. AND \u2014 DECISIVELY \u2014 THE CODE IS ON DISK, NOT IN THE " + "COMMAND: python3 kernel/x.py, bash kernel/battery.sh, node ./x.mjs, bun run src/cli.ts. " + "FILE PATHS FOLLOW THE INTERPRETER = SERVE, whatever the script does or reads.",
+      refuse: "A SMOKE TEST or a trivial inline \u2014 the inline interpreter runs SELF-CONTAINED code with " + "NO external data: a bare `print(1)` / `console.log(1)`, a hardcoded computation, OR code " + "that runs INLINE code against the project. Running a SCRIPT FILE IS NEVER A SMOKE TEST \u2014 " + "not even when the script IS the project's own test suite, battery, or probe: running the " + "project's real tests IS the legitimate verification (e.g. node -e " + `"import('./x.mjs').then(m=>m.run())", python3 -c "import mymod; assert mymod.f()").`
     }
   };
 }
@@ -1647,9 +1647,13 @@ function classifyVerb(toolName, args, commandStr) {
     if (/\b(sha256sum|md5sum|shasum)\b/i.test(cmd))
       return "hash";
     const unquoted = stripShellData(cmd);
-    if (/\b(node|nodejs|bun|deno|tsx|python\d*(?:\.\d+)?|perl|ruby|php)\s+(?:--(?:eval|print|evaluate)\b|-[a-zA-Z]*[ecr]\b)/i.test(unquoted) || /\bnpx\s+-e\b/i.test(unquoted))
+    if (/\bphp\s+-[a-zA-Z]*r\b/i.test(unquoted))
+      return "inline_exec";
+    if (/\b(node|nodejs|bun|deno|tsx|python\d*(?:\.\d+)?|perl|ruby|php)\s+(?:--(?:eval|print|evaluate)\b|-[a-zA-Z]*[ce]\b)/i.test(unquoted) || /\bnpx\s+-e\b/i.test(unquoted))
       return "inline_exec";
     if (/\b(?:sh|bash|zsh|dash|ksh)\s+-[a-zA-Z]*c\b/i.test(unquoted))
+      return "inline_exec";
+    if (/\|\s*(?:node|nodejs|bun|deno|tsx|python\d*|perl|ruby|php|sh|bash)\b/i.test(unquoted))
       return "inline_exec";
     if (/\b(node|bun|deno|tsx)\s+eval\s+\S/i.test(unquoted))
       return "inline_exec";
@@ -2207,6 +2211,10 @@ function theatricalGateAfter(state, containerTestRan) {
   };
 }
 
+// src/middleware/container-gate.ts
+import { readFileSync as readFileSync2, statSync as statSync4 } from "fs";
+import { homedir as homedir2 } from "os";
+
 // src/firewalls/pbk-anti-derailment.ts
 var CT_MUTATION_PATTERN_BASE = [
   {
@@ -2359,10 +2367,62 @@ function isContainerPathCommand(cmd) {
     return true;
   if (TEST_RUNNER_BYPASS_RE.test(cmd))
     return true;
+  const scriptPath = localScriptPath(cmd);
+  if (scriptPath !== null) {
+    for (const p of [resolveScriptPath(cmd, scriptPath), scriptPath]) {
+      const body = readScriptCapped(p);
+      if (body !== null && scriptBodyIsBypass(p, body))
+        return true;
+    }
+  }
   return false;
 }
+var SCRIPT_EXT = "(?:sh|bash|zsh|fish|ksh|py|rb|pl|php|mjs|cjs|js|ts)";
+function localScriptPath(cmd) {
+  const PATH_RE = "((?:\\/|\\.{1,2}\\/|~\\/)?[\\w./-]+\\.(?:" + SCRIPT_EXT + "))\\b";
+  const patterns = [
+    new RegExp("(?:^|[;&|]\\s*)((?:\\/|\\.{1,2}\\/)[\\w./-]+\\.(?:" + SCRIPT_EXT + "))"),
+    new RegExp("(?:\\$\\(|`)\\s*cat\\s+" + PATH_RE),
+    new RegExp("(?:^|[;&|]\\s*)(?:sudo\\s+)?(?:bash|sh|zsh|dash|ksh|fish|source|node|nodejs|bun|deno|tsx|python[\\d.]*|perl|ruby|php)(?:\\s+-[^\\s;|&]+)*\\s+(?:<\\s*)?" + PATH_RE),
+    new RegExp("(?:^|[;&|]\\s*)\\.\\s+" + PATH_RE),
+    new RegExp("(?:^|[;&|]\\s*)([A-Za-z_]\\w*)=((?:\\/|\\.{1,2}\\/|~\\/)?[\\w./-]+\\.(?:" + SCRIPT_EXT + "))\\b[\\s\\S]*?(?:^|[;&|]\\s*|\\b(?:sudo|bash|sh|zsh|dash|ksh|fish|source|node|nodejs|bun|python[\\d.]*|perl|ruby|php)\\s+(?:-\\S+\\s+)*)\\$\\{?\\1\\b")
+  ];
+  for (const re of patterns) {
+    const m = re.exec(cmd);
+    if (m)
+      return m[m.length - 1].replace(/^~/, homedir2());
+  }
+  return null;
+}
+function resolveScriptPath(cmd, path) {
+  if (/^\//.test(path))
+    return path;
+  const cd = /(?:^|[;&|]\s*)cd\s+("[^"]+"|'[^']+'|[^\s;&|]+)/.exec(cmd);
+  if (cd) {
+    const dir = cd[1].replace(/["']/g, "").replace(/^~/, homedir2());
+    return `${dir.replace(/\/$/, "")}/${path}`;
+  }
+  return path;
+}
+function readScriptCapped(p) {
+  try {
+    const st = statSync4(p);
+    if (!st.isFile() || st.size > 256 * 1024)
+      return null;
+    return readFileSync2(p, "utf8");
+  } catch {
+    return null;
+  }
+}
+function scriptBodyIsBypass(scriptPath, body) {
+  if (/\.(sh|bash|zsh|fish|ksh)$/i.test(scriptPath)) {
+    const noComments = body.replace(/^[ \t]*#.*$/gm, "");
+    return CONTAINER_VERB_RE.test(stripShellData(noComments)) || /pkill(?:\s+-\S+)*\s+-f\s+["']?omp/i.test(noComments);
+  }
+  return isBypassWrite(scriptPath, body);
+}
 var SANDBOX_ENGINE_EXEMPT = /(^|\/)src\/engines\/sandbox\//;
-var EXEC_CONTEXT_RE = /(Bun\.spawnSync|spawnSync|execSync|execFileSync|child_process|fork\(|bash\s+-lc|sh\s+-c|>\s*(?!<)\S+|<<-?\s*['"]?[A-Za-z_])/i;
+var EXEC_CONTEXT_RE = /(Bun\.spawnSync|Bun\.\$|spawnSync|execSync|execFileSync|child_process|fork\(|subprocess\.|os\.system|os\.popen|Runtime\.getRuntime|ProcessBuilder|Command::new|bash\s+-lc|sh\s+-c|>\s*(?!<)\S+|<<-?\s*['"]?[A-Za-z_])/i;
 function isBypassWrite(path, content) {
   if (/src\/middleware\/container-gate\.ts$/.test(path))
     return false;
@@ -2370,9 +2430,11 @@ function isBypassWrite(path, content) {
     return false;
   if (!/\.(ts|tsx|js|jsx|mjs|cjs|sh|bash|zsh|py|rb|php|pl|fish)$/i.test(path))
     return false;
-  const hasDocker = /(?:docker|podman|nerdctl|tmux)\s+(?:-{1,2}\S+\s+)*(run|exec|rm|attach|stop|kill|send-keys|new-session)\b/i.test(content) || ENTRYPOINT_OVERRIDE_RE.test(content) || SPAWN_INDIRECTION_RE.test(content) || /(subprocess\.(?:run|Popen|call)|os\.system|os\.popen)[\s\S]*(?:docker|podman|nerdctl)/i.test(content);
+  const hasDocker = /(?:docker|podman|nerdctl|tmux)\s+(?:-{1,2}\S+\s+)*(run|exec|rm|attach|stop|kill|send-keys|new-session)\b/i.test(content) || /["'`](docker|podman|nerdctl|tmux)["'`]?\s*[,)]?\s*["'`](run|exec|rm|attach|stop|kill|send-keys|new-session)["'`]/i.test(content) || ENTRYPOINT_OVERRIDE_RE.test(content) || SPAWN_INDIRECTION_RE.test(content) || /(subprocess\.(?:run|Popen|call)|os\.system|os\.popen|Bun\.\$|execFileSync|Runtime\.getRuntime|ProcessBuilder|Command::new)[\s\S]*(?:docker|podman|nerdctl)/i.test(content);
   if (!hasDocker)
     return false;
+  if (/\.(sh|bash|zsh|fish|ksh)$/i.test(path))
+    return true;
   return EXEC_CONTEXT_RE.test(content);
 }
 function containerGate() {
@@ -3558,10 +3620,10 @@ function registerPbkTools(pi, deps) {
 }
 
 // src/index.ts
-import { existsSync as existsSync5, readFileSync as readFileSync5 } from "fs";
+import { existsSync as existsSync5, readFileSync as readFileSync6 } from "fs";
 
 // src/ledger/events-ledger.ts
-import { appendFileSync as appendFileSync5, readFileSync as readFileSync3, mkdirSync as mkdirSync4, existsSync as existsSync3 } from "fs";
+import { appendFileSync as appendFileSync5, readFileSync as readFileSync4, mkdirSync as mkdirSync4, existsSync as existsSync3 } from "fs";
 import { join as join5 } from "path";
 function ledgerDir() {
   const raw = process.env.ABIDE_DIR;
@@ -3899,8 +3961,8 @@ function classifyMessageSpans(text, sessionId) {
 
 // src/ext/kernel-judge.ts
 import { join as joinPath } from "path";
-import { homedir as homedir3 } from "os";
-import { readFileSync as readFileSync4, existsSync as existsSync4 } from "fs";
+import { homedir as homedir4 } from "os";
+import { readFileSync as readFileSync5, existsSync as existsSync4 } from "fs";
 var EDIT_CHECK_TIMEOUT_MS = 8000;
 var MAX_ACT_APPENDS_PER_RULE_PER_TURN = 2;
 var judgeUnavailableAnnounced = false;
@@ -3920,7 +3982,7 @@ function loadRubric(rubricPath) {
   if (!existsSync4(path))
     return [];
   try {
-    const raw = readFileSync4(path, "utf8");
+    const raw = readFileSync5(path, "utf8");
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed.rules) ? parsed.rules : [];
   } catch {
@@ -3956,10 +4018,10 @@ function resolveApiKey() {
   if (fromEnv)
     return fromEnv;
   try {
-    const envPath = joinPath(homedir3(), ".abide", ".env");
+    const envPath = joinPath(homedir4(), ".abide", ".env");
     if (!existsSync4(envPath))
       return;
-    for (const line of readFileSync4(envPath, "utf8").split(`
+    for (const line of readFileSync5(envPath, "utf8").split(`
 `)) {
       const m = line.match(/^\s*TYPESAFE_AI_API_KEY\s*=\s*(\S+)/);
       if (m && m[1].length > 8)
@@ -4459,7 +4521,7 @@ async function judgeClaimViaTypeSafe(atom, span, apiKey = undefined) {
   const controller = new AbortController;
   const timeoutId = setTimeout(() => controller.abort(), CLAIM_JUDGE_TIMEOUT_MS);
   try {
-    const resp = await fetch("https://api.typesafe.ai/v1/systemone", {
+    const resp = await fetch(process.env.CLAIM_JUDGE_URL ?? process.env.TOOLGATE_URL ?? "http://127.0.0.1:8090/v1/systemone", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
       body,
@@ -5249,7 +5311,7 @@ function ctExtension(pi) {
       if (!existsSync5(p))
         return [];
       const sid = getLedgerSession();
-      const rows = readFileSync5(p, "utf8").split(`
+      const rows = readFileSync6(p, "utf8").split(`
 `).filter((l) => l.trim()).map((l) => {
         try {
           return JSON.parse(l);
@@ -5257,7 +5319,7 @@ function ctExtension(pi) {
           return null;
         }
       }).filter(Boolean);
-      return rows.filter((r) => typeof r.matched_span === "string" && r.matched_span).filter((r) => sid !== undefined && r.session === sid).slice(-limit).map((r) => ({ text: String(r.matched_span), ts: String(r.ts), source: String(r.rule) }));
+      return rows.filter((r) => typeof r.matched_span === "string" && r.matched_span).filter((r) => !new Set(["claim-bind", "claim-lexicon", "kernel-judge", "abide", "doc-type", "smoke-inline-exec", "smoke-inline"]).has(String(r.rule ?? ""))).filter((r) => sid !== undefined && r.session === sid).slice(-limit).map((r) => ({ text: String(r.matched_span), ts: String(r.ts), source: String(r.rule) }));
     } catch {
       return [];
     }
