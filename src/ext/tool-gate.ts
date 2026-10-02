@@ -254,7 +254,15 @@ export function recordGateDecision(candidate: GateCandidate, v: GateVerdict, ext
       Evidence: { judge: v.judge, choice: v.choice, confidence: v.confidence, probabilities: v.probabilities, ms: v.ms, degraded: v.degraded },
       // [audit:162 + lane-2] the substring heuristic was spoofable; the fallback is a strict
       // PREFIX check against the same homedir() the ledger path uses (never a hardcoded home).
-      origin: extra.origin ?? (String(extra.sessionId ?? "").startsWith(`${homedir()}/.omp/agent/sessions/`) ? "real" : "harness"),
+      // [audit:244] the raw prefix check passed `.../sessions/../../evil`. Normalized + the
+      // remainder must be a non-empty segment (no traversal).
+      origin: extra.origin ?? (() => {
+        const sid = String(extra.sessionId ?? "");
+        const prefix = `${homedir()}/.omp/agent/sessions/`;
+        if (sid.includes("..")) return "harness";
+        const rest = sid.startsWith(prefix) ? sid.slice(prefix.length) : "";
+        return rest.length > 0 ? "real" : "harness";
+      })(),
       enforced: extra.enforced ?? null,
       remedy: extra.remedy ?? null,
     }) + "\n");
