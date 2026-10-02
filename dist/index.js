@@ -12,6 +12,50 @@ var __esm = (fn, res, err) => () => {
 };
 var __require = import.meta.require;
 
+// src/ext/judge-endpoint.ts
+function isLocalJudgeUrl(raw) {
+  if (!raw)
+    return false;
+  try {
+    const u = new URL(String(raw));
+    if (u.protocol !== "http:" && u.protocol !== "https:")
+      return false;
+    return LOOPBACK_HOSTS.has(u.hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+function resolveJudgeUrl(envVar, env = process.env) {
+  const raw = env[envVar];
+  if (!raw)
+    return LOCAL_JUDGE_URL;
+  if (isLocalJudgeUrl(raw))
+    return raw;
+  try {
+    process.stderr.write(`[judge-endpoint] REFUSED: ${envVar}=${JSON.stringify(String(raw).slice(0, 120))} names a ` + `NON-LOCAL host. Every judge is LOCAL by law. Falling back to ${LOCAL_JUDGE_URL}.
+`);
+  } catch {}
+  return LOCAL_JUDGE_URL;
+}
+async function warmJudge(base = LOCAL_JUDGE_URL, timeoutMs = 8000) {
+  if (warmed)
+    return true;
+  const health = base.replace(/\/v1\/systemone\/?$/, "/health");
+  try {
+    const res = await fetch(health, { signal: AbortSignal.timeout(timeoutMs) });
+    warmed = res.ok;
+    return res.ok;
+  } catch {
+    warmed = false;
+    return false;
+  }
+}
+var LOCAL_JUDGE_HOST = "127.0.0.1:8090", LOCAL_JUDGE_PATH = "/v1/systemone", LOCAL_JUDGE_URL, LOOPBACK_HOSTS, warmed = false;
+var init_judge_endpoint = __esm(() => {
+  LOCAL_JUDGE_URL = `http://${LOCAL_JUDGE_HOST}${LOCAL_JUDGE_PATH}`;
+  LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]", "0.0.0.0"]);
+});
+
 // src/ext/tool-gate.ts
 import { appendFileSync as appendFileSync2, mkdirSync as mkdirSync2 } from "fs";
 import { homedir } from "os";
@@ -35,17 +79,7 @@ function sanitizeForJudge(v, max = 160) {
 }
 async function askGateDecision(candidate, state, opts = {}) {
   const t0 = performance.now();
-  let url = opts.url ?? TOOLGATE_URL;
-  try {
-    const u = new URL(url);
-    const defaultHost = new URL(TOOLGATE_URL).host;
-    const allowCustom = process.env.TOOLGATE_ALLOW_URL === "1";
-    if (u.protocol !== "http:" && u.protocol !== "https:" || u.host !== defaultHost && !allowCustom) {
-      url = TOOLGATE_URL;
-    }
-  } catch {
-    url = TOOLGATE_URL;
-  }
+  const url = isLocalJudgeUrl(opts.url) ? opts.url : TOOLGATE_URL;
   const timeoutMs = Number.isFinite(opts.timeoutMs) ? Math.min(Math.max(opts.timeoutMs, 500), 15000) : 4000;
   const mk = (choice, confidence, probabilities, judge, degraded) => ({ choice, confidence, probabilities, judge, ms: Math.round(performance.now() - t0), degraded });
   try {
@@ -81,6 +115,16 @@ async function askGateDecision(candidate, state, opts = {}) {
     const judgeModel = typeof json.model === "string" && json.model.trim() ? json.model.slice(0, 80).replace(/[\r\n]+/g, " ") : "unknown";
     return mk(choice, rawConf, probs, judgeModel, false);
   } catch (e) {
+    if (!opts._retried) {
+      try {
+        await warmJudge(url);
+      } catch {}
+      return askGateDecision(candidate, state, {
+        ...opts,
+        _retried: true,
+        timeoutMs: Math.min((opts.timeoutMs ?? 4000) * 2, 15000)
+      });
+    }
     return mk("refuse", 0, {}, `unavailable:${(e instanceof Error ? e.message : String(e)).slice(0, 80)}`, true);
   }
 }
@@ -189,7 +233,8 @@ Guessed class: <<${g}>>`,
 }
 var TOOLGATE_URL, GATE_THRESHOLD = 0.6;
 var init_tool_gate = __esm(() => {
-  TOOLGATE_URL = process.env.TOOLGATE_URL ?? "http://127.0.0.1:8090/v1/systemone";
+  init_judge_endpoint();
+  TOOLGATE_URL = resolveJudgeUrl("TOOLGATE_URL");
 });
 
 // src/evidence/merkle-chain.ts
@@ -3963,6 +4008,7 @@ function classifyMessageSpans(text, sessionId) {
 import { join as joinPath } from "path";
 import { homedir as homedir4 } from "os";
 import { readFileSync as readFileSync5, existsSync as existsSync4 } from "fs";
+init_judge_endpoint();
 var EDIT_CHECK_TIMEOUT_MS = 8000;
 var MAX_ACT_APPENDS_PER_RULE_PER_TURN = 2;
 var judgeUnavailableAnnounced = false;
@@ -4060,7 +4106,7 @@ function fileKindOf(file) {
 }
 async function defaultJudge(rules, state, apiKey) {
   const key = apiKey ?? resolveApiKey();
-  if (!key) {
+  if (!key && !isLocalJudgeUrl(resolveJudgeUrl("KERNEL_JUDGE_URL"))) {
     const err = new Error("no-key: TYPESAFE_AI_API_KEY is absent, so NO edit can be judged. " + "Fix: put the key in ~/.abide/.env (chmod 600) as TYPESAFE_AI_API_KEY=<key>, then restart.");
     err.code = "NO_API_KEY";
     throw err;
@@ -4091,12 +4137,9 @@ async function defaultJudge(rules, state, apiKey) {
   const controller = new AbortController;
   const timeoutId = setTimeout(() => controller.abort(), EDIT_CHECK_TIMEOUT_MS);
   try {
-    const resp = await fetch("https://api.typesafe.ai/v1/systemone", {
+    const resp = await fetch(resolveJudgeUrl("KERNEL_JUDGE_URL"), {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${key}`
-      },
+      headers: { "Content-Type": "application/json" },
       body,
       signal: controller.signal
     });
@@ -4480,11 +4523,12 @@ function kernelJudge(opts = {}) {
 }
 
 // src/ext/claim-bind.ts
+init_judge_endpoint();
 var claimJudgeAnnounced = false;
 var CLAIM_JUDGE_TIMEOUT_MS = 8000;
 async function judgeClaimViaTypeSafe(atom, span, apiKey = undefined) {
   const key = apiKey ?? resolveApiKey();
-  if (!key) {
+  if (!key && !isLocalJudgeUrl(resolveJudgeUrl("CLAIM_JUDGE_URL"))) {
     recordFiring({
       rule: "claim-bind",
       buffer: "agent-text",
@@ -4521,7 +4565,7 @@ async function judgeClaimViaTypeSafe(atom, span, apiKey = undefined) {
   const controller = new AbortController;
   const timeoutId = setTimeout(() => controller.abort(), CLAIM_JUDGE_TIMEOUT_MS);
   try {
-    const resp = await fetch(process.env.CLAIM_JUDGE_URL ?? process.env.TOOLGATE_URL ?? "http://127.0.0.1:8090/v1/systemone", {
+    const resp = await fetch(resolveJudgeUrl("CLAIM_JUDGE_URL"), {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
       body,

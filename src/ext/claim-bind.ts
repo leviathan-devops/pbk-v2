@@ -87,7 +87,7 @@ export type JudgeFn = (atom: ClaimAtom, span: RingSpan) => JudgeResult | null;
 let claimJudgeAnnounced = false;
 
 import { resolveApiKey } from './kernel-judge';
-import { resolveJudgeUrl } from "./judge-endpoint.js";
+import { resolveJudgeUrl, isLocalJudgeUrl } from "./judge-endpoint.js";
 
 export const CLAIM_JUDGE_TIMEOUT_MS = 8000;
 
@@ -101,7 +101,11 @@ export async function judgeClaimViaTypeSafe(
   // loud-fail message names, and returned `null` SILENTLY (no row, no log) while `bindAtoms` recorded
   // `jev_called: true`. Measured: the real API answered `{noul: 0.99}` and the caller saw nothing.
   const key = apiKey ?? resolveApiKey();
-  if (!key) {
+  // F-146 (2026-10-02) · THE KEY GUARD IS DEAD FOR A LOCAL JUDGE (see kernel-judge.ts). This gate
+  // recorded `CLAIM JUDGE UNAVAILABLE — no TYPESAFE_AI_API_KEY` and returned null for every claim,
+  // while the LOCAL judge needed no key at all. The guard fires only for a credentialed judge, and
+  // every judge is loopback-only by construction.
+  if (!key && !isLocalJudgeUrl(resolveJudgeUrl("CLAIM_JUDGE_URL"))) {
     // LOUD: the layer is DOWN, and a silent null here would be indistinguishable from an honest rejection.
     recordFiring({
       rule: 'claim-bind', buffer: 'agent-text', band: 'skip', probability: null,

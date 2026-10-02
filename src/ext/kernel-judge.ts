@@ -48,7 +48,7 @@ import {
   type Band,
 } from '../ledger/events-ledger.js';
 import type { OmpToolResultEvent, OmpExtensionContext } from '../types/omp.js';
-import { resolveJudgeUrl } from "./judge-endpoint.js";
+import { resolveJudgeUrl, isLocalJudgeUrl } from "./judge-endpoint.js";
 export type { OmpToolResultEvent, OmpExtensionContext };
 // ── CONSTANTS (mirror @coldtea/abide lib/constants.js) ──
 export const EDIT_CHECK_TIMEOUT_MS = 8_000;
@@ -303,7 +303,12 @@ export async function defaultJudge(
   apiKey?: string,
 ): Promise<Record<string, number>> {
   const key = apiKey ?? resolveApiKey();
-  if (!key) {
+  // F-146 (2026-10-02) · THE KEY GUARD IS DEAD FOR A LOCAL JUDGE. This gate returned NO_API_KEY for
+  // every edit whenever the key was absent — but the local judge at 127.0.0.1:8090 authenticates
+  // NOTHING, so a working judge looked DOWN and the whole ABIDE layer skipped. The guard now fires
+  // only when a judge actually needs a credential. And since every judge is loopback-only
+  // (resolveJudgeUrl refuses the rest), that is never.
+  if (!key && !isLocalJudgeUrl(resolveJudgeUrl("KERNEL_JUDGE_URL"))) {
     // LOUD, and it names the remedy. The caller must present this as the layer being DOWN.
     const err = new Error(
       'no-key: TYPESAFE_AI_API_KEY is absent, so NO edit can be judged. ' +
