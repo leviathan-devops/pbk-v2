@@ -7,6 +7,7 @@ import { appendFileSync, statSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { getEvidenceState, ingestEvidenceEvent, locateEvidenceArtifact } from './evidence-tracker.js';
+import { stripShellData } from './shell-strip.js';
 
 // ─── Types ───
 
@@ -218,7 +219,11 @@ export function classifyVerb(toolName: string, args: Record<string, unknown>, co
     //   `-c`/`-m`, a Perl `-e`, a Ruby `-e`, a PHP `-r` all SURVIVED the gate (the same
     //   smoke class, four runtime families un-guarded). The interpreter family is now
     //   covered with its eval flags (-c -e -x -m -r + the long forms).
-    const unquoted = cmd.replace(/"[^"]*"/g, '""').replace(/'[^']*'/g, "''");
+    // [audit:220] the naive regex strip ignored `\` escapes, backticks and `$()` — a crafted
+    // quote could hide `node -e`/`python -c`. The shell-aware tokenizer separates DATA (single/
+    // double-quoted spans + heredoc bodies, escapes respected) from ACTION (kept verbatim,
+    // including `$()`/backticks which EXECUTE).
+    const unquoted = stripShellData(cmd);
     // ★ THE MISSED-FAMILY FIX #2 (2026-10-01, the flaw hunt): the first missed-variant fix
     //   covered python/python3 + perl/ruby/php but MISSED (measured by the classifyVerb probe):
     //   the VERSIONED pythons (python2/python3.11/python3.12 — `python3?` cannot match the `2`

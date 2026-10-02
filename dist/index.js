@@ -1505,6 +1505,63 @@ function locateEvidenceArtifact() {
   return null;
 }
 
+// src/firewalls/shell-strip.ts
+function stripShellData(cmd) {
+  const s = String(cmd ?? "");
+  const n = s.length;
+  let out = "";
+  let i = 0;
+  while (i < n) {
+    const c = s[i];
+    if (c === "'") {
+      out += "''";
+      i++;
+      while (i < n && s[i] !== "'")
+        i++;
+      i++;
+      continue;
+    }
+    if (c === '"') {
+      let raw = "";
+      i++;
+      while (i < n && s[i] !== '"') {
+        if (s[i] === "\\" && i + 1 < n) {
+          raw += s[i + 1];
+          i += 2;
+        } else {
+          raw += s[i];
+          i++;
+        }
+      }
+      i++;
+      out += /[$`]/.test(raw) ? " " + raw + " " : '""';
+      continue;
+    }
+    if (c === "<" && s[i + 1] === "<") {
+      const m = /^<<-?\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1/.exec(s.slice(i));
+      if (m) {
+        const delim = m[2];
+        out += " <<HEREDOC";
+        i += m[0].length;
+        const esc = delim.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const term = new RegExp("\\n[ \\t]*" + esc + "[ \\t]*(?:\\r?\\n|$)");
+        const mm = term.exec(s.slice(i));
+        if (mm) {
+          i += mm.index + mm[0].length;
+          out += `
+`;
+        } else {
+          i = n;
+        }
+        continue;
+      }
+    }
+    out += c;
+    i++;
+  }
+  return out;
+}
+
 // src/firewalls/semantic-smoke-firewall.ts
 var gfw = globalThis;
 if (!gfw.__sstfContextWindows)
@@ -1588,7 +1645,7 @@ function classifyVerb(toolName, args, commandStr) {
       return "build";
     if (/\b(sha256sum|md5sum|shasum)\b/i.test(cmd))
       return "hash";
-    const unquoted = cmd.replace(/"[^"]*"/g, '""').replace(/'[^']*'/g, "''");
+    const unquoted = stripShellData(cmd);
     if (/\b(node|nodejs|bun|deno|tsx|python\d*(?:\.\d+)?|perl|ruby|php)\s+(?:--(?:eval|print|evaluate)\b|-[a-zA-Z]*[ecr]\b)/i.test(unquoted) || /\bnpx\s+-e\b/i.test(unquoted))
       return "inline_exec";
     if (/\b(?:sh|bash|zsh|dash|ksh)\s+-[a-zA-Z]*c\b/i.test(unquoted))
@@ -2278,7 +2335,7 @@ function isBannedRunnerCommand(cmd) {
 function isContainerPathCommand(cmd) {
   if (!cmd)
     return false;
-  const action = cmd.replace(/<<-?["']?([A-Za-z_][A-Za-z0-9_]*)["']?[\s\S]*?\n\1\b/g, " <HEREDOC>").replace(/"[^"]*"/g, '""').replace(/'[^']*'/g, "''");
+  const action = stripShellData(cmd);
   if (CONTAINER_VERB_RE.test(action))
     return true;
   if (/(?:\/[\w./-]*\/)?(?:sh|bash|zsh|dash|ksh|fish)(?:\s+-[^\s;|&]+)*\s+-[a-zA-Z]*c\b[\s\S]*(docker|tmux)(?:\s+-[^\s;|&]+)*\s+(exec|run|attach|rm|stop|kill|send-keys|new-session)/i.test(cmd))

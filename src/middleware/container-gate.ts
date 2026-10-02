@@ -12,6 +12,7 @@ import type { BeforeGate } from "./chain";
 import { classifyExec, buildConfigLockMessage } from "../firewalls/pbk-anti-derailment.js";
 // ★ W3 — THE JEV DECISION LAYER: the regex marks the container SHAPE; the judge decides.
 import { askGateDecision, enforceGate, containerCandidate, recordGateDecision } from "../ext/tool-gate";
+import { stripShellData } from "../firewalls/shell-strip.js";
 import { ctLog } from "../utils.js";
 
 // Direct container verbs — the original v4.4.2 surface.
@@ -93,10 +94,9 @@ export function isContainerPathCommand(cmd: string): boolean {
   //   matched — a test-fixture write was refused as a bypass (the F-141 class). The smoke gate
   //   already strips quoted spans; this gate must strip QUOTED SPANS + HEREDOC BODIES (DATA) and
   //   test only the command's own ACTION.
-  const action = cmd
-    .replace(/<<-?["']?([A-Za-z_][A-Za-z0-9_]*)["']?[\s\S]*?\n\1\b/g, " <HEREDOC>")
-    .replace(/"[^"]*"/g, '""')
-    .replace(/'[^']*'/g, "''");
+  // [audit:95] the naive strip (`"[^"]*"` etc.) broke on escaped quotes/backticks/`$()`. The
+  // shell-aware tokenizer separates DATA from ACTION with escapes respected.
+  const action = stripShellData(cmd);
   // [audit] the strip blanks quoted payloads, so `bash -c 'docker exec ...'` became `bash -c ''`
   // and evaded the verb check. Test BOTH views: the stripped ACTION (quoted DATA excluded) and
   // the RAW command for the shell-wrapper class (`sh|bash|zsh|dash -c` carrying a container verb
