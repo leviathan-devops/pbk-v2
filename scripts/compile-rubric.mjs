@@ -441,7 +441,12 @@ const rubric = {
   compiledBy: "scripts/compile-rubric.sh",
   sources: validSources,
   thresholds: { act: 0.8, flag: 0.5 },
-  rules: R,
+  // ★ SCHEMA FIX (2026-10-02): the consumer (kernel-judge selectEditModelRules) requires
+  //   `r.status === 'active'`. This compiler emitted NO status field, so selectEditModelRules
+  //   returned 0 in EVERY workspace — the judge ALWAYS skipped (`band=skip`, jev_called=false),
+  //   even WITH a rubric present. Every rule compiled here is live (sourced from the warheads +
+  //   the firewalls), so all are active; `status` is stamped last so a rule MAY override it.
+  rules: R.map((r) => ({ status: "active", ...r })),
 };
 
 const outDir  = FORK_DIR + "/.abide";
