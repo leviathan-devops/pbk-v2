@@ -48,6 +48,7 @@ import {
   type Band,
 } from '../ledger/events-ledger.js';
 import type { OmpToolResultEvent, OmpExtensionContext } from '../types/omp.js';
+import { resolveJudgeUrl } from "./judge-endpoint.js";
 export type { OmpToolResultEvent, OmpExtensionContext };
 // ── CONSTANTS (mirror @coldtea/abide lib/constants.js) ──
 export const EDIT_CHECK_TIMEOUT_MS = 8_000;
@@ -362,12 +363,13 @@ export async function defaultJudge(
   const timeoutId = setTimeout(() => controller.abort(), EDIT_CHECK_TIMEOUT_MS);
 
   try {
-    const resp = await fetch('https://api.typesafe.ai/v1/systemone', {
+    // F-143b · THE THIRD JUDGE WAS ALSO REMOTE (measured 2026-10-02). This hardcoded
+    // api.typesafe.ai and sent a Bearer key — so the ABIDE per-edit judge shared the SAME dead
+    // endpoint as the other two, and no key meant no judgement at all. The LOCAL judge needs
+    // neither a key nor a network route.
+    const resp = await fetch(resolveJudgeUrl("KERNEL_JUDGE_URL"), {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${key}`,
-      },
+      headers: { 'Content-Type': 'application/json' },
       body,
       signal: controller.signal,
     });

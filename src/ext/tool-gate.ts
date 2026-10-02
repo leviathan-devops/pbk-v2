@@ -18,6 +18,7 @@
 import { appendFileSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname } from "node:path";
+import { resolveJudgeUrl, isLocalJudgeUrl, warmJudge } from "./judge-endpoint.js";
 
 /** The surface a candidate belongs to — the fail-polarity fork. */
 export type GateSurface = "security" | "info";
@@ -39,7 +40,10 @@ export interface GateVerdict {
   degraded: boolean;
 }
 
-export const TOOLGATE_URL = process.env.TOOLGATE_URL ?? "http://127.0.0.1:8090/v1/systemone";
+// LOCAL ONLY (2026-10-02). This was `process.env.TOOLGATE_URL ?? <local>` with NO host check,
+// so one env var could route EVERY gate off this machine. It now resolves through the chokepoint,
+// which REFUSES a non-loopback host loudly and returns the local judge.
+export const TOOLGATE_URL = resolveJudgeUrl("TOOLGATE_URL");
 
 /** ★ AUDIT HIGH FIX: scrub credential-shaped tokens before anything is persisted. The ledger
  *  keeps the DECISION evidence, never a pasted key/token. */
@@ -130,15 +134,11 @@ export async function askGateDecision(
   const t0 = performance.now();
   // [audit:118] `opts.url` flowed straight into fetch — an SSRF/exfiltration vector. Only the
   // configured judge host is allowed; a custom URL requires the explicit TOOLGATE_ALLOW_URL opt-in.
-  let url = opts.url ?? TOOLGATE_URL;
-  try {
-    const u = new URL(url);
-    const defaultHost = new URL(TOOLGATE_URL).host;
-    const allowCustom = process.env.TOOLGATE_ALLOW_URL === "1";
-    if ((u.protocol !== "http:" && u.protocol !== "https:") || (u.host !== defaultHost && !allowCustom)) {
-      url = TOOLGATE_URL;
-    }
-  } catch { url = TOOLGATE_URL; }
+  // THE ESCAPE HATCH IS GONE (2026-10-02). `TOOLGATE_ALLOW_URL=1` used to disable the host check
+  // ENTIRELY — one env var could route a judge anywhere, including to a payment-walled remote that
+  // returns 402 on every call and silently degrades EVERY gate to fail-closed. Now `isLocalJudgeUrl`
+  // is the mechanical gate: `opts.url` may name a LOOPBACK judge or it is ignored. No opt-in exists.
+  const url = isLocalJudgeUrl(opts.url) ? (opts.url as string) : TOOLGATE_URL;
   // [audit] an unvalidated timeoutMs (0/negative/NaN = instant abort = permanent fail-CLOSED DoS
   // on the security surface; huge = the gate hangs) is clamped to a sane range.
   const timeoutMs = Number.isFinite(opts.timeoutMs) ? Math.min(Math.max(opts.timeoutMs as number, 500), 15000) : 4000;
@@ -196,6 +196,16 @@ export async function askGateDecision(
     //   the per-surface polarity from it.
     // [lane-2] `e.name` was always "Error" (every throw here is `new Error(...)`) — the ledger
     //   recorded `unavailable:Error` for ALL failures, discarding the distinguishing message.
+    // F-145 . THE COLD-JUDGE FALSE BLOCK (2026-10-02). A first-call timeout on a cold GGUF judge
+    // returned degraded -> refuse -> a BLOCK for a command that was NEVER JUDGED. On a security
+    // surface that is fail-CLOSED and therefore "safe", but it is still a false refusal of ordinary
+    // work. ONE warm-up probe plus ONE retry with a doubled timeout removes the failure mode.
+    if (!(opts as { _retried?: boolean })._retried) {
+      try { await warmJudge(url); } catch {}
+      return askGateDecision(candidate, state, {
+        ...opts, _retried: true, timeoutMs: Math.min((opts.timeoutMs ?? 4000) * 2, 15000),
+      } as typeof opts);
+    }
     return mk("refuse", 0, {}, `unavailable:${(e instanceof Error ? e.message : String(e)).slice(0, 80)}`, true);
   }
 }

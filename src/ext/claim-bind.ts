@@ -87,6 +87,7 @@ export type JudgeFn = (atom: ClaimAtom, span: RingSpan) => JudgeResult | null;
 let claimJudgeAnnounced = false;
 
 import { resolveApiKey } from './kernel-judge';
+import { resolveJudgeUrl } from "./judge-endpoint.js";
 
 export const CLAIM_JUDGE_TIMEOUT_MS = 8000;
 
@@ -137,7 +138,7 @@ export async function judgeClaimViaTypeSafe(
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), CLAIM_JUDGE_TIMEOUT_MS);
   try {
-    const resp = await fetch(process.env.CLAIM_JUDGE_URL ?? process.env.TOOLGATE_URL ?? 'http://127.0.0.1:8090/v1/systemone', {
+    const resp = await fetch(resolveJudgeUrl("CLAIM_JUDGE_URL"), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
       body,
